@@ -1,0 +1,15 @@
+django==1.5
+psycopg2
+south
+pytz
+networkx
+numpy
+cython
+scipy
+scikit-learn
+cvxopt
+ad3
+pystruct
+beautifulsoup4
+nltk
+lda

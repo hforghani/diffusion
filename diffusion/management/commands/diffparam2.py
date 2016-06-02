@@ -1,22 +1,59 @@
+# -*- coding: utf-8 -*-
 import json
-import logging
+from optparse import make_option
 import os
 import traceback
+from django.conf import settings
+from django.core.management.base import BaseCommand
 import time
 from networkx import relabel_nodes
 from networkx.classes.digraph import DiGraph
 from networkx.readwrite.adjlist import write_adjlist, read_adjlist
 import numpy as np
 from sklearn.preprocessing import normalize
+from crud.models import Meme, Reshare, UserAccount, DiffusionParam, Post
 from scipy import sparse
-from util import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 
-logger = logging.getLogger('saito')
+
+def save_sparse(filename, array):
+    np.savez(filename, data=array.data, indices=array.indices, indptr=array.indptr, shape=array.shape)
+    #np.savez(filename, data=array.data, row=array.row, col=array.col, shape=array.shape)
+
+
+def save_sparse_list(filename, arr_list):
+    kwds = {}
+    for i in range(len(arr_list)):
+        array = arr_list[i]
+        kwds['data%d' % i] = array.data
+        kwds['indices%d' % i] = array.indices
+        kwds['indptr%d' % i] = array.indptr
+        #kwds['row%d' % i] = array.row
+        #kwds['col%d' % i] = array.col
+        kwds['shape%d' % i] = array.shape
+    np.savez(filename, **kwds)
+
+
+def load_sparse(filename):
+    loader = np.load(filename)
+    return sparse.csc_matrix((loader['data'], loader['indices'], loader['indptr']), shape=loader['shape'],
+                             dtype=np.float32)
+    #return sparse.coo_matrix((loader['data'], (loader['row'], loader['col'])), shape=loader['shape'], dtype=np.float32)
+
+
+def load_sparse_list(filename):
+    loader = np.load(filename)
+    arr_list = []
+    for i in range(len(loader.files) / 4):
+        arr_list.append(sparse.csc_matrix((loader['data%d' % i], loader['indices%d' % i], loader['indptr%d' % i]),
+                                          shape=loader['shape%d' % i]))
+        #arr_list.append(sparse.coo_matrix((loader['data%d' % i], (loader['row%d' % i], loader['col%d' % i])),
+        #                                  shape=loader['shape%d' % i], dtype=np.float32))
+    return arr_list
 
 
 class CascadeData(object):
     def __init__(self, users=None, times=None, max_t=None):
-        # times are sorted and users[i] corresponds to times[i]
+        # Suppose times are sorted and users[i] corresponds to times[i]
         self.users = users if users is not None else []
         self.times = times if times is not None else []
         if users and times:
@@ -60,99 +97,119 @@ class CascadeData(object):
         return active_parents
 
 
-class SaitoDiffusion(object):
+class Command(BaseCommand):
+    help = 'Calculates diffusion model parameters'
+
+    option_list = BaseCommand.option_list + (
+        make_option(
+            "-s",
+            "--save",
+            action="store_true",
+            dest="save",
+            help="save results into db at the end"
+        ),
+        make_option(
+            "-i",
+            "--iterations",
+            type="int",
+            default=3,
+            dest="iterations",
+            help="number of iterations"
+        ),
+    )
+
     def __init__(self):
-        self.graph = None
-        self.data = None
-        self.meme_ids = None
+        super(Command, self).__init__()
+        self.thread_count = 7
+        self.sample_count = 1000
+        self.iterations = 3
 
-    def fit(self, sample_count=1000):
-        # Load dataset.
-        logger.info('extracting data ...')
-        self.graph, self.data, self.meme_ids = self.load_or_extract_data(sample_count)
-        return self
-
-    def train(self, iterations=3, save=True):
+    def handle(self, *args, **options):
         try:
             start = time.time()
+            self.iterations = options['iterations']
+
+            # Load dataset.
+            self.stdout.write('extracting data ...')
+            graph, data, meme_ids = self.load_or_extract_data()
 
             # Create db id to matrix id maps for users and memes.
-            logger.info('creating user and meme id maps ...')
+            self.stdout.write('creating user and meme id maps ...')
             user_ids = UserAccount.objects.values_list('id', flat=True)
             user_map = {user_ids[i]: i for i in range(len(user_ids))}
-            meme_map = {self.meme_ids[i]: i for i in range(len(self.meme_ids))}
+            meme_map = {meme_ids[i]: i for i in range(len(meme_ids))}
 
             # Set initial values of w and r.
-            save_paths = {var: os.path.join('resources', 'diff_%s.npz' % var) for var in
+            save_paths = {var: os.path.join(settings.BASEPATH, 'resources', 'diff_%s.npz' % var) for var in
                           ['w', 'r', 'h', 'g', 'phi_h', 'phi_g', 'psi']}
             save_paths['r'] = save_paths['r'][:-3] + 'npy'
             if os.path.exists(save_paths['w']) and os.path.exists(save_paths['r']):
                 w = load_sparse(save_paths['w'])
                 r = np.load(save_paths['r'])
-                logger.info('w and r loaded')
+                self.stdout.write('w and r loaded')
             else:
-                logger.info('initializing parameters ...')
-                w, r = self.set_initial_values(self.graph, user_ids, user_map)
+                self.stdout.write('initializing parameters ...')
+                w, r = self.set_initial_values(graph, user_ids, user_map)
                 save_sparse(save_paths['w'], w)
                 np.save(save_paths['r'], r)
 
             # Run EM algorithm.
-            logger.info('running algorithm ...')
-            for i in range(iterations):
+            self.stdout.write('running algorithm ...')
+            for i in range(self.iterations):
                 t0 = time.time()
 
-                logger.info('#%d' % (i + 1))
+                self.stdout.write('#%d' % (i + 1))
                 if os.path.exists(save_paths['h']):
                     h = load_sparse(save_paths['h'])
-                    logger.info('\th loaded')
+                    self.stdout.write('\th loaded')
                 else:
-                    logger.info('\tcalculating h ...')
-                    h = self.calc_h(self.data, self.graph, w, r, self.meme_ids, meme_map, user_map)
+                    self.stdout.write('\tcalculating h ...')
+                    h = self.calc_h(data, graph, w, r, meme_ids, meme_map, user_map)
                     save_sparse(save_paths['h'], h)
 
                 if os.path.exists(save_paths['g']):
                     g = load_sparse(save_paths['g'])
-                    logger.info('\tg loaded')
+                    self.stdout.write('\tg loaded')
                 else:
-                    logger.info('\tcalculating g ...')
-                    g = self.calc_g(self.data, self.graph, w, r, self.meme_ids, meme_map, user_map)
+                    self.stdout.write('\tcalculating g ...')
+                    g = self.calc_g(data, graph, w, r, meme_ids, meme_map, user_map)
                     save_sparse(save_paths['g'], g)
 
                 if not os.path.exists(save_paths['phi_h']):
-                    logger.info('\tcalculating phi_h ...')
-                    phi_h = self.calc_phi_h(self.data, self.graph, w, r, h, self.meme_ids, meme_map, user_map)
+                    self.stdout.write('\tcalculating phi_h ...')
+                    phi_h = self.calc_phi_h(data, graph, w, r, h, meme_ids, meme_map, user_map)
                     save_sparse_list(save_paths['phi_h'], phi_h)
                     del phi_h
 
                 if not os.path.exists(save_paths['phi_g']):
-                    logger.info('\tcalculating phi_g ...')
-                    phi_g = self.calc_phi_g(self.data, self.graph, w, g, self.meme_ids, meme_map, user_map)
+                    self.stdout.write('\tcalculating phi_g ...')
+                    phi_g = self.calc_phi_g(data, graph, w, g, meme_ids, meme_map, user_map)
                     save_sparse_list(save_paths['phi_g'], phi_g)
                     del phi_g
 
                 if not os.path.exists(save_paths['psi']):
-                    logger.info('\tcalculating psi ...')
-                    psi = self.calc_psi(self.data, self.graph, w, r, g, self.meme_ids, meme_map, user_map)
+                    self.stdout.write('\tcalculating psi ...')
+                    psi = self.calc_psi(data, graph, w, r, g, meme_ids, meme_map, user_map)
                     save_sparse_list(save_paths['psi'], psi)
                 else:
                     psi = load_sparse_list(save_paths['psi'])
-                    logger.info('\tpsi loaded')
+                    self.stdout.write('\tpsi loaded')
 
                 del h
                 del g
                 phi_h = load_sparse_list(save_paths['phi_h'])
-                logger.info('\tphi_h loaded')
+                self.stdout.write('\tphi_h loaded')
 
-                logger.info('\testimating r ...')
+                self.stdout.write('\testimating r ...')
                 last_r = r
-                r = self.calc_r(self.data, self.graph, phi_h, psi, user_ids, self.meme_ids, meme_map, user_map)
+                r = self.calc_r(data, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map)
 
                 phi_g = load_sparse_list(save_paths['phi_g'])
-                logger.info('\tphi_g loaded')
+                self.stdout.write('\tphi_g loaded')
 
-                logger.info('\testimating w ...')
+                self.stdout.write('\testimating w ...')
                 last_w = w
-                w = self.calc_w(self.data, self.graph, phi_h, phi_g, psi, user_ids, user_map, self.meme_ids, meme_map)
+                w = self.calc_w(data, graph, phi_h, phi_g, psi, user_ids, user_map, meme_ids, meme_map)
 
                 del phi_h
                 del phi_g
@@ -166,32 +223,32 @@ class SaitoDiffusion(object):
                 r_dif = np.linalg.norm(r - last_r)
                 w_dif = w - last_w
                 w_dif = np.sqrt(w_dif.multiply(w_dif).sum())
-                logger.info('\tr dif = %s, w dif = %s' % (r_dif, w_dif))
-                logger.info('\tr nnz = %d, w nnz = %d' % (np.count_nonzero(r), w.nnz))
+                self.stdout.write('\tr dif = %s, w dif = %s' % (r_dif, w_dif))
+                self.stdout.write('\tr nnz = %d, w nnz = %d' % (np.count_nonzero(r), w.nnz))
                 del last_r
                 del last_w
                 del r_dif
                 del w_dif
 
-                logger.info('\t\titeration time: %.2f min' % ((time.time() - t0) / 60.0))
+                self.stdout.write('\t\titeration time: %.2f min' % ((time.time() - t0) / 60.0))
 
-            if save:
-                logger.info('deleting saving new parameters into db ...')
-                self.save_param(w, r, self.graph, user_map)
+            if options['save']:
+                self.stdout.write('deleting saving new parameters into db ...')
+                self.save_param(w, r, graph, user_map)
 
-            logger.info('command done in %.2f min' % ((time.time() - start) / 60.0))
+            self.stdout.write('command done in %.2f min' % ((time.time() - start) / 60.0))
         except:
-            logger.info(traceback.format_exc())
+            self.stdout.write(traceback.format_exc())
             raise
 
-    def load_or_extract_data(self, sample_count=None):
-        graph_path = os.path.join('resources', 'diff_graph.txt')
-        data_path = os.path.join('resources', 'diff_data.json')
-        train_set_path = os.path.join('resources', 'diff_samples.json')
+    def load_or_extract_data(self):
+        graph_path = os.path.join(settings.BASEPATH, 'resources', 'diff_graph.txt')
+        data_path = os.path.join(settings.BASEPATH, 'resources', 'diff_data.json')
+        train_set_path = os.path.join(settings.BASEPATH, 'resources', 'diff_samples.json')
 
         if os.path.exists(train_set_path) and os.path.exists(graph_path) and os.path.exists(data_path):
             # Load graph and cascade data if exists.
-            logger.info('\tloading data ...')
+            self.stdout.write('\tloading data ...')
             train_set = json.load(open(train_set_path, 'r'))
             graph = DiGraph()
             graph = read_adjlist(graph_path, create_using=graph)
@@ -204,13 +261,11 @@ class SaitoDiffusion(object):
                 data[int(m)] = CascadeData(users=users, times=times, max_t=data_copy[m]['max_t'])
 
         else:
-            if sample_count is None:
-                raise Exception('no sample count is given')
             train_set = list(
-                np.random.choice(Meme.objects.filter(count__gt=500).values_list('id', flat=True), sample_count,
+                np.random.choice(Meme.objects.filter(count__gt=500).values_list('id', flat=True), self.sample_count,
                                  replace=False))
             #train_set = json.load(open(train_set_path, 'r'))
-            logger.info('\tquerying posts and reshares ...')
+            self.stdout.write('\tquerying posts and reshares ...')
             t0 = time.time()
             posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
             reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
@@ -218,30 +273,30 @@ class SaitoDiffusion(object):
             #reshares = Reshare.objects.order_by('datetime')
             resh_count = reshares.count()
             post_count = posts.count()
-            logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+            self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
 
             # Create dictionary of meme first times.
-            logger.info('\textracting first times ...')
+            self.stdout.write('\textracting first times ...')
             first_times = Meme.objects.values('id', 'first_time')
             first_times = {obj['id']: obj['first_time'] for obj in first_times}
 
             # Create graph and cascade data.
-            logger.info('\textracting cascades from %d posts and %d reshares ...' % (post_count, resh_count))
+            self.stdout.write('\textracting cascades from %d posts and %d reshares ...' % (post_count, resh_count))
             meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
             edges, data = self.extract_data(posts, reshares, first_times, meme_ids)
             graph = DiGraph()
             graph.add_edges_from(edges)
 
-            logger.info('\tsetting max times ...')
+            self.stdout.write('\tsetting max times ...')
             i = 0
             for meme in Meme.objects.filter(id__in=data.keys()).iterator():
                 data[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
                     3600.0 * 24)  # number of days
                 i += 1
                 if i % (len(meme_ids) / 10) == 0:
-                    logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+                    self.stdout.write('\t\t%d%% done' % (i * 100 / len(meme_ids)))
 
-            logger.info('\tsaving data ...')
+            self.stdout.write('\tsaving data ...')
             data_copy = {}
             for m in data:
                 data_copy[m] = {
@@ -273,7 +328,7 @@ class SaitoDiffusion(object):
                     edges.append((ref_user_id, user_id))
             i += 1
             if i % (resh_count / 10) == 0:
-                logger.info('\t\t%d%% reshares done' % (i * 100 / resh_count))
+                self.stdout.write('\t\t%d%% reshares done' % (i * 100 / resh_count))
 
         del reshares
         post_count = posts.count()
@@ -290,14 +345,14 @@ class SaitoDiffusion(object):
                     times[m].append(act_time)
             i += 1
             if i % (post_count / 10) == 0:
-                logger.info('\t\t%d%% posts done' % (i * 100 / post_count))
+                self.stdout.write('\t\t%d%% posts done' % (i * 100 / post_count))
 
         del posts
         data = {}
         for m in meme_ids:
             if users[m]:
                 data[m] = CascadeData(users[m], times[m])
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return edges, data
 
     def set_initial_values(self, graph, user_ids, user_map):
@@ -323,11 +378,11 @@ class SaitoDiffusion(object):
                 cols.append(v_i)
             i += 1
             if i % (u_count / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / u_count))
+                self.stdout.write('\t%d%% done' % (i * 100 / u_count))
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
         r = np.ones(u_count, np.float32)
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        self.stdout.write('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return w, r
 
     def calc_h(self, data, graph, w, r, meme_ids, meme_map, user_map):
@@ -358,7 +413,7 @@ class SaitoDiffusion(object):
                         w_col = w[:, uid_i].todense()
                         val = float(np.exp(-r[uid_i] * diff) * w_col[act_par_indexes] * r[uid_i])
                         if np.float32(val) == 0:
-                            logger.info('\t\tWARNING: h = 0')
+                            self.stdout.write('\t\tWARNING: h = 0')
 
                 if val:
                     values.append(val)
@@ -366,10 +421,10 @@ class SaitoDiffusion(object):
                     cols.append(uid_i)
             i += 1
             if i % (m_count / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / m_count))
+                self.stdout.write('\t\t%d%% done' % (i * 100 / m_count))
 
         h = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return h
 
     def calc_g(self, data, graph, w, r, meme_ids, meme_map, user_map):
@@ -402,17 +457,17 @@ class SaitoDiffusion(object):
 
                 val = w[uid_i, uid_i] + inact_par_sum + float(act_par_sum)
                 if np.float32(val) == 0:
-                    logger.info('\t\tWARNING: g = 0')
+                    self.stdout.write('\t\tWARNING: g = 0')
                 values.append(val)
                 rows.append(mid_i)
                 cols.append(uid_i)
 
             i += 1
             if i % (len(meme_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+                self.stdout.write('\t\t%d%% done' % (i * 100 / len(meme_ids)))
 
         g = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return g
 
     def calc_phi_h(self, data, graph, w, r, h, meme_ids, meme_map, user_map):
@@ -441,9 +496,9 @@ class SaitoDiffusion(object):
                 w_col = w[:, v_i].todense()
                 val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) * r[v_i] / h[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
-                    logger.info('\t\tWARNING: phi_h = inf')
+                    self.stdout.write('\t\tWARNING: phi_h = inf')
                     #if (np.float32(val) == 0).any():
-                #    logger.info('\t\tWARNING: phi_h = 0')
+                #    self.stdout.write('\t\tWARNING: phi_h = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
                 else:
@@ -455,9 +510,9 @@ class SaitoDiffusion(object):
 
             i += 1
             if i % (len(meme_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+                self.stdout.write('\t\t%d%% done' % (i * 100 / len(meme_ids)))
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return phi_h
 
     def calc_phi_g(self, data, graph, w, g, meme_ids, meme_map, user_map):
@@ -482,9 +537,9 @@ class SaitoDiffusion(object):
                 w_col = w[:, v_i].todense()
                 val = w_col[u_indexes] / g[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
-                    logger.info('\t\tWARNING: phi_g = inf')
-                    #if (np.float32(val) == 0).any():
-                #    logger.info('\t\tWARNING: phi_g = 0')
+                    self.stdout.write('\t\tWARNING: phi_g = inf')
+                #if (np.float32(val) == 0).any():
+                #    self.stdout.write('\t\tWARNING: phi_g = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
                 else:
@@ -496,9 +551,9 @@ class SaitoDiffusion(object):
 
             i += 1
             if i % (len(meme_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+                self.stdout.write('\t\t%d%% done' % (i * 100 / len(meme_ids)))
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return phi_g
 
     def calc_psi(self, data, graph, w, r, g, meme_ids, meme_map, user_map):
@@ -524,9 +579,9 @@ class SaitoDiffusion(object):
                 w_col = w[:, v_i].todense()
                 val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) / g[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
-                    logger.info('\t\tWARNING: psi = inf')
+                    self.stdout.write('\t\tWARNING: psi = inf')
                     #if (np.float32(val) == 0).any():
-                #    logger.info('\t\tWARNING: psi = 0')
+                #    self.stdout.write('\t\tWARNING: psi = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
                 else:
@@ -538,9 +593,9 @@ class SaitoDiffusion(object):
 
             i += 1
             if i % (len(meme_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+                self.stdout.write('\t\t%d%% done' % (i * 100 / len(meme_ids)))
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return psi
 
     def calc_r(self, data, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map):
@@ -548,7 +603,7 @@ class SaitoDiffusion(object):
         u_count = len(user_ids)
         r = np.ones(u_count, np.float32)
 
-        logger.info('\t\textracting sigma domains ...')
+        self.stdout.write('\t\textracting sigma domains ...')
         m_set1 = {v: [] for v in user_ids}
         m_set2 = {v: [] for v in user_ids}
         for m in meme_ids:
@@ -557,7 +612,7 @@ class SaitoDiffusion(object):
             for v in data[m].get_rond_set(graph):
                 m_set2[v].append(m)
 
-        logger.info('\t\tcalculating values ...')
+        self.stdout.write('\t\tcalculating values ...')
         i = 0
         for v in user_ids:
             v_i = user_map[v]
@@ -591,26 +646,26 @@ class SaitoDiffusion(object):
             if phi_sum == 0:
                 r[v_i] = 0
                 #if m_set1[v] or m_set2[v]:
-                #    logger.info('\t\tWARNING: r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
+                #    self.stdout.write('\t\tWARNING: r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
             else:
                 if phi_time_sum + psi_time_sum != 0:
                     r[v_i] = phi_sum / (phi_time_sum + psi_time_sum)
                 else:
                     r[v_i] = np.finfo(np.float32).max
-                    logger.info('\t\tWARNING: denominator = 0, r = inf')
+                    self.stdout.write('\t\tWARNING: denominator = 0, r = inf')
 
             i += 1
             if i % (len(user_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(user_ids)))
+                self.stdout.write('\t\t%d%% done' % (i * 100 / len(user_ids)))
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return r
 
     def calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, meme_ids, meme_map):
         t0 = time.time()
         u_count = len(user_ids)
 
-        logger.info('\t\textracting sigma domains ...')
+        self.stdout.write('\t\textracting sigma domains ...')
         mv_set2 = {v: [] for v in graph.nodes()}
         muv_set1 = {edge: [] for edge in graph.edges()}
         muv_set2 = {edge: [] for edge in graph.edges()}
@@ -627,7 +682,7 @@ class SaitoDiffusion(object):
                 for u in cascade.get_active_parents(v, graph):
                     muv_set3[(u, v)].append(m)
 
-        logger.info('\t\tcalculating values ...')
+        self.stdout.write('\t\tcalculating values ...')
         values = []
         rows = []
         cols = []
@@ -651,12 +706,12 @@ class SaitoDiffusion(object):
                 rows.append(u_i)
                 cols.append(v_i)
                 #elif muv_set1[(u, v)] or muv_set2[(u, v)] or muv_set3[(u, v)]:
-            #    logger.info('\t\tWARNING: w = 0 at %s, sets: %s, %s, %s' % (
+            #    self.stdout.write('\t\tWARNING: w = 0 at %s, sets: %s, %s, %s' % (
             #        (u, v), muv_set1[(u, v)], muv_set2[(u, v)], muv_set3[(u, v)]))
 
             i += 1
             if i % (val_count / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / val_count))
+                self.stdout.write('\t\t%d%% done' % (i * 100 / val_count))
 
         for v in graph.nodes():
             v_i = user_map[v]
@@ -667,19 +722,19 @@ class SaitoDiffusion(object):
                     rows.append(v_i)
                     cols.append(v_i)
                     #else:
-                    #    logger.info('\t\tWARNING: w = 0 at %s, set: %s' % ((v, v), mv_set2[v]))
+                    #    self.stdout.write('\t\tWARNING: w = 0 at %s, set: %s' % ((v, v), mv_set2[v]))
 
             i += 1
             if i % (val_count / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / val_count))
+                self.stdout.write('\t\t%d%% done' % (i * 100 / val_count))
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype='d')
 
-        logger.info('\t\tnormalizing w ...')
+        self.stdout.write('\t\tnormalizing w ...')
         w = normalize(w, axis=0, copy=False)
         w = sparse.csc_matrix((w.data, w.indices, w.indptr), shape=w.shape, dtype=np.float32)
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return w
 
     def save_param(self, w, r, graph, user_map):
@@ -694,6 +749,6 @@ class SaitoDiffusion(object):
             entities.append(DiffusionParam(sender_id=u, receiver_id=v, weight=w[u_i, v_i], delay=delay))
             i += 1
             if i % (count / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / count))
+                self.stdout.write('\t\t%d%% done' % (i * 100 / count))
 
         DiffusionParam.objects.bulk_create(entities)
