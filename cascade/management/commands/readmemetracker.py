@@ -13,7 +13,7 @@ from utils.time_utils import str_to_datetime
 
 
 class Command(BaseCommand):
-    help = 'Create database entities using memetracker dataset.'
+    help = 'Create database instances using memetracker dataset.'
 
     option_list = BaseCommand.option_list + (
         make_option(

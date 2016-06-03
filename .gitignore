@@ -59,4 +59,4 @@ target/
 
 */Thumbs.db
 .idea/*
-social/local_settings.py
+diffusion/local_settings.py

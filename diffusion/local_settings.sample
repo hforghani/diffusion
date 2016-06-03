@@ -12,9 +12,6 @@ DATABASES = {
         'PORT': '5432', # Set to empty string for default.
     }}
 
-MONGODB_NAME = 'social'
-MONGODB_HOST = '127.0.0.1'
-
 SITE_URL = 'http://127.0.0.1:8000/'
 BASEPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '')
 
@@ -26,13 +23,4 @@ MEDIA_ROOT = BASEPATH + 'media/'
 MEDIA_URL = SITE_URL + 'media/'
 
 # for bigdata command:
-WOSN_PATH = '<datasets_path>/wosn2009_facebook'
-MALE_FNAME = '<datasets_path>/word_list_moby_given_names_english_male-flat/word_list_moby_given_names_english_male.flat.txt'
-FEMALE_FNAME = '<datasets_path>/word_list_moby_given_names_english_female-flat/word_list_moby_given_names_english_female.flat.txt'
-NEWS_PATH = '<datasets_path>/bbc-fulltext/bbc'
 MEMETRACKER_PATH = '<datasets_path>/memetracker9/quotes_2008-08.txt/quotes_2008-08.txt'
-
-DATA_ENTRY_PATH = '<data_entry_path>'
-
-#SESSION_COOKIE_SECURE = True
-#CSRF_COOKIE_SECURE = True

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 from datetime import timedelta
-from difflib import get_close_matches
 import logging
-import re
 import time
 from crud.models import DiffusionParam, UserAccount, Post, Reshare, Meme, PostMeme
 from utils.time_utils import str_to_datetime, DT_FORMAT

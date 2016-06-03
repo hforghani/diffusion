@@ -11,7 +11,7 @@ from networkx.classes.digraph import DiGraph
 from networkx.readwrite.adjlist import write_adjlist, read_adjlist
 import numpy as np
 from sklearn.preprocessing import normalize
-from crud.models import Meme, Reshare, UserAccount, DiffusionParam, Post
+from crud.models import Meme, Reshare, UserAccount, Post
 from scipy import sparse
 
 
