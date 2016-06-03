@@ -13,7 +13,7 @@ from django.db.models.fields.related import ManyToManyField
 from crud.models import *
 from utils.time_utils import str_to_datetime
 
-logger = logging.getLogger('social.crud.ajax')
+logger = logging.getLogger('diffusion.crud.ajax')
 
 
 @login_required

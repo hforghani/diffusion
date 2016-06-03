@@ -9,7 +9,7 @@ import time
 from matplotlib import pyplot
 import numpy as np
 from crud.models import Meme
-from diffusion.models import CascadeTree, CascadePredictor
+from cascade.models import CascadeTree, CascadePredictor
 
 
 class Command(BaseCommand):

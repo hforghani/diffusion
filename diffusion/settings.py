@@ -78,10 +78,10 @@ MIDDLEWARE_CLASSES = (
     # 'django.middleware.clickjacking.XFrameOptionsMiddleware',
 )
 
-ROOT_URLCONF = 'social.urls'
+ROOT_URLCONF = 'diffusion.urls'
 
 # Python dotted path to the WSGI application used by Django's runserver.
-WSGI_APPLICATION = 'social.wsgi.application'
+WSGI_APPLICATION = 'diffusion.wsgi.application'
 
 import os
 
@@ -100,7 +100,7 @@ INSTALLED_APPS = (
     # 'django.contrib.admindocs',
     'accounts',
     'crud',
-    'diffusion',
+    'cascade',
     'south',
 )
 
@@ -144,7 +144,7 @@ LOGGING = {
             'level': 'ERROR',
             'propagate': True,
         },
-        'social': {
+        'diffusion': {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,

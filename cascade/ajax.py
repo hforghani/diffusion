@@ -9,11 +9,11 @@ from django.db.models import Count, Min
 from django.http import HttpResponse
 
 from crud.models import Post, UserAccount, Meme
-from diffusion.models import Generation, CascadePredictor, CascadeTree
+from cascade.models import Generation, CascadePredictor, CascadeTree
 from utils.time_utils import timeline_data, str_to_datetime, DT_FORMAT
 
 
-logger = logging.getLogger('social.diffusion.ajax')
+logger = logging.getLogger('diffusion.diffusion.ajax')
 
 
 @login_required

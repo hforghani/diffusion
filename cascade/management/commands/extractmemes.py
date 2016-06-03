@@ -3,7 +3,7 @@ import traceback
 from django.core.management.base import BaseCommand, CommandError
 import time
 from crud.models import Post, Meme, PostMeme
-from diffusion.models import MemeDetector
+from cascade.models import MemeDetector
 
 
 class Command(BaseCommand):

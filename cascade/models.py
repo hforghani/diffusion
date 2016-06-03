@@ -7,51 +7,7 @@ import time
 from crud.models import DiffusionParam, UserAccount, Post, Reshare, Meme, PostMeme
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
-logger = logging.getLogger('social.diffusion.models')
-
-
-class Generation(object):
-    def __init__(self, posts):
-        self.posts = posts
-        self.summary = None
-
-    def extract_summary(self):
-        texts = [re.compile(r'\s*[.;!?؟]\s*', re.UNICODE).split(post.text) for post in self.posts]
-        sentences = {}
-        for post in texts:
-            for sent in post:
-                matches = get_close_matches(sent, sentences.keys())
-                if matches:
-                    sentences[matches[0]] += 1
-                else:
-                    sentences[sent] = 1
-        thr = len(texts) / 4
-        summary = u'. '.join([sent for sent in sentences if sentences[sent] > thr])
-        return summary
-
-    def get_summary(self):
-        if not self.summary:
-            self.summary = self.extract_summary()
-        return self.summary
-
-    def get_diff(self, prev_generation):
-        summary = self.get_summary()
-        sentences = re.compile(r'\s*[.;!?؟]\s*', re.UNICODE).split(summary)
-        prev_summary = prev_generation.get_summary()
-        prev_sentences = re.compile(r'\s*[.;!?؟]\s*', re.UNICODE).split(prev_summary)
-        result = []
-        matched = []
-        for sent in sentences:
-            matches = get_close_matches(sent, prev_sentences)
-            if matches:
-                color = 'black'
-                matched.extend(matches)
-            else:
-                color = 'green'
-            result.append({'text': sent, 'color': color})
-        for sent in set(prev_sentences) - set(matched):
-            result.append({'text': sent, 'color': 'red'})
-        return result
+logger = logging.getLogger('diffusion.diffusion.models')
 
 
 class CascadeTree(object):
@@ -269,65 +225,3 @@ class CascadePredictor(object):
             cur_step_ids = [node['user']['id'] for node in cur_step]
 
         return self.tree
-
-
-class MemeDetector(object):
-    def extract_memes(self, net=None):
-        logger.info('collecting current memes ...')
-        if net:
-            memes = Meme.objects.filter(post__author__social_net=net)
-        else:
-            memes = Meme.objects.all()
-        meme_texts = {meme.text: meme.id for meme in memes}
-
-        post_memes = []
-        count = 0
-
-        if net:
-            posts = Post.objects.filter(author__social_net=net)
-        else:
-            posts = Post.objects.all()
-        total = posts.count()
-        for post in posts.iterator():
-            if post.text and not post.postmeme_set.exists():
-
-                # Get the meme of the first ancestor if exists.
-                parent = post.parents.all()[0].reshared_post if post.parents.exists() else None
-                while parent and not parent.postmeme_set.exists():
-                    parent = parent.parents.all()[0].reshared_post if parent.parents.exists() else None
-                meme = None
-                if parent:
-                    meme = PostMeme.objects.filter(post=parent)[0].meme
-
-                # If meme is not set, get it or save the new one.
-                if not meme and post.text in meme_texts:
-                    meme = Meme.objects.get(id=meme_texts[post.text])
-                else:
-                    meme = Meme.objects.create(text=post.text)
-                    meme_texts[post.text] = meme.id
-                    logger.info('new meme created')
-
-                # Add to PostMeme's. Save them if multiplier of 1000.
-                post_memes.append(PostMeme(post=post, meme=meme))
-                if len(post_memes) % 1000 == 0:
-                    logger.info('creating %d post memes ...' % len(post_memes))
-                    PostMeme.objects.bulk_create(post_memes)
-                    post_memes = []
-
-            count += 1
-            if count % 1000 == 0:
-                logger.info('%d out of %d posts done' % (count, total))
-
-        # Save remaining PostMeme's.
-        if post_memes:
-            logger.info('creating %d post memes ...' % len(post_memes))
-            PostMeme.objects.bulk_create(post_memes)
-
-        # Set the count and the first publication time of the memes.
-        logger.info('setting count and first publication time for the memes ...')
-        for meme in memes.iterator():
-            meme_posts = posts.filter(postmeme__meme=meme).distinct()
-            meme.count = meme_posts.count()
-            if meme.count:
-                meme.first_time = posts.order_by('datetime')[0].datetime
-            meme.save()

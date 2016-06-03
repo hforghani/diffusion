@@ -1,16 +1,30 @@
-from django.conf.urls import patterns, url
+import os
+from django.conf.urls import patterns, include, url
+from django.conf import settings
+from django.views.generic import RedirectView
+from django.views.static import serve
+
+# Uncomment the next two lines to enable the admin:
+from django.contrib import admin
+
+admin.autodiscover()
 
 urlpatterns = patterns('',
-                       url(r'^$', 'diffusion.views.main', name='diffusion'),
-                       url(r'meme/$', 'diffusion.views.meme_page', name='diffusion/meme'),
+                       url(r'^crud/', include('crud.urls')),
+                       url(r'^diffusion/', include('cascade.urls')),
+                       url(r'^$', 'accounts.views.home', name='home'),
 
-                       url(r'ajax/memes/$', 'diffusion.ajax.memes', name='diffusion/memes'),
-                       url(r'ajax/first_user/$', 'diffusion.ajax.first_user', name='diffusion/first_user'),
-                       url(r'ajax/users_bubble/$', 'diffusion.ajax.users_bubble', name='diffusion/users_bubble'),
-                       url(r'ajax/timeline/$', 'diffusion.ajax.timeline', name='diffusion/timeline'),
-                       url(r'ajax/tree/$', 'diffusion.ajax.cascade_tree', name='diffusion/tree'),
-                       url(r'ajax/activities/$', 'diffusion.ajax.user_meme_activities', name='diffusion/activities'),
-                       url(r'ajax/generation/$', 'diffusion.ajax.generation', name='diffusion/generation'),
-                       url(r'ajax/predict/$', 'diffusion.ajax.predict', name='diffusion/predict'),
-
+                       # Uncomment the admin/doc line below to enable admin documentation:
+                       url(r'^admin/doc/', include('django.contrib.admindocs.urls')),
+                       # Uncomment the next line to enable the admin:
+                       url(r'^admin/', include(admin.site.urls)),
 )
+
+if settings.SERVE_STATIC_FILES:
+    urlpatterns += patterns(
+        '',
+        url(r'^bower_components/(?P<path>.*)$', serve,
+            {'document_root': os.path.join(settings.STATIC_ROOT, 'bower_components'), }),
+        url(r'^static/(?P<path>.*)$', serve, {'document_root': settings.STATIC_ROOT, }),
+        url(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT, }),
+    )
