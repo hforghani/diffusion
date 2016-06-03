@@ -27,9 +27,8 @@ class FriendshipAdmin(admin.ModelAdmin):
 
 
 class UserAccountAdmin(admin.ModelAdmin):
-    list_display = ('username', 'social_net', 'first_name', 'last_name', 'avatar_img')
-    search_fields = ['username', 'person__first_name', 'person__last_name']
-    readonly_fields = ['person']
+    list_display = ('username', 'social_net', 'avatar_img')
+    search_fields = ['username']
 
     def first_name(self, obj):
         return obj.person.first_name if obj.person else None
@@ -45,27 +44,10 @@ class UserAccountAdmin(admin.ModelAdmin):
     avatar_img.short_description = u'عکس آواتار'
 
 
-class PersonAdmin(admin.ModelAdmin):
-    list_display = ('first_name', 'last_name', 'gender', 'get_language_display')
-    search_fields = ['first_name', 'last_name']
-
-
 class PostAdmin(admin.ModelAdmin):
     list_display = ('author', 'datetime', text_trunc)
     search_fields = ['author__username', 'text']
     readonly_fields = ['author']
-
-
-class LikeAdmin(admin.ModelAdmin):
-    list_display = ('user', 'post', 'datetime')
-    search_fields = ['user__username', 'post__author__username']
-    readonly_fields = ['user']
-
-
-class CommentAdmin(admin.ModelAdmin):
-    list_display = ('user', 'post', 'datetime', 'text')
-    search_fields = ['user__username', 'post__author__username']
-    readonly_fields = ['user']
 
 
 class ReshareAdmin(admin.ModelAdmin):
@@ -74,37 +56,14 @@ class ReshareAdmin(admin.ModelAdmin):
     readonly_fields = ['post', 'reshared_post']
 
 
-class TopicAdmin(admin.ModelAdmin):
-    list_display = ('name', 'users_list')
-    readonly_fields = ['users']
-
-    def users_list(self, obj):
-        return ', '.join([unicode(u) for u in obj.users.all()])
-
-    users_list.short_description = u'کاربران'
-
-
 class MemeAdmin(admin.ModelAdmin):
     list_display = (text_trunc, 'count', 'first_time')
 
 
-class KeywordAdmin(admin.ModelAdmin):
-    list_display = ('name', 'idf')
-    search_fields = ['name']
-
-
 admin.site.register(SocialNet)
 admin.site.register(UserAccount, UserAccountAdmin)
-admin.site.register(Person, PersonAdmin)
 admin.site.register(Friendship, FriendshipAdmin)
 admin.site.register(Post, PostAdmin)
-admin.site.register(Like, LikeAdmin)
-admin.site.register(Comment, CommentAdmin)
 admin.site.register(Reshare, ReshareAdmin)
-admin.site.register(Project)
-admin.site.register(ProjectMembership)
-admin.site.register(Hashtag)
-admin.site.register(Topic, TopicAdmin)
 admin.site.register(Meme, MemeAdmin)
-admin.site.register(Keyword, KeywordAdmin)
 admin.site.unregister(Site)

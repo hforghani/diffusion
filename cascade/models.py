@@ -2,7 +2,7 @@
 from datetime import timedelta
 import logging
 import time
-from crud.models import DiffusionParam, UserAccount, Post, Reshare, Meme, PostMeme
+from crud.models import UserAccount, Post, Reshare
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
 logger = logging.getLogger('diffusion.diffusion.models')
