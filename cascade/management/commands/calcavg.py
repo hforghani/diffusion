@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 import time
 from django.db.models import Q, Count
 import numpy as np
-from crud.models import Meme, Reshare, UserAccount, Post, DiffusionParam
+from crud.models import Reshare, UserAccount, Post
 from scipy import sparse
 
 
