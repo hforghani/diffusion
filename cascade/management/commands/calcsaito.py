@@ -102,13 +102,6 @@ class Command(BaseCommand):
 
     option_list = BaseCommand.option_list + (
         make_option(
-            "-s",
-            "--save",
-            action="store_true",
-            dest="save",
-            help="save results into db at the end"
-        ),
-        make_option(
             "-i",
             "--iterations",
             type="int",
@@ -232,19 +225,15 @@ class Command(BaseCommand):
 
                 self.stdout.write('\t\titeration time: %.2f min' % ((time.time() - t0) / 60.0))
 
-            if options['save']:
-                self.stdout.write('deleting saving new parameters into db ...')
-                self.save_param(w, r, graph, user_map)
-
             self.stdout.write('command done in %.2f min' % ((time.time() - start) / 60.0))
         except:
             self.stdout.write(traceback.format_exc())
             raise
 
     def load_or_extract_data(self):
-        graph_path = os.path.join(settings.BASEPATH, 'resources', 'diff_graph.txt')
-        data_path = os.path.join(settings.BASEPATH, 'resources', 'diff_data.json')
-        train_set_path = os.path.join(settings.BASEPATH, 'resources', 'diff_samples.json')
+        graph_path = os.path.join(settings.BASEPATH, 'resources', 'graph.txt')
+        data_path = os.path.join(settings.BASEPATH, 'resources', 'cascades.json')
+        train_set_path = os.path.join(settings.BASEPATH, 'resources', 'samples.json')
 
         if os.path.exists(train_set_path) and os.path.exists(graph_path) and os.path.exists(data_path):
             # Load graph and cascade data if exists.
@@ -538,7 +527,7 @@ class Command(BaseCommand):
                 val = w_col[u_indexes] / g[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
                     self.stdout.write('\t\tWARNING: phi_g = inf')
-                #if (np.float32(val) == 0).any():
+                    #if (np.float32(val) == 0).any():
                 #    self.stdout.write('\t\tWARNING: phi_g = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
@@ -736,19 +725,3 @@ class Command(BaseCommand):
 
         self.stdout.write('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return w
-
-    def save_param(self, w, r, graph, user_map):
-        DiffusionParam.objects.all().delete()
-        entities = []
-        count = len(graph.edges())
-        i = 0
-        for (u, v) in graph.edges():
-            u_i = user_map[u]
-            v_i = user_map[v]
-            delay = 1 / r[v_i] if r[v_i] != 0 else np.finfo(np.float32).max
-            entities.append(DiffusionParam(sender_id=u, receiver_id=v, weight=w[u_i, v_i], delay=delay))
-            i += 1
-            if i % (count / 10) == 0:
-                self.stdout.write('\t\t%d%% done' % (i * 100 / count))
-
-        DiffusionParam.objects.bulk_create(entities)
