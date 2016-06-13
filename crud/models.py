@@ -40,11 +40,7 @@ class UserAccount(models.Model):
             'social_net_id': self.social_net.id,
             'username': self.username,
             'avatar': self.avatar,
-            'person_id': self.person.id if self.person else None,
         }
-        if self.person:
-            u['first_name'] = self.person.first_name
-            u['last_name'] = self.person.last_name
         return u
 
 

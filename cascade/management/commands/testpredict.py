@@ -9,7 +9,7 @@ import time
 from matplotlib import pyplot
 import numpy as np
 from crud.models import Meme
-from cascade.models import CascadeTree, CascadePredictor
+from cascade.models import CascadeTree, AsLT, Saito
 
 
 class Command(BaseCommand):
@@ -31,7 +31,7 @@ class Command(BaseCommand):
         try:
             start = time.time()
 
-            train_set_path = os.path.join(settings.BASEPATH, 'resources', 'diff_samples.json')
+            train_set_path = os.path.join(settings.BASEPATH, 'resources', 'samples.json')
             train_set = json.load(open(train_set_path, 'r'))
             if options['train']:
                 test_set = Meme.objects.filter(id__in=train_set)
@@ -52,7 +52,7 @@ class Command(BaseCommand):
                     node['children'] = []
 
                 # Predict remaining nodes.
-                res_tree = CascadePredictor(initial_tree).predict()
+                res_tree = Saito().fit(initial_tree).predict()
 
                 # Evaluate result.
                 res_nodes = set(res_tree.node_ids())

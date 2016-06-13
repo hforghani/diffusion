@@ -9,7 +9,7 @@ from django.db.models import Count, Min
 from django.http import HttpResponse
 
 from crud.models import Post, UserAccount, Meme
-from cascade.models import Generation, CascadePredictor, CascadeTree
+from cascade.models import Generation, AsLT, CascadeTree
 from utils.time_utils import timeline_data, str_to_datetime, DT_FORMAT
 
 
@@ -315,7 +315,7 @@ def predict(request):
         tree = data['tree']
 
         initial_tree = CascadeTree(tree)
-        tree = CascadePredictor(initial_tree).predict().get_dict()
+        tree = AsLT(initial_tree).predict().get_dict()
         res = {'tree': tree, 'now': initial_tree.max_datetime().strftime(DT_FORMAT)}
         #res = {'tree': tree, 'now': now.strftime(DT_FORMAT)}
         logger.info('cascade tree prediction process time = %f' % (time.time() - start))
