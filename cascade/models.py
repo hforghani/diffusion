@@ -324,53 +324,53 @@ class Saito(AsLT):
             logger.info('#%d' % (i + 1))
             if os.path.exists(self.save_paths['h']):
                 h = load_sparse(self.save_paths['h'])
-                logger.info('\th loaded')
+                logger.info('h loaded')
             else:
-                logger.info('\tcalculating h ...')
+                logger.info('calculating h ...')
                 h = self.calc_h(data, graph, w, r, meme_ids, meme_map, user_map)
                 save_sparse(self.save_paths['h'], h)
 
             if os.path.exists(self.save_paths['g']):
                 g = load_sparse(self.save_paths['g'])
-                logger.info('\tg loaded')
+                logger.info('g loaded')
             else:
-                logger.info('\tcalculating g ...')
+                logger.info('calculating g ...')
                 g = self.calc_g(data, graph, w, r, meme_ids, meme_map, user_map)
                 save_sparse(self.save_paths['g'], g)
 
             if not os.path.exists(self.save_paths['phi_h']):
-                logger.info('\tcalculating phi_h ...')
+                logger.info('calculating phi_h ...')
                 phi_h = self.calc_phi_h(data, graph, w, r, h, meme_ids, meme_map, user_map)
                 save_sparse_list(self.save_paths['phi_h'], phi_h)
                 del phi_h
 
             if not os.path.exists(self.save_paths['phi_g']):
-                logger.info('\tcalculating phi_g ...')
+                logger.info('calculating phi_g ...')
                 phi_g = self.calc_phi_g(data, graph, w, g, meme_ids, meme_map, user_map)
                 save_sparse_list(self.save_paths['phi_g'], phi_g)
                 del phi_g
 
             if not os.path.exists(self.save_paths['psi']):
-                logger.info('\tcalculating psi ...')
+                logger.info('calculating psi ...')
                 psi = self.calc_psi(data, graph, w, r, g, meme_ids, meme_map, user_map)
                 save_sparse_list(self.save_paths['psi'], psi)
             else:
                 psi = load_sparse_list(self.save_paths['psi'])
-                logger.info('\tpsi loaded')
+                logger.info('psi loaded')
 
             del h
             del g
             phi_h = load_sparse_list(self.save_paths['phi_h'])
-            logger.info('\tphi_h loaded')
+            logger.info('phi_h loaded')
 
-            logger.info('\testimating r ...')
+            logger.info('estimating r ...')
             last_r = r
             r = self.calc_r(data, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map)
 
             phi_g = load_sparse_list(self.save_paths['phi_g'])
-            logger.info('\tphi_g loaded')
+            logger.info('phi_g loaded')
 
-            logger.info('\testimating w ...')
+            logger.info('estimating w ...')
             last_w = w
             w = self.calc_w(data, graph, phi_h, phi_g, psi, user_ids, user_map, meme_ids, meme_map)
 
@@ -386,14 +386,14 @@ class Saito(AsLT):
             r_dif = np.linalg.norm(r - last_r)
             w_dif = w - last_w
             w_dif = np.sqrt(w_dif.multiply(w_dif).sum())
-            logger.info('\tr dif = %s, w dif = %s' % (r_dif, w_dif))
-            logger.info('\tr nnz = %d, w nnz = %d' % (np.count_nonzero(r), w.nnz))
+            logger.info('r dif = %s, w dif = %s' % (r_dif, w_dif))
+            logger.info('r nnz = %d, w nnz = %d' % (np.count_nonzero(r), w.nnz))
             del last_r
             del last_w
             del r_dif
             del w_dif
 
-            logger.info('\t\titeration time: %.2f min' % ((time.time() - t0) / 60.0))
+            logger.info('iteration time: %.2f min' % ((time.time() - t0) / 60.0))
 
     def load_or_extract_data(self):
         graph_path = os.path.join(settings.BASEPATH, 'resources', 'graph.txt')
@@ -430,7 +430,7 @@ class Saito(AsLT):
             #reshares = Reshare.objects.order_by('datetime')
             resh_count = reshares.count()
             post_count = posts.count()
-            logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+            logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
 
             # Create dictionary of meme first times.
             logger.info('\textracting first times ...')
@@ -570,7 +570,7 @@ class Saito(AsLT):
                         w_col = w[:, uid_i].todense()
                         val = float(np.exp(-r[uid_i] * diff) * w_col[act_par_indexes] * r[uid_i])
                         if np.float32(val) == 0:
-                            logger.info('\t\tWARNING: h = 0')
+                            logger.info('\tWARNING: h = 0')
 
                 if val:
                     values.append(val)
@@ -578,10 +578,10 @@ class Saito(AsLT):
                     cols.append(uid_i)
             i += 1
             if i % (m_count / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / m_count))
+                logger.info('\t%d%% done' % (i * 100 / m_count))
 
         h = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return h
 
     def calc_g(self, data, graph, w, r, meme_ids, meme_map, user_map):
@@ -614,17 +614,17 @@ class Saito(AsLT):
 
                 val = w[uid_i, uid_i] + inact_par_sum + float(act_par_sum)
                 if np.float32(val) == 0:
-                    logger.info('\t\tWARNING: g = 0')
+                    logger.info('\tWARNING: g = 0')
                 values.append(val)
                 rows.append(mid_i)
                 cols.append(uid_i)
 
             i += 1
             if i % (len(meme_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
 
         g = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return g
 
     def calc_phi_h(self, data, graph, w, r, h, meme_ids, meme_map, user_map):
@@ -653,9 +653,9 @@ class Saito(AsLT):
                 w_col = w[:, v_i].todense()
                 val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) * r[v_i] / h[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
-                    logger.info('\t\tWARNING: phi_h = inf')
+                    logger.info('\tWARNING: phi_h = inf')
                     #if (np.float32(val) == 0).any():
-                #    logger.info('\t\tWARNING: phi_h = 0')
+                #    logger.info('\tWARNING: phi_h = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
                 else:
@@ -667,9 +667,9 @@ class Saito(AsLT):
 
             i += 1
             if i % (len(meme_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return phi_h
 
     def calc_phi_g(self, data, graph, w, g, meme_ids, meme_map, user_map):
@@ -694,9 +694,9 @@ class Saito(AsLT):
                 w_col = w[:, v_i].todense()
                 val = w_col[u_indexes] / g[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
-                    logger.info('\t\tWARNING: phi_g = inf')
+                    logger.info('\tWARNING: phi_g = inf')
                     #if (np.float32(val) == 0).any():
-                #    logger.info('\t\tWARNING: phi_g = 0')
+                #    logger.info('\tWARNING: phi_g = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
                 else:
@@ -708,9 +708,9 @@ class Saito(AsLT):
 
             i += 1
             if i % (len(meme_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return phi_g
 
     def calc_psi(self, data, graph, w, r, g, meme_ids, meme_map, user_map):
@@ -736,9 +736,9 @@ class Saito(AsLT):
                 w_col = w[:, v_i].todense()
                 val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) / g[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
-                    logger.info('\t\tWARNING: psi = inf')
+                    logger.info('\tWARNING: psi = inf')
                     #if (np.float32(val) == 0).any():
-                #    logger.info('\t\tWARNING: psi = 0')
+                #    logger.info('\tWARNING: psi = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
                 else:
@@ -750,9 +750,9 @@ class Saito(AsLT):
 
             i += 1
             if i % (len(meme_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return psi
 
     def calc_r(self, data, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map):
@@ -760,7 +760,7 @@ class Saito(AsLT):
         u_count = len(user_ids)
         r = np.ones(u_count, np.float32)
 
-        logger.info('\t\textracting sigma domains ...')
+        logger.info('\textracting sigma domains ...')
         m_set1 = {v: [] for v in user_ids}
         m_set2 = {v: [] for v in user_ids}
         for m in meme_ids:
@@ -769,7 +769,7 @@ class Saito(AsLT):
             for v in data[m].get_rond_set(graph):
                 m_set2[v].append(m)
 
-        logger.info('\t\tcalculating values ...')
+        logger.info('\tcalculating values ...')
         i = 0
         for v in user_ids:
             v_i = user_map[v]
@@ -803,26 +803,26 @@ class Saito(AsLT):
             if phi_sum == 0:
                 r[v_i] = 0
                 #if m_set1[v] or m_set2[v]:
-                #    logger.info('\t\tWARNING: r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
+                #    logger.info('\tWARNING: r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
             else:
                 if phi_time_sum + psi_time_sum != 0:
                     r[v_i] = phi_sum / (phi_time_sum + psi_time_sum)
                 else:
                     r[v_i] = np.finfo(np.float32).max
-                    logger.info('\t\tWARNING: denominator = 0, r = inf')
+                    logger.info('\tWARNING: denominator = 0, r = inf')
 
             i += 1
             if i % (len(user_ids) / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / len(user_ids)))
+                logger.info('\t%d%% done' % (i * 100 / len(user_ids)))
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return r
 
     def calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, meme_ids, meme_map):
         t0 = time.time()
         u_count = len(user_ids)
 
-        logger.info('\t\textracting sigma domains ...')
+        logger.info('\textracting sigma domains ...')
         mv_set2 = {v: [] for v in graph.nodes()}
         muv_set1 = {edge: [] for edge in graph.edges()}
         muv_set2 = {edge: [] for edge in graph.edges()}
@@ -839,7 +839,7 @@ class Saito(AsLT):
                 for u in cascade.get_active_parents(v, graph):
                     muv_set3[(u, v)].append(m)
 
-        logger.info('\t\tcalculating values ...')
+        logger.info('\tcalculating values ...')
         values = []
         rows = []
         cols = []
@@ -863,12 +863,12 @@ class Saito(AsLT):
                 rows.append(u_i)
                 cols.append(v_i)
                 #elif muv_set1[(u, v)] or muv_set2[(u, v)] or muv_set3[(u, v)]:
-            #    logger.info('\t\tWARNING: w = 0 at %s, sets: %s, %s, %s' % (
+            #    logger.info('\tWARNING: w = 0 at %s, sets: %s, %s, %s' % (
             #        (u, v), muv_set1[(u, v)], muv_set2[(u, v)], muv_set3[(u, v)]))
 
             i += 1
             if i % (val_count / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / val_count))
+                logger.info('\t%d%% done' % (i * 100 / val_count))
 
         for v in graph.nodes():
             v_i = user_map[v]
@@ -883,13 +883,13 @@ class Saito(AsLT):
 
             i += 1
             if i % (val_count / 10) == 0:
-                logger.info('\t\t%d%% done' % (i * 100 / val_count))
+                logger.info('\t%d%% done' % (i * 100 / val_count))
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype='d')
 
-        logger.info('\t\tnormalizing w ...')
+        logger.info('\tnormalizing w ...')
         w = normalize(w, axis=0, copy=False)
         w = sparse.csc_matrix((w.data, w.indices, w.indptr), shape=w.shape, dtype=np.float32)
 
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return w
