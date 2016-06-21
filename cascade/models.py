@@ -202,11 +202,11 @@ class AsLT(object):
             for node in cur_step:
                 u = node['user']['id']  # sender user id
                 u_i = user_map[u]
-                w_u = w[u_i, :]  # weights of the children of u
+                w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
 
                 # Iterate on children of u
-                for v_i in np.nonzero(w_u)[1]:
-                    v = user_ids[v_i]  # receiver (child) user id
+                for v_i in np.nonzero(w_u)[0]:
+                    v = user_ids[int(v_i)]  # receiver (child) user id
                     if v in activated:
                         continue
                     if v not in weight_sum:
@@ -218,7 +218,7 @@ class AsLT(object):
                     #sample = 0.5
                     if sample <= weight_sum[v]:
                         delay_param = r[v_i]
-                        if delay_param > self.max_delay:
+                        if delay_param == 0:
                             continue
                         if delay_param < 0:  # Due to some rare bugs in delays
                             delay_param = -delay_param
