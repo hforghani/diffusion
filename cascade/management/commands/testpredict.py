@@ -34,7 +34,7 @@ class Command(BaseCommand):
             train_set_path = os.path.join(settings.BASEPATH, 'resources', 'samples.json')
             train_set = json.load(open(train_set_path, 'r'))
             if options['train']:
-                test_set = Meme.objects.filter(id__in=train_set)
+                test_set = Meme.objects.filter(id__in=train_set).order_by('id')
             else:
                 test_set = Meme.objects.filter(count__gt=500).exclude(id__in=train_set).order_by('id')
             self.stdout.write('test set size = %d' % test_set.count())

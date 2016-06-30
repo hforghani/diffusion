@@ -103,6 +103,9 @@ class CascadeTree(object):
         return self.tree['children']
 
     def max_datetime(self, node=None):
+        """
+        Get maximum datetime of nodes.
+        """
         if node is None:
             node = self.tree
         max_dt = str_to_datetime(node['datetime']) if 'datetime' in node and node['datetime'] else None
@@ -151,10 +154,10 @@ class CascadeTree(object):
         return edges_list
 
     def copy(self):
-        copy_tree = self.copy_tree_dict()
+        copy_tree = self._copy_tree_dict()
         return CascadeTree(copy_tree['children'])
 
-    def copy_tree_dict(self, node=None):
+    def _copy_tree_dict(self, node=None):
         if node is None:
             node = self.tree
         copy_node = {key: value for key, value in node.items()}
@@ -162,7 +165,7 @@ class CascadeTree(object):
             copy_node['user'] = {key: value for key, value in copy_node['user'].items()}
         copy_node['children'] = []
         for child in node['children']:
-            copy_node['children'].append(self.copy_tree_dict(child))
+            copy_node['children'].append(self._copy_tree_dict(child))
         return copy_node
 
 
@@ -181,14 +184,17 @@ class AsLT(object):
         if not self.tree:
             raise ValueError('no tree set')
 
+        # Initialize values.
         now = self.tree.max_datetime()  # Find the datetime of now.
         cur_step = sorted(self.tree.nodes(), key=lambda n: n['datetime'])  # Set tree nodes as initial step.
         activated = self.tree.nodes()
         weight_sum = {}
-        w = load_sparse(self.save_paths['w'])
-        r = np.load(self.save_paths['r'])
         user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
         user_map = {user_ids[i]: i for i in range(len(user_ids))}
+
+        # Get weights and delay vectors.
+        w = load_sparse(self.save_paths['w'])
+        r = np.load(self.save_paths['r'])
 
         # Iterate on steps. For each step try to activate other nodes.
         i = 0
@@ -210,19 +216,22 @@ class AsLT(object):
                     if v in activated:
                         continue
                     if v not in weight_sum:
-                        weight_sum[v] = w_u[v_i]
-                    else:
-                        weight_sum[v] += w_u[v_i]
+                        weight_sum[v] = 0
+                    weight_sum[v] += w_u[v_i]
 
+                    # Try to activate the children.
                     sample = random.random()
                     #sample = 0.5
+                    #If activated successfully add it the tree and estimate the delay.
                     if sample <= weight_sum[v]:
+                        # Get delay parameter.
                         delay_param = r[v_i]
                         if delay_param == 0:
                             continue
                         if delay_param < 0:  # Due to some rare bugs in delays
                             delay_param = -delay_param
 
+                        # Sample delay from exponential distribution and calculate the receive time.
                         delay = np.random.exponential(delay_param)  # in days
                         #delay = delay_param  # in days
                         send_dt = str_to_datetime(node['datetime'])
