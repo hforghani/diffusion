@@ -3,7 +3,7 @@ from optparse import make_option
 import traceback
 from django.core.management.base import BaseCommand
 import time
-from cascade.models import Saito
+from cascade.saito import Saito
 
 
 class Command(BaseCommand):

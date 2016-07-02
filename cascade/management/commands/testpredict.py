@@ -8,8 +8,9 @@ from django.core.management.base import BaseCommand
 import time
 from matplotlib import pyplot
 import numpy as np
+from cascade.saito import Saito
 from crud.models import Meme
-from cascade.models import CascadeTree, AsLT, Saito
+from cascade.models import CascadeTree, AsLT
 
 
 class Command(BaseCommand):
@@ -48,8 +49,8 @@ class Command(BaseCommand):
 
                 # Copy roots in a new tree.
                 initial_tree = tree.copy()
-                for node in initial_tree.tree['children']:
-                    node['children'] = []
+                for node in initial_tree.tree:
+                    node.children = []
 
                 # Predict remaining nodes.
                 res_tree = Saito().fit(initial_tree).predict()
