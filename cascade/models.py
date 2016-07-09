@@ -12,22 +12,35 @@ logger = logging.getLogger('diffusion.diffusion.models')
 
 
 class CascadeNode(object):
-    def __init__(self, user, datetime=None, post_id=None, parent=None):
+    def __init__(self, user=None, datetime=None, post_id=None, parent_id=None):
         self.user = user
         self.datetime = datetime
         self.post_id = post_id
-        self.parent = parent
+        self.parent_id = parent_id
         self.children = []
 
     def get_dict(self):
         return {'user': self.user.get_dict(),
                 'datetime': self.datetime,
                 'post_id': self.post_id,
-                'parent': self.parent,
-                'children': []}
+                'parent_id': self.parent_id,
+                'children': [node.get_dict() for node in self.children]}
+
+    def from_dict(self, node_dict, users_map):
+        """
+        Set attributes from dictionary.
+        node_dict: dictionary of node,
+        parent_id: parent node id,
+        users_map: dictionary of mapping from user id's to users.
+        """
+        self.user = users_map[node_dict['user']['id']]
+        self.datetime = node_dict['datetime']
+        self.post_id = node_dict['post_id']
+        self.parent_id = node_dict['parent_id']
+        self.children = [CascadeNode().from_dict(node, users_map) for node in node_dict['children']]
 
     def copy(self):
-        node = CascadeNode(self.user, self.datetime, self.post_id, self.parent)
+        node = CascadeNode(self.user, self.datetime, self.post_id, self.parent_id)
         node.children = [child.copy() for child in self.children]
         return node
 
@@ -48,20 +61,21 @@ class CascadeTree(object):
         user_ids = posts.values_list('author__id', flat=True).distinct()
         reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
         if log:
-            logger.info('\tTREE: time 1 = %f' % (time.time() - t1))
-            logger.info('\tTREE: reshares count = %d' % reshares.count())
+            logger.info('\tTREE: time 1 = %.2f' % (time.time() - t1))
 
         # Create nodes for the users.
         t1 = time.time()
         nodes = {}
         visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
-        for uid in user_ids:
-            nodes[uid] = CascadeNode(UserAccount.objects.get(id=uid))
+        for user in UserAccount.objects.filter(id__in=user_ids):
+            nodes[user.id] = CascadeNode(user)
         if log:
-            logger.info('\tTREE: time 2 = %f' % (time.time() - t1))
+            logger.info('\tTREE: time 2 = %.2f' % (time.time() - t1))
 
         # Create diffusion edge if a user reshares to another for the first time. Note that reshares are sorted by time.
         t1 = time.time()
+        if log:
+            logger.info('\tTREE: reshares count = %d' % reshares.count())
         self.tree = []
         for reshare in reshares:
             child_id = reshare.user_id
@@ -79,12 +93,12 @@ class CascadeTree(object):
             if not visited[child_id]:  # Any other node
                 child = nodes[child_id]
                 parent.children.append(child)
-                child.parent = parent_id
+                child.parent_id = parent_id
                 child.post_id = reshare.post_id
                 child.datetime = reshare.datetime.strftime(DT_FORMAT)
                 visited[child_id] = True
         if log:
-            logger.info('\tTREE: time 3 = %f' % (time.time() - t1))
+            logger.info('\tTREE: time 3 = %.2f' % (time.time() - t1))
 
         # Add users with no diffusion edges as single nodes.
         t1 = time.time()
@@ -99,11 +113,28 @@ class CascadeTree(object):
                 node.post_id = post.id
                 self.tree.append(node)
         if log:
-            logger.info('\tTREE: time 4 = %f' % (time.time() - t1))
+            logger.info('\tTREE: time 4 = %.2f' % (time.time() - t1))
         return self
 
     def get_dict(self):
-        return self.tree
+        return [node.get_dict() for node in self.tree]
+
+    def from_dict(self, tree_dict):
+        user_ids = []
+        for node in tree_dict:
+            user_ids.extend(self._tree_dict_user_ids(node))
+        users = UserAccount.objects.filter(id__in=user_ids)
+        users = {user.id: user for user in users}
+
+        self.tree = []
+        for node in tree_dict:
+            self.tree.append(CascadeNode().from_dict(node, users))
+
+    def _tree_dict_user_ids(self, node_dict):
+        ids = [node_dict['user']['id']]
+        for node in node_dict['children']:
+            ids.extend(self._tree_dict_user_ids(node))
+        return ids
 
     def max_datetime(self, node=None):
         """
