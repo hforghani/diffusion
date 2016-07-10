@@ -72,18 +72,15 @@ class Command(BaseCommand):
 
             # Test the prediction on the test set.
             for meme in test_set:
-                t0 = time.time()
                 tree = trees[meme.id]
-                print tree
 
                 # Copy roots in a new tree.
                 initial_tree = tree.copy()
                 for node in initial_tree.tree:
                     node.children = []
-                self.stdout.write('copy time: %.2f s' % (time.time() - t0))
 
                 # Predict remaining nodes.
-                t0 = time.time()
+                #t0 = time.time()
                 res_tree = Saito().fit(initial_tree).predict()
 
                 # Evaluate the result.
@@ -105,7 +102,7 @@ class Command(BaseCommand):
                 recalls.append(recall)
 
                 i += 1
-                self.stdout.write('prediction time: %.2f s' % (time.time() - t0))
+                #self.stdout.write('prediction time: %.2f s' % (time.time() - t0))
                 self.stdout.write(
                     'meme %d: %d outputs, %d results, precision = %f, recall = %f' % (
                         i, len(true_output), len(res_output), precision, recall))

@@ -38,6 +38,7 @@ class CascadeNode(object):
         self.post_id = node_dict['post_id']
         self.parent_id = node_dict['parent_id']
         self.children = [CascadeNode().from_dict(node, users_map) for node in node_dict['children']]
+        return self
 
     def copy(self):
         node = CascadeNode(self.user, self.datetime, self.post_id, self.parent_id)
@@ -129,6 +130,7 @@ class CascadeTree(object):
         self.tree = []
         for node in tree_dict:
             self.tree.append(CascadeNode().from_dict(node, users))
+        return self
 
     def _tree_dict_user_ids(self, node_dict):
         ids = [node_dict['user']['id']]
