@@ -51,16 +51,15 @@ class Command(BaseCommand):
             # Check if all meme trees are in trees dictionary. Extract the cascade trees which are not in trees.
             self.stdout.write('checking trees includes test set ...')
             i = 0
-            if not set(test_set.values_list('id', flat=True)) == trees.keys():
-                for meme in test_set:
-                    if meme.id not in trees:
-                        i += 1
-                        t0 = time.time()
-                        tree = CascadeTree().extract_cascade(meme).get_dict()
-                        self.stdout.write('meme %d done: %.2f s' % (i, time.time() - t0))
-                        trees[meme.id] = tree
-                        if i % 100 == 0:
-                            json.dump(trees, open(path, 'w'), indent=4)
+            if not set(test_set.values_list('id', flat=True)) == set(trees.keys()):
+                for meme in test_set.exclude(id__in=trees.keys()):
+                    i += 1
+                    t0 = time.time()
+                    tree = CascadeTree().extract_cascade(meme).get_dict()
+                    self.stdout.write('meme %d done: %.2f s' % (i, time.time() - t0))
+                    trees[meme.id] = tree
+                    if i % 100 == 0:
+                        json.dump(trees, open(path, 'w'), indent=4)
                 json.dump(trees, open(path, 'w'), indent=4)
 
             # Convert tree dictionaries to tree objects.
