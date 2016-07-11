@@ -9,7 +9,7 @@ from django.db.models import Count, Min
 from django.http import HttpResponse
 
 from crud.models import Post, UserAccount, Meme
-from cascade.models import Generation, AsLT, CascadeTree
+from cascade.models import AsLT, CascadeTree
 from utils.time_utils import timeline_data, str_to_datetime, DT_FORMAT
 
 
@@ -196,7 +196,7 @@ def cascade_tree(request):
             raise ValueError('no meme id given')
         meme_id = request.GET['id']
         meme = Meme.objects.get(id=meme_id)
-        res = CascadeTree().extract_cascade(meme).get_dict()
+        res = CascadeTree().extract_cascade(meme).get_detailed_dict()
         logger.info('cascade tree process time = %f' % (time.time() - start))
 
     return HttpResponse(json.dumps(res), content_type='application/json', mimetype='application/json')
@@ -230,74 +230,6 @@ def user_meme_activities(request):
 
 
 @login_required
-def generation(request):
-    """
-    input json parameters:
-        meme_id: meme id
-        generations: [
-            {number: 1, users: [user1_id, user2_id, ...]},
-            {number: 2, users: [user1_id, user2_id, ...]},
-            ...
-        ]
-    output:
-        [ {number: 1, result: {
-                                first_post: {
-                                    user: { ... user_spec ...},
-                                    datetime: <post_datetime>,
-                                },
-                                last_post: {
-                                    user: { ... user_spec ...},
-                                    datetime: <post_datetime>,
-                                },
-                                avg_text: [
-                                    {text: <some_sentences>, color: <black_or_green>},
-                                    ...
-                                ]
-                            }
-            },
-            ...
-        ]
-    """
-    res = {'ok': False}
-    data = json.loads(request.body)
-    if data:
-        start = time.time()
-        logger.info('generation started ...')
-
-        meme_id = data['meme_id']
-        res = []
-        prev_gener = None
-        for gener_data in data['generations']:
-            num = gener_data['number']
-            users_id = gener_data['users']
-            posts = Post.objects.filter(postmeme__meme=meme_id, author__in=users_id).order_by('datetime')
-            first = posts[0]
-            last = posts.latest('datetime')
-
-            gener = Generation(posts)
-            if prev_gener:
-                avg = gener.get_diff(prev_gener)
-            else:
-                avg = [{'color': 'black', 'text': gener.get_summary()}]
-
-            res.append({'number': num, 'result': {
-                'first_post': {
-                    'user': first.author.get_dict(),
-                    'datetime': first.datetime.strftime(DT_FORMAT)
-                },
-                'last_post': {
-                    'user': last.author.get_dict(),
-                    'datetime': last.datetime.strftime(DT_FORMAT)
-                },
-                'avg_text': avg
-            }})
-            prev_gener = gener
-        logger.info('generation process time = %f' % (time.time() - start))
-
-    return HttpResponse(json.dumps(res), content_type='application/json', mimetype='application/json')
-
-
-@login_required
 def predict(request):
     """
     input json parameters:
@@ -315,7 +247,7 @@ def predict(request):
         tree = data['tree']
 
         initial_tree = CascadeTree(tree)
-        tree = AsLT(initial_tree).predict().get_dict()
+        tree = AsLT().fit(initial_tree).predict().get_detailed_dict()
         res = {'tree': tree, 'now': initial_tree.max_datetime().strftime(DT_FORMAT)}
         #res = {'tree': tree, 'now': now.strftime(DT_FORMAT)}
         logger.info('cascade tree prediction process time = %f' % (time.time() - start))

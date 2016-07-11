@@ -17,7 +17,7 @@ class Saito(AsLT):
         self.save_paths = {var: os.path.join(settings.BASEPATH, 'resources', 'saito_%s.npz' % var) for var in
                            ['w', 'r', 'h', 'g', 'phi_h', 'phi_g', 'psi']}
         self.save_paths['r'] = self.save_paths['r'][:-3] + 'npy'
-        self.sample_count = 1000
+        self.sample_count = 2500
 
     def calc_parameters(self, iterations=3):
         # Load dataset.

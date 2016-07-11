@@ -6,11 +6,10 @@ import traceback
 from django.conf import settings
 from django.core.management.base import BaseCommand
 import time
-from matplotlib import pyplot
-import numpy as np
+from cascade.validation import Validation
 from cascade.saito import Saito
-from crud.models import Meme
-from cascade.models import CascadeTree, AsLT
+from crud.models import Meme, UserAccount
+from cascade.models import CascadeTree
 
 
 class Command(BaseCommand):
@@ -66,8 +65,6 @@ class Command(BaseCommand):
             self.stdout.write('converting trees to objects ...')
             trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
 
-            precisions = []
-            recalls = []
             i = 0
 
             # Test the prediction on the test set.
@@ -81,7 +78,9 @@ class Command(BaseCommand):
 
                 # Predict remaining nodes.
                 #t0 = time.time()
-                res_tree = Saito().fit(initial_tree).predict()
+                user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+                model = Saito().fit(initial_tree)
+                res_tree = model.predict(user_ids)
 
                 # Evaluate the result.
                 res_nodes = set(res_tree.node_ids())
@@ -89,30 +88,20 @@ class Command(BaseCommand):
                 initial_nodes = set(initial_tree.node_ids())
                 res_output = res_nodes - initial_nodes
                 true_output = true_nodes - initial_nodes
-                tp = res_output.intersection(true_output)
-                if not res_output:
-                    precision = 1
-                else:
-                    precision = float(len(tp)) / len(res_output)
-                precisions.append(precision)
-                if not true_output:
-                    recall = 1
-                else:
-                    recall = float(len(tp)) / len(true_output)
-                recalls.append(recall)
+                meas = Validation(res_output, true_output)
+                prec = meas.precision()
+                rec = meas.recall()
+                prp = meas.prp(model.weight_sum)
+                prp1 = prp[0] if prp else 0
+                prp2 = prp[1] if len(prp) > 1 else 0
+                #precisions.append(prec)
+                #recalls.append(rec)
 
                 i += 1
                 #self.stdout.write('prediction time: %.2f s' % (time.time() - t0))
                 self.stdout.write(
-                    'meme %d: %d outputs, %d results, precision = %f, recall = %f' % (
-                        i, len(true_output), len(res_output), precision, recall))
-
-            # Plot the results.
-            pyplot.scatter(recalls, precisions)
-            pyplot.axis([0, 1, 0, 1])
-            pyplot.xlabel('recall')
-            pyplot.ylabel('precision')
-            pyplot.show()
+                    'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f, prp = (%.3f, %.3f, ...)' % (
+                        i, len(res_output), len(true_output), prec, rec, prp1, prp2))
 
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
         except:

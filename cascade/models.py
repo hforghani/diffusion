@@ -12,36 +12,53 @@ logger = logging.getLogger('diffusion.diffusion.models')
 
 
 class CascadeNode(object):
-    def __init__(self, user=None, datetime=None, post_id=None, parent_id=None):
-        self.user = user
+    def __init__(self, user_id=None, datetime=None, post_id=None, parent_id=None):
+        self.user_id = user_id
         self.datetime = datetime
         self.post_id = post_id
         self.parent_id = parent_id
         self.children = []
 
     def get_dict(self):
-        return {'user': self.user.get_dict(),
+        """
+        Get dictionary of the object.
+        """
+        return {'user_id': self.user_id,
                 'datetime': self.datetime,
                 'post_id': self.post_id,
                 'parent_id': self.parent_id,
                 'children': [node.get_dict() for node in self.children]}
 
-    def from_dict(self, node_dict, users_map):
+    def get_detailed_dict(self, user_map):
+        """
+        Get dictionary of the object. Replace user_id by user details dictionary.
+        param user_map: dictionary of user id's to users.
+        """
+        return {'user': user_map[self.user_id].get_dict(),
+                'datetime': self.datetime,
+                'post_id': self.post_id,
+                'parent_id': self.parent_id,
+                'children': [node.get_dict() for node in self.children]}
+
+    def from_dict(self, node_dict):
         """
         Set attributes from dictionary.
         node_dict: dictionary of node,
         parent_id: parent node id,
         users_map: dictionary of mapping from user id's to users.
         """
-        self.user = users_map[node_dict['user']['id']]
+        self.user_id = node_dict['user_id']
         self.datetime = node_dict['datetime']
         self.post_id = node_dict['post_id']
         self.parent_id = node_dict['parent_id']
-        self.children = [CascadeNode().from_dict(node, users_map) for node in node_dict['children']]
+        self.children = [CascadeNode().from_dict(node) for node in node_dict['children']]
         return self
 
     def copy(self):
-        node = CascadeNode(self.user, self.datetime, self.post_id, self.parent_id)
+        """
+        Get an independent copy of the object.
+        """
+        node = CascadeNode(self.user_id, self.datetime, self.post_id, self.parent_id)
         node.children = [child.copy() for child in self.children]
         return node
 
@@ -69,7 +86,7 @@ class CascadeTree(object):
         nodes = {}
         visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
         for user in UserAccount.objects.filter(id__in=user_ids):
-            nodes[user.id] = CascadeNode(user)
+            nodes[user.id] = CascadeNode(user.id)
         if log:
             logger.info('\tTREE: time 2 = %.2f' % (time.time() - t1))
 
@@ -120,23 +137,17 @@ class CascadeTree(object):
     def get_dict(self):
         return [node.get_dict() for node in self.tree]
 
-    def from_dict(self, tree_dict):
-        user_ids = []
-        for node in tree_dict:
-            user_ids.extend(self._tree_dict_user_ids(node))
+    def get_detailed_dict(self):
+        user_ids = self.node_ids()
         users = UserAccount.objects.filter(id__in=user_ids)
-        users = {user.id: user for user in users}
+        user_map = {user.id: user for user in users}
+        return [node.get_detailed_dict(user_map) for node in self.tree]
 
+    def from_dict(self, tree_dict):
         self.tree = []
         for node in tree_dict:
-            self.tree.append(CascadeNode().from_dict(node, users))
+            self.tree.append(CascadeNode().from_dict(node))
         return self
-
-    def _tree_dict_user_ids(self, node_dict):
-        ids = [node_dict['user']['id']]
-        for node in node_dict['children']:
-            ids.extend(self._tree_dict_user_ids(node))
-        return ids
 
     def max_datetime(self, node=None):
         """
@@ -166,7 +177,7 @@ class CascadeTree(object):
         return leaves
 
     def node_ids(self):
-        return [node.user.id for node in self.nodes()]
+        return [node.user_id for node in self.nodes()]
 
     def nodes(self, node=None):
         nodes_list = []
@@ -185,8 +196,8 @@ class CascadeTree(object):
             for root in self.tree:
                 edges_list.extend(self.edges(root))
         else:
-            parent_id = node.user.id
-            edges_list = [(parent_id, child.user.id) for child in node.children]
+            parent_id = node.user_id
+            edges_list = [(parent_id, child.user_id) for child in node.children]
             for child in node.childrens:
                 edges_list.extend(self.edges(child))
         return edges_list
@@ -199,7 +210,7 @@ class CascadeTree(object):
 class AsLT(object):
     def __init__(self):
         self.max_delay = 999999999
-        self.save_paths = {}  # implement in children.
+        self.save_paths = {'w': '', 'r': ''}  # implement in children.
         self.weight_sum = {}  # dictionary of node id's to sums of parents weights
 
     def fit(self, tree):
@@ -208,25 +219,34 @@ class AsLT(object):
         self.tree = tree.copy()
         return self
 
-    def predict(self, log=False):
+    def predict(self, user_ids=None, log=False):
         if not self.tree:
             raise ValueError('no tree set')
 
         # Initialize values.
+        t0 = time.time()
         now = self.tree.max_datetime()  # Find the datetime of now.
         cur_step = sorted(self.tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         activated = self.tree.nodes()
         self.weight_sum = {}
-        user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+        if user_ids is None:
+            user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
         user_map = {user_ids[i]: i for i in range(len(user_ids))}
+        if log:
+            logger.info('time1 = %.2f' % (time.time() - t0))
 
         # Get weights and delay vectors.
+        t0 = time.time()
         w = load_sparse(self.save_paths['w'])
+        w = w.tocsr()
         r = np.load(self.save_paths['r'])
+        if log:
+            logger.info('time2 = %.2f' % (time.time() - t0))
 
         # Iterate on steps. For each step try to activate other nodes.
         i = 0
         while cur_step:
+            t0 = time.time()
             i += 1
             if log:
                 logger.info('\tstep %d ...' % i)
@@ -234,7 +254,7 @@ class AsLT(object):
             next_step = []
 
             for node in cur_step:
-                u = node.user.id  # sender user id
+                u = node.user_id  # sender user id
                 u_i = user_map[u]
                 w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
 
@@ -266,13 +286,15 @@ class AsLT(object):
                         receive_dt = send_dt + timedelta(days=delay)
                         if receive_dt < now:
                             continue
-                        child = CascadeNode(UserAccount.objects.get(id=v), datetime=receive_dt.strftime(DT_FORMAT))
+                        child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
                         if log:
                             logger.info('\ta reshare predicted')
             cur_step = sorted(next_step, key=lambda n: n.datetime)
+            if log:
+                logger.info('time = %.2f' % (time.time() - t0))
 
         return self.tree
 
