@@ -6,6 +6,7 @@ import traceback
 from django.conf import settings
 from django.core.management.base import BaseCommand
 import time
+import numpy as np
 from cascade.validation import Validation
 from cascade.saito import Saito
 from crud.models import Meme, UserAccount
@@ -34,9 +35,10 @@ class Command(BaseCommand):
             train_set_path = os.path.join(settings.BASEPATH, 'resources', 'samples.json')
             train_set = json.load(open(train_set_path, 'r'))
             if options['train']:
-                test_set = Meme.objects.filter(id__in=train_set).order_by('id')
+                test_set = Meme.objects.filter(id__in=train_set)
             else:
-                test_set = Meme.objects.filter(count__gt=500).exclude(id__in=train_set).order_by('id')
+                test_set = Meme.objects.filter(count__gt=500).exclude(id__in=train_set)
+            test_set = test_set.filter(depth__gt=0).order_by('id')
             self.stdout.write('test set size = %d' % test_set.count())
 
             # Load trees from the json file.
@@ -50,7 +52,7 @@ class Command(BaseCommand):
             # Check if all meme trees are in trees dictionary. Extract the cascade trees which are not in trees.
             self.stdout.write('checking trees includes test set ...')
             i = 0
-            if not set(test_set.values_list('id', flat=True)) == set(trees.keys()):
+            if not set(test_set.values_list('id', flat=True)) <= set(trees.keys()):
                 self.stdout.write('extracting cascade trees ...')
                 for meme in test_set.exclude(id__in=trees.keys()):
                     i += 1
@@ -67,6 +69,8 @@ class Command(BaseCommand):
             trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
 
             i = 0
+            prp1_list = []
+            prp2_list = []
 
             # Test the prediction on the test set.
             for meme in test_set:
@@ -78,7 +82,6 @@ class Command(BaseCommand):
                     node.children = []
 
                 # Predict remaining nodes.
-                #t0 = time.time()
                 user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
                 model = Saito().fit(initial_tree)
                 res_tree = model.predict(user_ids)
@@ -93,16 +96,18 @@ class Command(BaseCommand):
                 prec = meas.precision()
                 rec = meas.recall()
                 prp = meas.prp(model.weight_sum)
-                prp1 = prp[0] if prp else 0
-                prp2 = prp[1] if len(prp) > 1 else 0
-                #precisions.append(prec)
-                #recalls.append(rec)
+                prp1 = prp[0] if prp else None
+                prp2 = prp[1] if len(prp) > 1 else None
+                prp1_list.append(prp1)
+                prp2_list.append(prp2)
 
                 i += 1
-                #self.stdout.write('prediction time: %.2f s' % (time.time() - t0))
                 self.stdout.write(
-                    'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f, prp = (%.3f, %.3f, ...)' % (
+                    'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f, prp = (%s, %s, ...)' % (
                         i, len(res_output), len(true_output), prec, rec, prp1, prp2))
+
+            self.stdout.write('prp1 avg = %.3f' % np.mean(np.array([val for val in prp1_list if val is not None])))
+            self.stdout.write('prp2 avg = %.3f' % np.mean(np.array([val for val in prp2_list if val is not None])))
 
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
         except:

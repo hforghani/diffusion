@@ -221,7 +221,7 @@ class CascadeTree(object):
     def _calc_depth(self):
         depth = 0
         for node in self.tree:
-            depth = max(depth, node.depth() + 1)
+            depth = max(depth, node.depth())
         return depth
 
 

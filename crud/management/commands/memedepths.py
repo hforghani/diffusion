@@ -18,7 +18,8 @@ class Command(BaseCommand):
             start = time.time()
             self.stdout.write('meme count = %d' % Meme.objects.count())
             i = 0
-            for meme in Meme.objects.filter(depth__isnuall=True).iterator():
+            #for meme in Meme.objects.filter(depth__isnuall=True).iterator():
+            for meme in Meme.objects.iterator():
                 tree = CascadeTree().extract_cascade(meme)
                 meme.depth = tree.depth
                 meme.save()
