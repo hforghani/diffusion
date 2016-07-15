@@ -99,6 +99,7 @@ class Meme(models.Model):
     count = models.IntegerField(u'تعداد انتشار', null=True, blank=True)
     first_time = models.DateTimeField(u'اولین انتشار', null=True, blank=True)
     last_time = models.DateTimeField(u'آخرین انتشار', null=True, blank=True)
+    depth = models.IntegerField(u'عمق', null=True, blank=True)
 
     class Meta:
         verbose_name, verbose_name_plural = u'محتوای جریان‌ساز', u'محتواهای جریان‌ساز'

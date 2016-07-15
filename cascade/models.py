@@ -62,15 +62,23 @@ class CascadeNode(object):
         node.children = [child.copy() for child in self.children]
         return node
 
+    def depth(self):
+        depth = 0
+        for node in self.children:
+            depth = max(depth, node.depth() + 1)
+        return depth
+
 
 class CascadeTree(object):
     tree = []
+    depth = 0
 
     def __init__(self, tree=None):
         if tree is not None:
             if not isinstance(tree, list):
                 raise ValueError('tree must be a list of root nodes')
             self.tree = tree
+            self.depth = self._calc_depth()
 
     def extract_cascade(self, meme, log=False):
         # Fetch posts related to the meme and reshares.
@@ -132,6 +140,10 @@ class CascadeTree(object):
                 self.tree.append(node)
         if log:
             logger.info('\tTREE: time 4 = %.2f' % (time.time() - t1))
+
+        # Calculate tree depth.
+        self.depth = self._calc_depth()
+
         return self
 
     def get_dict(self):
@@ -205,6 +217,12 @@ class CascadeTree(object):
     def copy(self):
         tree_copy = [root.copy() for root in self.tree]
         return CascadeTree(tree_copy)
+
+    def _calc_depth(self):
+        depth = 0
+        for node in self.tree:
+            depth = max(depth, node.depth() + 1)
+        return depth
 
 
 class AsLT(object):

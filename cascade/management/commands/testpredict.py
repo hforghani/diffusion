@@ -51,6 +51,7 @@ class Command(BaseCommand):
             self.stdout.write('checking trees includes test set ...')
             i = 0
             if not set(test_set.values_list('id', flat=True)) == set(trees.keys()):
+                self.stdout.write('extracting cascade trees ...')
                 for meme in test_set.exclude(id__in=trees.keys()):
                     i += 1
                     t0 = time.time()
