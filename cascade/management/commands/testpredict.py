@@ -96,18 +96,18 @@ class Command(BaseCommand):
                 prec = meas.precision()
                 rec = meas.recall()
                 prp = meas.prp(model.weight_sum)
-                prp1 = prp[0] if prp else None
-                prp2 = prp[1] if len(prp) > 1 else None
+                prp1 = prp[0] if prp else 0
+                prp2 = prp[1] if len(prp) > 1 else 0
                 prp1_list.append(prp1)
                 prp2_list.append(prp2)
 
                 i += 1
                 self.stdout.write(
-                    'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f, prp = (%s, %s, ...)' % (
+                    'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f, prp = (%.3f, %.3f, ...)' % (
                         i, len(res_output), len(true_output), prec, rec, prp1, prp2))
 
-            self.stdout.write('prp1 avg = %.3f' % np.mean(np.array([val for val in prp1_list if val is not None])))
-            self.stdout.write('prp2 avg = %.3f' % np.mean(np.array([val for val in prp2_list if val is not None])))
+            self.stdout.write('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
+            self.stdout.write('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
 
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
         except:
