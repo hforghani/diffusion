@@ -16,7 +16,7 @@ class Command(BaseCommand):
         try:
             start = time.time()
 
-            dir_path = os.path.join(settings.BASEPATH, 'resources', 'memetracker')
+            dir_path = os.path.join(settings.BASEPATH, 'data', 'memetracker')
             if not os.path.exists(dir_path):
                 os.makedirs(dir_path)
 

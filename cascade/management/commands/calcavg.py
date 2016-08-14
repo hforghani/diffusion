@@ -46,7 +46,7 @@ class Command(BaseCommand):
         try:
             start = time.time()
             self.stdout.write('\tquerying posts and reshares ...')
-            train_set_path = os.path.join(settings.BASEPATH, 'resources', 'diff_samples.json')
+            train_set_path = os.path.join(settings.BASEPATH, 'data', 'diff_samples.json')
             train_set = json.load(open(train_set_path, 'r'))
             #train_set = list(
             #    np.random.choice(Meme.objects.filter(count__gt=500).values_list('id', flat=True), self.sample_count,
@@ -116,7 +116,7 @@ class Command(BaseCommand):
     def calc_delays(self, reshares, continue_prev):
         self.stdout.write('prepairing user pairs ...')
 
-        save_path = os.path.join('resources', 'diffparam_delay_saved.npy')
+        save_path = os.path.join('data', 'diffparam_delay_saved.npy')
         if continue_prev and os.path.exists(save_path):
             data = np.load(save_path).item()
             delays = data['delays']

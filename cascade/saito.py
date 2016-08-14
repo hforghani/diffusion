@@ -6,7 +6,7 @@ from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
 from scipy import sparse
 from sklearn.preprocessing import normalize
-from cascade.models import AsLT, logger, CascadeData
+from cascade.models import AsLT, logger
 from crud.models import UserAccount, Meme, Post, Reshare
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 
@@ -14,7 +14,7 @@ from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_s
 class Saito(AsLT):
     def __init__(self):
         super(Saito, self).__init__()
-        self.save_paths = {var: os.path.join(settings.BASEPATH, 'resources', 'saito_%s.npz' % var) for var in
+        self.save_paths = {var: os.path.join(settings.BASEPATH, 'data', 'saito_%s.npz' % var) for var in
                            ['w', 'r', 'h', 'g', 'phi_h', 'phi_g', 'psi']}
         self.save_paths['r'] = self.save_paths['r'][:-3] + 'npy'
         self.sample_count = 2500
@@ -121,9 +121,9 @@ class Saito(AsLT):
             logger.info('iteration time: %.2f min' % ((time.time() - t0) / 60.0))
 
     def load_or_extract_data(self):
-        graph_path = os.path.join(settings.BASEPATH, 'resources', 'graph.txt')
-        data_path = os.path.join(settings.BASEPATH, 'resources', 'sequences.json')
-        train_set_path = os.path.join(settings.BASEPATH, 'resources', 'samples.json')
+        graph_path = os.path.join(settings.BASEPATH, 'data', 'graph.txt')
+        data_path = os.path.join(settings.BASEPATH, 'data', 'sequences.json')
+        train_set_path = os.path.join(settings.BASEPATH, 'data', 'samples.json')
 
         if os.path.exists(train_set_path) and os.path.exists(graph_path) and os.path.exists(data_path):
             # Load graph and cascade data if exists.
@@ -618,3 +618,49 @@ class Saito(AsLT):
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return w
+
+
+class CascadeData(object):
+    def __init__(self, users=None, times=None, max_t=None):
+        # Suppose times are sorted and users[i] corresponds to times[i]
+        self.users = users if users is not None else []
+        self.times = times if times is not None else []
+        if users and times:
+            self.user_times = {users[i]: times[i] for i in range(len(users))}
+        self.max_t = max_t
+        self.rond_set = None
+
+    def users_before_time(self, datetime):
+        f = 0
+        l = len(self.times) - 1
+        while f != l:
+            m = (f + l) / 2
+            if datetime < self.times[m]:
+                l = m
+            else:
+                f = m
+        return self.users[:f + 1]
+
+    def users_before_user(self, user_id):
+        index = self.users.index(user_id)
+        return self.users[:index]
+
+    def get_rond_set(self, graph):
+        # Return set of non-active nodes with at least one active parent node for each.
+        if self.rond_set is None:
+            result = set()
+            for uid in self.users:
+                if uid in graph.nodes():
+                    result.update(set(graph.successors(uid)))
+            result = result - set(self.users)
+            self.rond_set = result
+        return self.rond_set
+
+    def get_active_parents(self, uid, graph):
+        rond_set = self.get_rond_set(graph)
+        parents = set(graph.predecessors(uid)) if uid in graph.nodes() else set()
+        if uid in rond_set:
+            active_parents = parents & set(self.users)
+        else:
+            active_parents = parents & set(self.users_before_user(uid))
+        return active_parents
