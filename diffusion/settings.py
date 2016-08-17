@@ -101,6 +101,7 @@ INSTALLED_APPS = (
     'accounts',
     'crud',
     'cascade',
+    'mln',
     'south',
 )
 
