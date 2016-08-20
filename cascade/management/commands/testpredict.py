@@ -32,7 +32,7 @@ class Command(BaseCommand):
         try:
             start = time.time()
 
-            train_set_path = os.path.join(settings.BASEPATH, 'data', 'samples.json')
+            train_set_path = os.path.join(settings.BASEPATH, 'data', 'train_set.json')
             train_set = json.load(open(train_set_path, 'r'))
             if options['train']:
                 test_set = Meme.objects.filter(id__in=train_set)

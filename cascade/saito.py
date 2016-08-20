@@ -123,7 +123,7 @@ class Saito(AsLT):
     def load_or_extract_data(self):
         graph_path = os.path.join(settings.BASEPATH, 'data', 'graph.txt')
         data_path = os.path.join(settings.BASEPATH, 'data', 'sequences.json')
-        train_set_path = os.path.join(settings.BASEPATH, 'data', 'samples.json')
+        train_set_path = os.path.join(settings.BASEPATH, 'data', 'train_set.json')
 
         if os.path.exists(train_set_path) and os.path.exists(graph_path) and os.path.exists(data_path):
             # Load graph and cascade data if exists.
