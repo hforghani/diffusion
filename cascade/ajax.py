@@ -195,8 +195,7 @@ def cascade_tree(request):
         if not 'id' in request.GET:
             raise ValueError('no meme id given')
         meme_id = request.GET['id']
-        meme = Meme.objects.get(id=meme_id)
-        res = CascadeTree().extract_cascade(meme).get_detailed_dict()
+        res = CascadeTree().extract_cascade(meme_id).get_detailed_dict()
         logger.info('cascade tree process time = %f' % (time.time() - start))
 
     return HttpResponse(json.dumps(res), content_type='application/json', mimetype='application/json')

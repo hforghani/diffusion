@@ -80,10 +80,10 @@ class CascadeTree(object):
             self.tree = tree
             self.depth = self._calc_depth()
 
-    def extract_cascade(self, meme, log=False):
+    def extract_cascade(self, meme_id, log=False):
         # Fetch posts related to the meme and reshares.
         t1 = time.time()
-        posts = Post.objects.filter(postmeme__meme=meme).distinct().order_by('datetime')
+        posts = Post.objects.filter(postmeme__meme=meme_id).distinct().order_by('datetime')
         user_ids = posts.values_list('author__id', flat=True).distinct()
         reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
         if log:

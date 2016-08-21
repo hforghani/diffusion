@@ -20,7 +20,7 @@ class Command(BaseCommand):
             i = 0
             #for meme in Meme.objects.filter(depth__isnuall=True).iterator():
             for meme in Meme.objects.iterator():
-                tree = CascadeTree().extract_cascade(meme)
+                tree = CascadeTree().extract_cascade(meme.id)
                 meme.depth = tree.depth
                 meme.save()
                 i += 1
