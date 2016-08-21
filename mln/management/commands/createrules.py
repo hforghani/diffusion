@@ -62,7 +62,7 @@ class Command(BaseCommand):
         try:
             start = time.time()
 
-            train_memes, trees = self.get_train_set(options)
+            train_memes, test_memes, trees = self.load_data()
             self.stdout.write('training set size = %d' % len(train_memes))
 
             if options['out_file']:
@@ -89,9 +89,6 @@ class Command(BaseCommand):
                 self.write_activates(trees, out_file)
 
             if do_all or options['test_rules']:
-                self.stdout.write('loading test set ...')
-                test_memes = list(Meme.objects.filter(depth__gte=1).exclude(id__in=train_memes).order_by('id'))
-                self.stdout.write('test set size = %d' % len(test_memes))
                 self.stdout.write('>>> writing "isActivated" rules for test set ...')
                 self.write_isactivated(trees, test_memes, out_file)
 
@@ -101,20 +98,14 @@ class Command(BaseCommand):
             self.stdout.write(traceback.format_exc())
             raise
 
-    def get_train_set(self, options):
-        train_set_path = os.path.join(settings.BASEPATH, 'data', 'train_set.json')
-        if os.path.exists(train_set_path):
+    def load_data(self):
+        sample_set_path = os.path.join(settings.BASEPATH, 'data', 'samples.json')
+        if os.path.exists(sample_set_path):
             self.stdout.write('loading training memes ...')
-            train_memes = json.load(open(train_set_path))
+            data = json.load(open(sample_set_path))
+            train_memes, test_memes = data['training'], data['test']
         else:
-            self.stdout.write('sampling training memes ...')
-            if options['train_num']:
-                train_count = options['train_num']
-            else:
-                train_count = 2.0 / 3 * Meme.objects.filter(depth__gte=1).count()
-            train_memes = list(
-                np.random.choice(Meme.objects.filter(depth__gte=1).values_list('id', flat=True), train_count,
-                                 replace=False))
+            raise Exception('Data sample not found. Run sampledata command.')
 
         # Load trees from the json file.
         path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
@@ -128,7 +119,7 @@ class Command(BaseCommand):
         self.stdout.write('converting trees to objects ...')
         trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
 
-        return train_memes, trees
+        return train_memes, test_memes, trees
 
     def write_follows(self, user_ids, user_indexes, train_memes, out_file):
         post_ids = Post.objects.filter(postmeme__meme_id__in=train_memes).values_list('id', flat=True).distinct()
