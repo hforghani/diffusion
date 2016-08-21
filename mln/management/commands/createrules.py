@@ -152,6 +152,8 @@ class Command(BaseCommand):
             rows, cols = resh_count.nonzero()
             for i in range(len(rows)):
                 u1, u2 = rows[i], cols[i]
+                if u1 == u2:
+                    continue
                 ratio = float(resh_count[u1, u2]) / total_resh_count[u2]
                 if ratio > self._follow_thr:
                     f.write('follows(u%d, u%d)\n' % (user_ids[u2], user_ids[u1]))
@@ -174,4 +176,3 @@ class Command(BaseCommand):
     def write_edge(self, node, meme_id, file_handler):
         for child in node.children:
             file_handler.write('activates(u%d, u%d, m%d)\n' % (node.user_id, child.user_id, meme_id))
-
