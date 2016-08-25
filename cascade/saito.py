@@ -1,22 +1,16 @@
-import json
-import os
 import time
-from django.conf import settings
-from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
+from networkx import DiGraph
 import numpy as np
 from scipy import sparse
 from sklearn.preprocessing import normalize
-from cascade.models import AsLT, logger
+from cascade.models import AsLT, logger, ParamTypes
 from crud.models import UserAccount, Meme, Post, Reshare
-from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 
 
 class Saito(AsLT):
-    def __init__(self):
-        super(Saito, self).__init__()
-        self.save_paths = {var: os.path.join(settings.BASEPATH, 'data', 'saito_%s.npz' % var) for var in
-                           ['w', 'r', 'h', 'g', 'phi_h', 'phi_g', 'psi']}
-        self.save_paths['r'] = self.save_paths['r'][:-3] + 'npy'
+    def __init__(self, project):
+        super(Saito, self).__init__(project)
+        self.project = project
         self.sample_count = 2500
 
     def calc_parameters(self, iterations=3):
@@ -31,15 +25,15 @@ class Saito(AsLT):
         meme_map = {meme_ids[i]: i for i in range(len(meme_ids))}
 
         # Set initial values of w and r.
-        if os.path.exists(self.save_paths['w']) and os.path.exists(self.save_paths['r']):
-            w = load_sparse(self.save_paths['w'])
-            r = np.load(self.save_paths['r'])
+        try:
+            w = self.project.load_param('w', ParamTypes.SPARSE)
+            r = self.project.load_param('r', ParamTypes.ARRAY)
             logger.info('w and r loaded')
-        else:
+        except:
             logger.info('initializing parameters ...')
             w, r = self.set_initial_values(graph, user_ids, user_map)
-            save_sparse(self.save_paths['w'], w)
-            np.save(self.save_paths['r'], r)
+            self.project.save_param(w, 'w', ParamTypes.SPARSE)
+            self.project.save_param(r, 'r', ParamTypes.ARRAY)
 
         # Run EM algorithm.
         logger.info('running algorithm ...')
@@ -47,52 +41,56 @@ class Saito(AsLT):
             t0 = time.time()
 
             logger.info('#%d' % (i + 1))
-            if os.path.exists(self.save_paths['h']):
-                h = load_sparse(self.save_paths['h'])
+            try:
+                h = self.project.load_param('h', ParamTypes.SPARSE)
                 logger.info('h loaded')
-            else:
+            except:
                 logger.info('calculating h ...')
                 h = self.calc_h(data, graph, w, r, meme_ids, meme_map, user_map)
-                save_sparse(self.save_paths['h'], h)
+                self.project.save_param(h, 'h', ParamTypes.SPARSE)
 
-            if os.path.exists(self.save_paths['g']):
-                g = load_sparse(self.save_paths['g'])
+            try:
+                g = self.project.load_param('g', ParamTypes.SPARSE)
                 logger.info('g loaded')
-            else:
+            except:
                 logger.info('calculating g ...')
                 g = self.calc_g(data, graph, w, r, meme_ids, meme_map, user_map)
-                save_sparse(self.save_paths['g'], g)
+                self.project.save_param(g, 'g', ParamTypes.SPARSE)
 
-            if not os.path.exists(self.save_paths['phi_h']):
+            try:
+                self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
+            except:
                 logger.info('calculating phi_h ...')
                 phi_h = self.calc_phi_h(data, graph, w, r, h, meme_ids, meme_map, user_map)
-                save_sparse_list(self.save_paths['phi_h'], phi_h)
+                self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
                 del phi_h
 
-            if not os.path.exists(self.save_paths['phi_g']):
+            try:
+                self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
+            except:
                 logger.info('calculating phi_g ...')
                 phi_g = self.calc_phi_g(data, graph, w, g, meme_ids, meme_map, user_map)
-                save_sparse_list(self.save_paths['phi_g'], phi_g)
+                self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
                 del phi_g
 
-            if not os.path.exists(self.save_paths['psi']):
+            try:
+                psi = self.project.load_param('psi', ParamTypes.SPARSE_LIST)
+                logger.info('psi loaded')
+            except:
                 logger.info('calculating psi ...')
                 psi = self.calc_psi(data, graph, w, r, g, meme_ids, meme_map, user_map)
-                save_sparse_list(self.save_paths['psi'], psi)
-            else:
-                psi = load_sparse_list(self.save_paths['psi'])
-                logger.info('psi loaded')
+                self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
 
             del h
             del g
-            phi_h = load_sparse_list(self.save_paths['phi_h'])
+            phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)
             logger.info('phi_h loaded')
 
             logger.info('estimating r ...')
             last_r = r
             r = self.calc_r(data, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map)
 
-            phi_g = load_sparse_list(self.save_paths['phi_g'])
+            phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
             logger.info('phi_g loaded')
 
             logger.info('estimating w ...')
@@ -102,12 +100,16 @@ class Saito(AsLT):
             del phi_h
             del phi_g
             del psi
-            np.save(self.save_paths['r'], r)
-            save_sparse(self.save_paths['w'], w)
 
+            # Save r and w.
+            self.project.save_param(r, 'r', ParamTypes.ARRAY)
+            self.project.save_param(w, 'w', ParamTypes.SPARSE)
+
+            # Delete all except w and r.
             for var in ['h', 'g', 'phi_h', 'phi_g', 'psi']:
-                os.remove(self.save_paths[var])
+                self.project.delete_param(var)
 
+            # Calculate and report delta r and delta w.
             r_dif = np.linalg.norm(r - last_r)
             w_dif = w - last_w
             w_dif = np.sqrt(w_dif.multiply(w_dif).sum())
@@ -121,32 +123,21 @@ class Saito(AsLT):
             logger.info('iteration time: %.2f min' % ((time.time() - t0) / 60.0))
 
     def load_or_extract_data(self):
-        graph_path = os.path.join(settings.BASEPATH, 'data', 'graph.txt')
-        data_path = os.path.join(settings.BASEPATH, 'data', 'sequences.json')
-        train_set_path = os.path.join(settings.BASEPATH, 'data', 'train_set.json')
+        graph_fname = 'graph'
+        seq_fname = 'sequences'
 
-        if os.path.exists(train_set_path) and os.path.exists(graph_path) and os.path.exists(data_path):
-            # Load graph and cascade data if exists.
-            logger.info('\tloading data ...')
-            train_set = json.load(open(train_set_path, 'r'))
-            graph = DiGraph()
-            graph = read_adjlist(graph_path, create_using=graph)
-            graph = relabel_nodes(graph, {n: int(n) for n in graph.nodes()})
-            data_copy = json.load(open(data_path, 'r'))
-            data = {}
-            for m in data_copy:
-                users = [item[0] for item in data_copy[m]['cascade']]
-                times = [item[1] for item in data_copy[m]['cascade']]
-                data[int(m)] = CascadeData(users=users, times=times, max_t=data_copy[m]['max_t'])
+        train_set, test_set = self.project.load_data()
 
-        else:
-            if self.sample_count:
-                train_set = list(
-                    np.random.choice(Meme.objects.filter(count__gt=500).values_list('id', flat=True), self.sample_count,
-                                     replace=False))
-            else:
-                train_set = Meme.objects.filter(count__gt=500).values_list('id', flat=True)
-                #train_set = json.load(open(train_set_path, 'r'))
+        try:
+            graph = self.project.load_param(graph_fname, ParamTypes.GRAPH)
+            seq_copy = self.project.load_param(seq_fname, ParamTypes.JSON)
+            sequences = {}
+            for m in seq_copy:
+                users = [item[0] for item in seq_copy[m]['cascade']]
+                times = [item[1] for item in seq_copy[m]['cascade']]
+                sequences[int(m)] = CascadeData(users=users, times=times, max_t=seq_copy[m]['max_t'])
+
+        except:  # If graph and sequence data does not exist.
             logger.info('\tquerying posts and reshares ...')
             t0 = time.time()
             posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
@@ -165,32 +156,31 @@ class Saito(AsLT):
             # Create graph and cascade data.
             logger.info('\textracting cascades from %d posts and %d reshares ...' % (post_count, resh_count))
             meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
-            edges, data = self.extract_data(posts, reshares, first_times, meme_ids)
+            edges, sequences = self.extract_data(posts, reshares, first_times, meme_ids)
             graph = DiGraph()
             graph.add_edges_from(edges)
 
             logger.info('\tsetting max times ...')
             i = 0
-            for meme in Meme.objects.filter(id__in=data.keys()).iterator():
-                data[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
+            for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
+                sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
                     3600.0 * 24)  # number of days
                 i += 1
                 if i % (len(meme_ids) / 10) == 0:
                     logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
 
             logger.info('\tsaving data ...')
-            data_copy = {}
-            for m in data:
-                data_copy[m] = {
-                    'cascade': [(data[m].users[i], data[m].times[i]) for i in range(len(data[m].users))],
-                    'max_t': data[m].max_t
+            seq_copy = {}
+            for m in sequences:
+                seq_copy[m] = {
+                    'cascade': [(sequences[m].users[i], sequences[m].times[i]) for i in range(len(sequences[m].users))],
+                    'max_t': sequences[m].max_t
                 }
-            json.dump(data_copy, open(data_path, 'w'), indent=4)
-            json.dump(train_set, open(train_set_path, 'w'), indent=4)
-            del data_copy
-            write_adjlist(graph, graph_path)
+            self.project.save_param(seq_copy, seq_fname, ParamTypes.JSON)
+            del seq_copy
+            self.project.save_param(graph, graph_fname, ParamTypes.GRAPH)
 
-        return graph, data, train_set
+        return graph, sequences, train_set
 
     def extract_data(self, posts, reshares, first_times, meme_ids):
         t0 = time.time()

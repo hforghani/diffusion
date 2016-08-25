@@ -3,6 +3,7 @@ from optparse import make_option
 import traceback
 from django.core.management.base import BaseCommand
 import time
+from cascade.models import Project
 from cascade.saito import Saito
 
 
@@ -10,6 +11,13 @@ class Command(BaseCommand):
     help = 'Calculates diffusion model parameters using Saito method'
 
     option_list = BaseCommand.option_list + (
+        make_option(
+            "-p",
+            "--project",
+            type="string",
+            dest="project",
+            help="project name",
+        ),
         make_option(
             "-i",
             "--iterations",
@@ -22,8 +30,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
+            # Get project or raise exception.
+            project_name = options['project']
+            if project_name is None:
+                raise Exception('project not specified')
+            project = Project(project_name)
+
+            # Calculate Saito parameters.
             start = time.time()
-            Saito().calc_parameters(iterations=options['iterations'])
+            Saito(project).calc_parameters(iterations=options['iterations'])
             self.stdout.write('command done in %.2f min' % ((time.time() - start) / 60.0))
         except:
             self.stdout.write(traceback.format_exc())

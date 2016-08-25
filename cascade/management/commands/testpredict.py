@@ -10,19 +10,20 @@ import numpy as np
 from cascade.validation import Validation
 from cascade.saito import Saito
 from crud.models import Meme, UserAccount
-from cascade.models import CascadeTree
+from cascade.models import CascadeTree, Project
 
 
 class Command(BaseCommand):
     help = 'Test information diffusion prediction'
 
     option_list = BaseCommand.option_list + (
-        make_option('-t',
-                    '--train',
-                    action='store_true',
-                    dest='train',
-                    default=False,
-                    help='Test on training set instead of test set'),
+        make_option(
+            "-p",
+            "--project",
+            type="string",
+            dest="project",
+            help="project name",
+        ),
     )
 
     def __init__(self):
@@ -32,37 +33,16 @@ class Command(BaseCommand):
         try:
             start = time.time()
 
-            train_set_path = os.path.join(settings.BASEPATH, 'data', 'train_set.json')
-            train_set = json.load(open(train_set_path, 'r'))
-            if options['train']:
-                test_set = Meme.objects.filter(id__in=train_set)
-            else:
-                test_set = Meme.objects.filter(count__gt=500).exclude(id__in=train_set)
-            test_set = test_set.filter(depth__gt=0).order_by('id')
+            # Get project or raise exception.
+            project_name = options['project']
+            if project_name is None:
+                raise Exception('project not specified')
+            project = Project(project_name)
+
+            # Load training and test sets and cascade trees.
+            train_set, test_set = project.load_data()
+            trees = project.load_trees()
             self.stdout.write('test set size = %d' % test_set.count())
-
-            # Load trees from the json file.
-            path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
-            trees = {}
-            if os.path.exists(path):
-                self.stdout.write('loading trees ...')
-                trees = json.load(open(path, 'r'))
-                trees = {long(key): value for key, value in trees.items()}
-
-            # Check if all meme trees are in trees dictionary. Extract the cascade trees which are not in trees.
-            self.stdout.write('checking trees includes test set ...')
-            i = 0
-            if not set(test_set.values_list('id', flat=True)) <= set(trees.keys()):
-                self.stdout.write('extracting cascade trees ...')
-                for meme in test_set.exclude(id__in=trees.keys()):
-                    i += 1
-                    t0 = time.time()
-                    tree = CascadeTree().extract_cascade(meme).get_dict()
-                    self.stdout.write('meme %d done: %.2f s' % (i, time.time() - t0))
-                    trees[meme.id] = tree
-                    if i % 100 == 0:
-                        json.dump(trees, open(path, 'w'), indent=4)
-                json.dump(trees, open(path, 'w'), indent=4)
 
             # Convert tree dictionaries to tree objects.
             self.stdout.write('converting trees to objects ...')

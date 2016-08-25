@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 from datetime import timedelta
+import json
 import logging
+import os
 import random
 import time
+from django.conf import settings
+from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
 from crud.models import UserAccount, Post, Reshare
-from utils.numpy_utils import load_sparse
+from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
 logger = logging.getLogger('diffusion.diffusion.models')
@@ -210,7 +214,7 @@ class CascadeTree(object):
         else:
             parent_id = node.user_id
             edges_list = [(parent_id, child.user_id) for child in node.children]
-            for child in node.childrens:
+            for child in node.children:
                 edges_list.extend(self.edges(child))
         return edges_list
 
@@ -226,7 +230,8 @@ class CascadeTree(object):
 
 
 class AsLT(object):
-    def __init__(self):
+    def __init__(self, project):
+        self.project = project
         self.max_delay = 999999999
         self.save_paths = {'w': '', 'r': ''}  # implement in children.
         self.weight_sum = {}  # dictionary of node id's to sums of parents weights
@@ -255,9 +260,11 @@ class AsLT(object):
 
         # Get weights and delay vectors.
         t0 = time.time()
-        w = load_sparse(self.save_paths['w'])
+        w = self.project.load_param('w', 'sparse')
+        #w = load_sparse(self.save_paths['w'])
         w = w.tocsr()
-        r = np.load(self.save_paths['r'])
+        r = self.project.load_param('r', 'array')
+        #r = np.load(self.save_paths['r'])
         if log:
             logger.info('time2 = %.2f' % (time.time() - t0))
 
@@ -315,3 +322,109 @@ class AsLT(object):
                 logger.info('time = %.2f' % (time.time() - t0))
 
         return self.tree
+
+
+class ParamTypes(object):
+    JSON = 'json'
+    ARRAY = 'array'
+    SPARSE = 'sparse'
+    SPARSE_LIST = 'splist'
+    GRAPH = 'graph'
+
+
+class Project(object):
+    def __init__(self, project_name):
+        self.project_name = project_name
+        self.project_path = os.path.join(settings.BASEPATH, 'data', project_name)
+        # Create the project path if does not exist.
+        if not os.path.exists(self.project_path):
+            os.mkdir(self.project_path)
+        self.training = None
+        self.test = None
+        self.trees = None
+
+    def save_data(self, test_set, train_set):
+        # Dump the json into the file.
+        data = {'training': train_set, 'test': test_set}
+        if not os.path.exists(self.project_path):
+            os.mkdir(self.project_path)
+        sample_path = os.path.join(self.project_path, 'samples.json')
+        json.dump(data, open(sample_path, 'w'), indent=4)
+
+    def load_data(self):
+        sample_set_path = os.path.join(self.project_path, 'samples.json')
+        if os.path.exists(sample_set_path):
+            logger.info('loading training memes ...')
+            data = json.load(open(sample_set_path))
+            train_memes, test_memes = data['training'], data['test']
+        else:
+            raise Exception('Data sample not found. Run sampledata command.')
+
+        self.training = train_memes
+        self.test = test_memes
+
+        return train_memes, test_memes
+
+    def load_trees(self):
+        # Load trees from the json file.
+        trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
+        if os.path.exists(trees_path):
+            logger.info('loading trees ...')
+            trees = json.load(open(trees_path, 'r'))
+            trees = {long(key): value for key, value in trees.items()}
+        else:
+            raise Exception('Trees data not found. Run extracttrees command.')
+
+        # Keep just trees of the training and test set.
+        trees = {meme_id: trees[meme_id] for meme_id in self.training + self.test}
+
+        # Convert tree dictionaries to tree objects.
+        logger.info('converting trees to objects ...')
+        trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
+
+        self.trees = trees
+        return trees
+
+    SUFFIXES = {
+        ParamTypes.JSON: 'json',
+        ParamTypes.ARRAY: 'npy',
+        ParamTypes.SPARSE: 'npz',
+        ParamTypes.SPARSE_LIST: 'npz',
+        ParamTypes.GRAPH: 'txt'
+    }
+
+    def save_param(self, param, name, type):
+        path = os.path.join(self.project_path, '%s.%s' % (name, self.SUFFIXES[type]))
+        if type == ParamTypes.JSON:
+            json.dump(param, open(path, 'w'), indent=4)
+        elif type == ParamTypes.ARRAY:
+            np.save(path, param)
+        elif type == ParamTypes.SPARSE:
+            save_sparse(path, param)
+        elif type == ParamTypes.SPARSE_LIST:
+            save_sparse_list(path, param)
+        elif type == ParamTypes.GRAPH:
+            write_adjlist(param, path)
+        else:
+            raise Exception('invalid type "%s"' % type)
+
+    def load_param(self, name, type):
+        path = os.path.join(self.project_path, '%s.%s' % (name, self.SUFFIXES[type]))
+        if type == ParamTypes.JSON:
+            return json.load(open(path, 'w'))
+        elif type == ParamTypes.ARRAY:
+            return np.load(path)
+        elif type == ParamTypes.SPARSE:
+            return load_sparse(path)
+        elif type == ParamTypes.SPARSE_LIST:
+            return load_sparse_list(path)
+        elif type == ParamTypes.GRAPH:
+            graph = DiGraph()
+            graph = read_adjlist(path, create_using=graph)
+            graph = relabel_nodes(graph, {n: int(n) for n in graph.nodes()})
+            return graph
+        else:
+            raise Exception('invalid type "%s"' % type)
+
+    def delete_param(self, name):
+        os.remove(os.path.join(self.project_path, name))

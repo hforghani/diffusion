@@ -9,7 +9,7 @@ import numpy as np
 from django.core.management.base import BaseCommand
 import time
 from scipy import sparse
-from cascade.models import CascadeTree
+from cascade.models import CascadeTree, Project
 from crud.models import Meme, UserAccount, Reshare, Post
 
 
@@ -18,8 +18,14 @@ class Command(BaseCommand):
 
     option_list = BaseCommand.option_list + (
         make_option(
-            "-o",
-            "--output",
+            "-p",
+            "--project",
+            type="string",
+            dest="project",
+            help="project name",
+        ),
+        make_option(
+            "-o", "--output",
             type="string",
             dest="out_file",
             help="path of output file",
@@ -46,11 +52,12 @@ class Command(BaseCommand):
             help="just write 'isActivated' rules in the file"
         ),
         make_option(
-            "-t",
-            "--testrules",
-            action="store_true",
-            dest="test_rules",
-            help="just write 'isActivated' rules for the test set in the file"
+            "-s",
+            "--set",
+            type="string",
+            dest="set",
+            default="train",
+            help="create rules for training set or test set; valid values are 'train' or 'test'"
         ),
     )
 
@@ -62,64 +69,57 @@ class Command(BaseCommand):
         try:
             start = time.time()
 
-            train_memes, test_memes, trees = self.load_data()
-            self.stdout.write('training set size = %d' % len(train_memes))
+            # Get project or raise exception.
+            project_name = options['project']
+            if project_name is None:
+                raise Exception('project not specified')
+            project = Project(project_name)
 
+            # Load training and test sets and all cascade trees.
+            train_memes, test_memes = project.load_data()
+            trees = project.load_trees()
+
+            # Get and delete the content of rules file.
             if options['out_file']:
-                out_file = options['out_file']
+                file_name = options['out_file']
             else:
-                out_file = os.path.join(settings.BASEPATH, 'data', 'rules.db')
+                file_name = 'rules.db'
+            out_file = os.path.join(project_path, file_name)
+            open(out_file, 'w')
 
-            do_all = not (options['follows'] or options['activates'] or options['isactivated'] or options['test_rules'])
+            do_all = not (options['follows'] or options['activates'] or options['isactivated'])
 
             users_count = UserAccount.objects.count()
             user_ids = UserAccount.objects.values_list('id', flat=True)
             user_indexes = {user_ids[i]: i for i in range(len(user_ids))}
 
-            if do_all or options['follows']:
-                self.stdout.write('>>> writing "follows" rules ...')
-                self.write_follows(user_ids, user_indexes, train_memes, out_file)
+            if options['set'] == 'train':
+                self.stdout.write('rules will be created for training set')
+                self.stdout.write('training set size = %d' % len(train_memes))
+                if do_all or options['follows']:
+                    self.stdout.write('>>> writing "follows" rules ...')
+                    self.write_follows(user_ids, user_indexes, train_memes, out_file)
 
-            if do_all or options['isactivated']:
-                self.stdout.write('>>> writing "isActivated" rules for training set ...')
-                self.write_isactivated(trees, train_memes, out_file)
+                if do_all or options['isactivated']:
+                    self.stdout.write('>>> writing "isActivated" rules ...')
+                    self.write_isactivated(trees, train_memes, out_file)
 
-            if do_all or options['activates']:
-                self.stdout.write('>>> writing "activates" rules ...')
-                self.write_activates(trees, out_file)
+                if do_all or options['activates']:
+                    self.stdout.write('>>> writing "activates" rules ...')
+                    self.write_activates(trees, train_memes, out_file)
 
-            if do_all or options['test_rules']:
-                self.stdout.write('>>> writing "isActivated" rules for test set ...')
-                self.write_isactivated(trees, test_memes, out_file)
+            elif options['set'] == 'test':
+                self.stdout.write('rules will be created for test set')
+                self.stdout.write('test set size = %d' % len(test_memes))
+                if do_all or options['isactivated']:
+                    self.stdout.write('>>> writing "isActivated" rules ...')
+                    self.write_isactivated(trees, test_memes, out_file, initials=True)
 
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
 
         except:
             self.stdout.write(traceback.format_exc())
             raise
-
-    def load_data(self):
-        sample_set_path = os.path.join(settings.BASEPATH, 'data', 'samples.json')
-        if os.path.exists(sample_set_path):
-            self.stdout.write('loading training memes ...')
-            data = json.load(open(sample_set_path))
-            train_memes, test_memes = data['training'], data['test']
-        else:
-            raise Exception('Data sample not found. Run sampledata command.')
-
-        # Load trees from the json file.
-        path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
-        trees = {}
-        if os.path.exists(path):
-            self.stdout.write('loading trees ...')
-            trees = json.load(open(path, 'r'))
-            trees = {long(key): value for key, value in trees.items()}
-
-        # Convert tree dictionaries to tree objects.
-        self.stdout.write('converting trees to objects ...')
-        trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
-
-        return train_memes, test_memes, trees
 
     def write_follows(self, user_ids, user_indexes, train_memes, out_file):
         post_ids = Post.objects.filter(postmeme__meme_id__in=train_memes).values_list('id', flat=True).distinct()
@@ -150,20 +150,21 @@ class Command(BaseCommand):
                     f.write('follows(u%d, u%d)\n' % (user_ids[u2], user_ids[u1]))
             f.write('\n')
 
-    def write_isactivated(self, trees, meme_ids, out_file):
+    def write_isactivated(self, trees, meme_ids, out_file, initials=False):
         with open(out_file, 'a') as f:
             for meme_id in meme_ids:
-                for node in trees[meme_id].tree:
+                if initials:
+                    nodes = trees[meme_id].tree
+                else:
+                    nodes = trees[meme_id].nodes()
+                for node in nodes:
                     f.write('isActivated(u%d, m%d)\n' % (node.user_id, meme_id))
             f.write('\n')
 
-    def write_activates(self, trees, out_file):
+    def write_activates(self, trees, meme_ids, out_file):
         with open(out_file, 'a') as f:
-            for meme_id in trees:
-                for node in trees[meme_id].tree:
-                    self.write_edge(node, meme_id, f)
+            for meme_id in meme_ids:
+                edges = trees[meme_id].edges()
+                for edge in edges:
+                    f.write('activates(u%d, u%d, m%d)\n' % (edge[0], edge[1], meme_id))
             f.write('\n')
-
-    def write_edge(self, node, meme_id, file_handler):
-        for child in node.children:
-            file_handler.write('activates(u%d, u%d, m%d)\n' % (node.user_id, child.user_id, meme_id))
