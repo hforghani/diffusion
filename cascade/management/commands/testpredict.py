@@ -63,7 +63,7 @@ class Command(BaseCommand):
 
                 # Predict remaining nodes.
                 user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
-                model = Saito().fit(initial_tree)
+                model = Saito(project).fit(initial_tree)
                 res_tree = model.predict(user_ids)
 
                 # Evaluate the result.
