@@ -106,8 +106,11 @@ class Saito(AsLT):
             self.project.save_param(w, 'w', ParamTypes.SPARSE)
 
             # Delete all except w and r.
-            for var in ['h', 'g', 'phi_h', 'phi_g', 'psi']:
-                self.project.delete_param(var)
+            self.project.delete_param('h', ParamTypes.SPARSE)
+            self.project.delete_param('g', ParamTypes.SPARSE)
+            self.project.delete_param('phi_h', ParamTypes.SPARSE_LIST)
+            self.project.delete_param('phi_g', ParamTypes.SPARSE_LIST)
+            self.project.delete_param('psi', ParamTypes.SPARSE_LIST)
 
             # Calculate and report delta r and delta w.
             r_dif = np.linalg.norm(r - last_r)
@@ -292,7 +295,7 @@ class Saito(AsLT):
                     rows.append(mid_i)
                     cols.append(uid_i)
             i += 1
-            if i % (m_count / 10) == 0:
+            if m_count >= 10 and i % (m_count / 10) == 0:
                 logger.info('\t%d%% done' % (i * 100 / m_count))
 
         h = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
@@ -335,7 +338,7 @@ class Saito(AsLT):
                 cols.append(uid_i)
 
             i += 1
-            if i % (len(meme_ids) / 10) == 0:
+            if m_count >= 10 and i % (m_count / 10) == 0:
                 logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
 
         g = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
@@ -381,7 +384,7 @@ class Saito(AsLT):
             phi_h[mid_i] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
 
             i += 1
-            if i % (len(meme_ids) / 10) == 0:
+            if len(meme_ids) >= 10 and i % (len(meme_ids) / 10) == 0:
                 logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
@@ -422,7 +425,7 @@ class Saito(AsLT):
             phi_g[mid_i] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
 
             i += 1
-            if i % (len(meme_ids) / 10) == 0:
+            if len(meme_ids) >= 10 and i % (len(meme_ids) / 10) == 0:
                 logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
@@ -464,7 +467,7 @@ class Saito(AsLT):
             psi[mid_i] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
 
             i += 1
-            if i % (len(meme_ids) / 10) == 0:
+            if len(meme_ids) >= 10 and i % (len(meme_ids) / 10) == 0:
                 logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
@@ -527,7 +530,7 @@ class Saito(AsLT):
                     logger.info('\tWARNING: denominator = 0, r = inf')
 
             i += 1
-            if i % (len(user_ids) / 10) == 0:
+            if len(user_ids) >= 10 and i % (len(user_ids) / 10) == 0:
                 logger.info('\t%d%% done' % (i * 100 / len(user_ids)))
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
@@ -582,7 +585,7 @@ class Saito(AsLT):
             #        (u, v), muv_set1[(u, v)], muv_set2[(u, v)], muv_set3[(u, v)]))
 
             i += 1
-            if i % (val_count / 10) == 0:
+            if val_count >= 10 and i % (val_count / 10) == 0:
                 logger.info('\t%d%% done' % (i * 100 / val_count))
 
         for v in graph.nodes():
@@ -597,7 +600,7 @@ class Saito(AsLT):
                     #    logger.info('\t\tWARNING: w = 0 at %s, set: %s' % ((v, v), mv_set2[v]))
 
             i += 1
-            if i % (val_count / 10) == 0:
+            if val_count >= 10 and i % (val_count / 10) == 0:
                 logger.info('\t%d%% done' % (i * 100 / val_count))
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype='d')

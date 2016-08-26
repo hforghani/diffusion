@@ -411,7 +411,7 @@ class Project(object):
     def load_param(self, name, type):
         path = os.path.join(self.project_path, '%s.%s' % (name, self.SUFFIXES[type]))
         if type == ParamTypes.JSON:
-            return json.load(open(path, 'w'))
+            return json.load(open(path))
         elif type == ParamTypes.ARRAY:
             return np.load(path)
         elif type == ParamTypes.SPARSE:
@@ -426,5 +426,6 @@ class Project(object):
         else:
             raise Exception('invalid type "%s"' % type)
 
-    def delete_param(self, name):
-        os.remove(os.path.join(self.project_path, name))
+    def delete_param(self, name, type):
+        path = os.path.join(self.project_path, '%s.%s' % (name, self.SUFFIXES[type]))
+        os.remove(path)
