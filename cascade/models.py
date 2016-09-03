@@ -232,9 +232,11 @@ class CascadeTree(object):
 class AsLT(object):
     def __init__(self, project):
         self.project = project
+        self.tree = None
         self.max_delay = 999999999
-        self.save_paths = {'w': '', 'r': ''}  # implement in children.
         self.weight_sum = {}  # dictionary of node id's to sums of parents weights
+        self.w_param_name = 'w'
+        self.r_param_name = 'r'
 
     def fit(self, tree):
         if not isinstance(tree, CascadeTree):
@@ -244,7 +246,7 @@ class AsLT(object):
 
     def predict(self, user_ids=None, log=False):
         if not self.tree:
-            raise ValueError('no tree set')
+            raise ValueError('fit a data before prediction')
 
         # Initialize values.
         t0 = time.time()
@@ -260,11 +262,9 @@ class AsLT(object):
 
         # Get weights and delay vectors.
         t0 = time.time()
-        w = self.project.load_param('w', 'sparse')
-        #w = load_sparse(self.save_paths['w'])
+        w = self.project.load_param(self.w_param_name, 'sparse')
         w = w.tocsr()
-        r = self.project.load_param('r', 'array')
-        #r = np.load(self.save_paths['r'])
+        r = self.project.load_param(self.r_param_name, 'array')
         if log:
             logger.info('time2 = %.2f' % (time.time() - t0))
 
@@ -295,7 +295,7 @@ class AsLT(object):
                     # Try to activate the children.
                     sample = random.random()
                     #sample = 0.5
-                    #If activated successfully add it the tree and estimate the delay.
+                    # If activated successfully add it the tree and estimate the delay.
                     if sample <= self.weight_sum[v]:
                         # Get delay parameter.
                         delay_param = r[v_i]
@@ -311,6 +311,80 @@ class AsLT(object):
                         receive_dt = send_dt + timedelta(days=delay)
                         if receive_dt < now:
                             continue
+                        child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
+                        node.children.append(child)
+                        activated.append(v)
+                        next_step.append(child)
+                        if log:
+                            logger.info('\ta reshare predicted')
+            cur_step = sorted(next_step, key=lambda n: n.datetime)
+            if log:
+                logger.info('time = %.2f' % (time.time() - t0))
+
+        return self.tree
+
+
+class IC(object):
+    def __init__(self, project):
+        self.project = project
+        self.tree = None
+
+    def fit(self, tree):
+        if not isinstance(tree, CascadeTree):
+            raise ValueError('tree must be CascadeTree')
+        self.tree = tree.copy()
+        return self
+
+    def predict(self, user_ids=None, log=False):
+        if not self.tree:
+            raise ValueError('fit a data before prediction')
+
+        # Initialize values.
+        t0 = time.time()
+        cur_step = sorted(self.tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
+        activated = self.tree.nodes()
+        if user_ids is None:
+            user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+        user_map = {user_ids[i]: i for i in range(len(user_ids))}
+        if log:
+            logger.info('time1 = %.2f' % (time.time() - t0))
+
+        # Get diffusion probabilities and delay vectors.
+        t0 = time.time()
+        p = self.project.load_param('p', 'sparse')
+        p = p.tocsr()
+        if log:
+            logger.info('time2 = %.2f' % (time.time() - t0))
+
+        # Iterate on steps. For each step try to activate other nodes.
+        i = 0
+        while cur_step:
+            t0 = time.time()
+            i += 1
+            if log:
+                logger.info('\tstep %d ...' % i)
+
+            next_step = []
+
+            for node in cur_step:
+                u = node.user_id  # sender user id
+                u_i = user_map[u]
+                p_u = np.squeeze(np.array(p[u_i, :].todense()))  # weights of the children of u
+
+                # Iterate on children of u
+                for v_i in np.nonzero(p_u)[0]:
+                    v = user_ids[int(v_i)]  # receiver (child) user id
+                    if v in activated:
+                        continue
+
+                    # Try to activate the child.
+                    sample = random.random()
+                    #sample = 0.5
+                    # If activated successfully add it the tree and estimate the delay.
+                    if sample <= p_u[v_i]:
+                        # Get delay parameter.
+                        send_dt = str_to_datetime(node.datetime)
+                        receive_dt = send_dt + timedelta(days=1)
                         child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
                         node.children.append(child)
                         activated.append(v)
@@ -354,7 +428,7 @@ class Project(object):
     def load_data(self):
         sample_set_path = os.path.join(self.project_path, 'samples.json')
         if os.path.exists(sample_set_path):
-            logger.info('loading training memes ...')
+            logger.info('loading training and test data ...')
             data = json.load(open(sample_set_path))
             train_memes, test_memes = data['training'], data['test']
         else:

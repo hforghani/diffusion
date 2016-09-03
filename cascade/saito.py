@@ -12,6 +12,8 @@ class Saito(AsLT):
         super(Saito, self).__init__(project)
         self.project = project
         self.sample_count = 2500
+        self.w_param_name = 'w-saito'
+        self.r_param_name = 'r-saito'
 
     def calc_parameters(self, iterations=3):
         # Load dataset.
@@ -26,14 +28,14 @@ class Saito(AsLT):
 
         # Set initial values of w and r.
         try:
-            w = self.project.load_param('w', ParamTypes.SPARSE)
-            r = self.project.load_param('r', ParamTypes.ARRAY)
+            w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
+            r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
             logger.info('w and r loaded')
         except:
             logger.info('initializing parameters ...')
             w, r = self.set_initial_values(graph, user_ids, user_map)
-            self.project.save_param(w, 'w', ParamTypes.SPARSE)
-            self.project.save_param(r, 'r', ParamTypes.ARRAY)
+            self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
+            self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
 
         # Run EM algorithm.
         logger.info('running algorithm ...')

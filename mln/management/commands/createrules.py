@@ -46,7 +46,7 @@ class Command(BaseCommand):
             train_memes, test_memes = project.load_data()
             trees = project.load_trees()
 
-            # Get and delete the content of rules file.
+            # Get the path of rules file.
             if options['out_file']:
                 file_name = options['out_file']
             else:

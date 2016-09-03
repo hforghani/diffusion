@@ -8,6 +8,7 @@ from django.core.management.base import BaseCommand
 import time
 from django.db.models import Q, Count
 import numpy as np
+from cascade.models import Project, ParamTypes
 from crud.models import Reshare, UserAccount, Post
 from scipy import sparse
 
@@ -16,6 +17,13 @@ class Command(BaseCommand):
     help = 'Calculates diffusion model parameters'
 
     option_list = BaseCommand.option_list + (
+        make_option(
+            "-p",
+            "--project",
+            type="string",
+            dest="project",
+            help="project name",
+        ),
         make_option(
             "-w",
             "--weight",
@@ -45,28 +53,34 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             start = time.time()
-            self.stdout.write('\tquerying posts and reshares ...')
-            train_set_path = os.path.join(settings.BASEPATH, 'data', 'diff_samples.json')
-            train_set = json.load(open(train_set_path, 'r'))
-            #train_set = list(
-            #    np.random.choice(Meme.objects.filter(count__gt=500).values_list('id', flat=True), self.sample_count,
-            #                     replace=False))
-            #json.dump(train_set, open(train_set_path, 'w'), indent=4)
+
+            # Get project or raise exception.
+            project_name = options['project']
+            if project_name is None:
+                raise Exception('project not specified')
+            project = Project(project_name)
+            train_set, test_set = project.load_data()
+
+            self.stdout.write('querying posts and reshares ...')
             posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
             reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct()
 
             if options['weight'] or not options['delay']:
-                self.calc_weights(reshares, posts)
+                self.calc_weights(reshares, posts, project)
             if options['delay'] or not options['weight']:
-                self.calc_delays(reshares, options['continue'])
+                self.calc_delays(reshares, options['continue'], project)
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
         except:
             self.stdout.write(traceback.format_exc())
             raise
 
-    def calc_weights(self, reshares, posts):
+    def calc_weights(self, reshares, posts, project):
         self.stdout.write('counting reshares of users ...')
-        reshares = reshares.values('user_id', 'ref_user_id').annotate(count=Count('datetime'))
+        resh_counts = reshares.values('user_id', 'ref_user_id').annotate(count=Count('datetime'))
+
+        self.stdout.write('counting posts of users ...')
+        post_counts = list(posts.values('author_id').annotate(count=Count('datetime')))
+        post_counts = {obj['author_id']: obj['count'] for obj in post_counts}
 
         self.stdout.write('getting user ids ...')
         user_ids = UserAccount.objects.values_list('id', flat=True)
@@ -74,46 +88,25 @@ class Command(BaseCommand):
         users_map = {user_ids[i]: i for i in range(users_count)}
 
         self.stdout.write('constructing weight matrix ...')
-        resh_count = reshares.count()
-        counts = np.zeros(resh_count)
+        resh_count = resh_counts.count()
+        values = np.zeros(resh_count)
         ij = np.zeros((2, resh_count))
         i = 0
-        for resh in reshares:
-            counts[i] = resh['count']
+        for resh in resh_counts:
+            values[i] = float(resh['count']) / post_counts[resh['user_id']]
             sender_id = users_map[resh['ref_user_id']]
             receiver_id = users_map[resh['user_id']]
             ij[:, i] = [sender_id, receiver_id]
             i += 1
             if i % 10000 == 0:
                 self.stdout.write('\t%d edges done' % i)
-        del reshares
-        weights = sparse.csc_matrix((counts, ij), shape=(users_count, users_count))
+        del resh_counts
+        weights = sparse.csc_matrix((values, ij), shape=(users_count, users_count))
 
-        self.stdout.write('counting posts of users ...')
-        posts = list(posts.values('author_id').annotate(count=Count('datetime')))
-        post_counts = np.zeros(users_count)
-        for post in posts:
-            post_counts[users_map[post['author_id']]] = post['count']
-        del posts
+        self.stdout.write('saving w ...')
+        project.save_param(weights, 'w', ParamTypes.SPARSE)
 
-        self.stdout.write('deleting diffusion parameters ...')
-        DiffusionParam.objects.all().delete()
-
-        self.stdout.write('saving %d diff. weights in db ...' % len(counts))
-        (rows, cols) = weights.nonzero()
-        entries = []
-        for i in range(len(rows)):
-            r = rows[i]
-            c = cols[i]
-            weight = weights[r, c] / post_counts[r]
-            entries.append(DiffusionParam(sender_id=user_ids[r], receiver_id=user_ids[c], weight=weight))
-            if len(entries) == 10000:
-                DiffusionParam.objects.bulk_create(entries)
-                entries = []
-                self.stdout.write('\t%d diff. weights saved' % (i + 1))
-        DiffusionParam.objects.bulk_create(entries)
-
-    def calc_delays(self, reshares, continue_prev):
+    def calc_delays(self, reshares, continue_prev, project):
         self.stdout.write('prepairing user pairs ...')
 
         save_path = os.path.join('data', 'diffparam_delay_saved.npy')
