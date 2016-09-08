@@ -77,6 +77,12 @@ class Command(BaseCommand):
             project = Project(project_name)
             project.save_data(test_set, train_set)
 
+            trees = project.load_trees()
+            nodes = set()
+            for meme in meme_ids:
+                nodes.update(trees[meme].node_ids())
+            self.stdout.write('number of all users = %d' % len(nodes))
+
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
         except:
             self.stdout.write(traceback.format_exc())

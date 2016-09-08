@@ -56,7 +56,7 @@ class Command(BaseCommand):
             predicted_trees = {}
             if method == 'mln':
                 self.stdout.write('loading mln results ...')
-                file_path = 'D:/University Stuff/social/code/pracmln/myprojects/social/results/small-3memes-gibbs.results'
+                file_path = 'D:/University Stuff/social/code/pracmln/experiments/social/results/%s-gibbs.results' % project_name
                 predicted_trees = MLN(project, threshold=30).load_results(file_path, trees)
                 test_set = set(test_set) & set(predicted_trees.keys())
 
