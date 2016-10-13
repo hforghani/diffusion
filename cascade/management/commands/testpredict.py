@@ -53,12 +53,13 @@ class Command(BaseCommand):
             trees = project.load_trees()
             self.stdout.write('test set size = %d' % len(test_set))
 
-            predicted_trees = {}
+            mln_model = None
             if method == 'mln':
                 self.stdout.write('loading mln results ...')
                 file_path = 'D:/University Stuff/social/code/pracmln/experiments/social/results/%s-gibbs.results' % project_name
-                predicted_trees = MLN(project, threshold=30).load_results(file_path, trees)
-                test_set = set(test_set) & set(predicted_trees.keys())
+                mln_model = MLN(project)
+                mln_model.load_results(file_path)
+                test_set = set(test_set) & set(mln_model.edges.keys())
 
             i = 0
             prp1_list = []
@@ -77,7 +78,7 @@ class Command(BaseCommand):
 
                 # Predict remaining nodes.
                 if method == 'mln':
-                    res_tree = predicted_trees[meme_id]
+                    res_tree = mln_model.predict(meme_id, initial_tree, threshold=8)
                 elif method == 'saito':
                     model = Saito(project).fit(initial_tree)
                     res_tree = model.predict()
@@ -87,21 +88,7 @@ class Command(BaseCommand):
                 else:
                     raise Exception('invalid method "%s"' % method)
 
-                # Get predicted and true nodes.
-                res_nodes = set(res_tree.node_ids())
-                true_nodes = set(tree.node_ids())
-                initial_nodes = set(initial_tree.node_ids())
-                res_output = res_nodes - initial_nodes
-                true_output = true_nodes - initial_nodes
-
-                # Put meme id str at the beginning of user id's to make in unique.
-                all_res_nodes.extend({str(meme_id) + str(node) for node in res_output})
-                all_true_nodes.extend({str(meme_id) + str(node) for node in true_output})
-
-                # Evaluate the result.
-                meas = Validation(res_output, true_output)
-                prec = meas.precision()
-                rec = meas.recall()
+                meas, prec, rec, res_output, true_output = self.evaluate(initial_tree, res_tree, tree)
 
                 if method != 'mln':
                     prp = meas.prp(model.weight_sum)
@@ -109,6 +96,10 @@ class Command(BaseCommand):
                     prp2 = prp[1] if len(prp) > 1 else 0
                     prp1_list.append(prp1)
                     prp2_list.append(prp2)
+                    # Put meme id str at the beginning of user id's to make in unique.
+
+                all_res_nodes.extend({str(meme_id) + str(node) for node in res_output})
+                all_true_nodes.extend({str(meme_id) + str(node) for node in true_output})
 
                 i += 1
                 log = 'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f' % (
@@ -131,3 +122,16 @@ class Command(BaseCommand):
         except:
             self.stdout.write(traceback.format_exc())
             raise
+
+    def evaluate(self, initial_tree, res_tree, tree):
+        # Get predicted and true nodes.
+        res_nodes = set(res_tree.node_ids())
+        true_nodes = set(tree.node_ids())
+        initial_nodes = set(initial_tree.node_ids())
+        res_output = res_nodes - initial_nodes
+        true_output = true_nodes - initial_nodes
+        # Evaluate the result.
+        meas = Validation(res_output, true_output)
+        prec = meas.precision()
+        rec = meas.recall()
+        return meas, prec, rec, res_output, true_output

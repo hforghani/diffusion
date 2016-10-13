@@ -4,13 +4,11 @@ from cascade.models import CascadeNode
 
 
 class MLN(object):
-    def __init__(self, project, threshold=50):
+    def __init__(self, project):
         self.project = project
-        self.threshold = threshold
+        self.edges = {}
 
-    def load_results(self, file_path, trees):
-        edges = {}
-
+    def load_results(self, file_path):
         with open(file_path) as f:
             line = f.readline()
             while line:
@@ -19,19 +17,16 @@ class MLN(object):
                     continue
                 groups = match.groups()
                 percent, user1, user2, meme = float(groups[0]), int(groups[1]), int(groups[2]), int(groups[3])
-                if percent >= self.threshold:
-                    if meme not in edges:
-                        edges[meme] = []
-                    edges[meme].append({'user1': user1, 'user2': user2, 'p': percent})
+                if meme not in self.edges:
+                    self.edges[meme] = []
+                self.edges[meme].append({'user1': user1, 'user2': user2, 'p': percent})
                 line = f.readline()
 
-        predicted_trees = {}
-        for meme_id in edges:
-            res_tree = trees[meme_id].copy()
-            self.add_edges(res_tree, edges[meme_id])
-            predicted_trees[meme_id] = res_tree
-
-        return predicted_trees
+    def predict(self, meme_id, initial_tree, threshold=30):
+        predicted_edges = [edge for edge in self.edges[meme_id] if edge['p'] > threshold]
+        res_tree = initial_tree.copy()
+        self.add_edges(res_tree, predicted_edges)
+        return res_tree
 
     def add_edges(self, tree, edges):
         nodes = {node.user_id: node for node in tree.nodes()}

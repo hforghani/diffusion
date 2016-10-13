@@ -419,6 +419,8 @@ class Project(object):
 
     def save_data(self, test_set, train_set):
         # Dump the json into the file.
+        self.training = list(train_set)
+        self.test = list(test_set)
         data = {'training': train_set, 'test': test_set}
         if not os.path.exists(self.project_path):
             os.mkdir(self.project_path)

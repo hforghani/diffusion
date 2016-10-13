@@ -17,6 +17,8 @@ class Validation(object):
         return float(self.tp) / len(self.true_output)
 
     def f1(self):
+        if self.tp == 0:
+            return 0
         return 2 * float(self.tp) / (2 * self.tp + self.fp + self.fn)
 
     def prp(self, prob):

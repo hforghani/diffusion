@@ -25,12 +25,6 @@ class Command(BaseCommand):
             help="project name",
         ),
         make_option(
-            "-o", "--output",
-            type="string",
-            dest="out_file",
-            help="path of output file",
-        ),
-        make_option(
             "-f",
             "--follows",
             action="store_true",
@@ -56,8 +50,14 @@ class Command(BaseCommand):
             "--set",
             type="string",
             dest="set",
-            default="train",
             help="create evidence for training set or test set; valid values are 'train' or 'test'"
+        ),
+        make_option(
+            "-e",
+            "--separated",
+            action="store_true",
+            dest="separated",
+            help="create one test evidence file for each meme"
         ),
     )
 
@@ -75,24 +75,24 @@ class Command(BaseCommand):
                 raise Exception('project not specified')
             project = Project(project_name)
 
+            # Validate set option.
+            if options['set'] not in ['train', 'test', None]:
+                raise 'invalid set "%s"' % options['set']
+
             # Load training and test sets and all cascade trees.
             train_memes, test_memes = project.load_data()
             trees = project.load_trees()
-
-            # Get and delete the content of rules file.
-            if options['out_file']:
-                file_name = options['out_file']
-            else:
-                file_name = 'evidence-%s.db' % options['set']
-            out_file = os.path.join(project.project_path, file_name)
-            open(out_file, 'w')
 
             do_all = not (options['follows'] or options['activates'] or options['isactivated'])
 
             user_ids = UserAccount.objects.values_list('id', flat=True)
             user_indexes = {user_ids[i]: i for i in range(len(user_ids))}
 
-            if options['set'] == 'train':
+            if options['set'] is None or options['set'] == 'train':
+                # Get and delete the content of evidence file.
+                out_file = os.path.join(project.project_path, 'evidence-train-%s.db' % project_name)
+                open(out_file, 'w')
+
                 self.stdout.write('rules will be created for training set')
                 self.stdout.write('training set size = %d' % len(train_memes))
                 if do_all or options['follows']:
@@ -107,12 +107,22 @@ class Command(BaseCommand):
                     self.stdout.write('>>> writing "activates" rules ...')
                     self.write_activates(trees, train_memes, out_file)
 
-            elif options['set'] == 'test':
+            if options['set'] is None or options['set'] == 'test':
+                # Get and delete the content of evidence file.
+                out_file = os.path.join(project.project_path, 'evidence-test-%s.db' % project_name)
+                open(out_file, 'w')
+
                 self.stdout.write('rules will be created for test set')
                 self.stdout.write('test set size = %d' % len(test_memes))
-                if do_all or options['isactivated']:
+                self.stdout.write('>>> writing "isActivated" rules ...')
+                self.write_isactivated(trees, test_memes, out_file, initials=True)
+
+                if options['separated']:
                     self.stdout.write('>>> writing "isActivated" rules ...')
-                    self.write_isactivated(trees, test_memes, out_file, initials=True)
+                    for meme_id in test_memes:
+                        meme_out_file = os.path.join(project.project_path,
+                                                     'evidence-test-%s-m%d.db' % (project_name, meme_id))
+                        self.write_isactivated(trees, [meme_id], meme_out_file, initials=True)
 
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
 

@@ -104,8 +104,8 @@ class Saito(AsLT):
             del psi
 
             # Save r and w.
-            self.project.save_param(r, 'r', ParamTypes.ARRAY)
-            self.project.save_param(w, 'w', ParamTypes.SPARSE)
+            self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
+            self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
 
             # Delete all except w and r.
             self.project.delete_param('h', ParamTypes.SPARSE)

@@ -25,6 +25,14 @@ class Command(BaseCommand):
             help="number of data samples consisting training and test sets",
         ),
         make_option(
+            "-r",
+            "--ratio",
+            type="float",
+            dest="ratio",
+            default=2.0 / 3,
+            help="ratio of training set size to test set size",
+        ),
+        make_option(
             "-p",
             "--project",
             type="string",
@@ -70,18 +78,13 @@ class Command(BaseCommand):
                 meme_ids = memes.values_list('id', flat=True)
 
             # Separate training and test sets.
-            train_num = int(2.0 / 3 * len(meme_ids))
+            ratio = options['ratio']
+            train_num = int(ratio * len(meme_ids))
             train_set = meme_ids[:train_num]
             test_set = meme_ids[train_num:]
 
             project = Project(project_name)
             project.save_data(test_set, train_set)
-
-            trees = project.load_trees()
-            nodes = set()
-            for meme in meme_ids:
-                nodes.update(trees[meme].node_ids())
-            self.stdout.write('number of all users = %d' % len(nodes))
 
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
         except:

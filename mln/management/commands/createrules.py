@@ -50,7 +50,7 @@ class Command(BaseCommand):
             if options['out_file']:
                 file_name = options['out_file']
             else:
-                file_name = 'rules.mln'
+                file_name = '%s-tolearn.mln' % project_name
             out_file = os.path.join(project.project_path, file_name)
 
             self.stdout.write('training set size = %d' % len(train_memes))
