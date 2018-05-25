@@ -7,6 +7,7 @@ import numpy as np
 from cascade.validation import Validation
 from cascade.saito import Saito
 from cascade.models import Project, AsLT
+from memm.models import MEMMModel
 from mln.models import MLN
 
 
@@ -79,6 +80,9 @@ class Command(BaseCommand):
                 # Predict remaining nodes.
                 if method == 'mln':
                     res_tree = mln_model.predict(meme_id, initial_tree, threshold=8)
+                elif method == 'memm':
+                    model = MEMMModel(project).fit(initial_tree)
+                    res_tree = model.predict()
                 elif method == 'saito':
                     model = Saito(project).fit(initial_tree)
                     res_tree = model.predict()
@@ -96,8 +100,8 @@ class Command(BaseCommand):
                     prp2 = prp[1] if len(prp) > 1 else 0
                     prp1_list.append(prp1)
                     prp2_list.append(prp2)
-                    # Put meme id str at the beginning of user id's to make in unique.
 
+                # Put meme id str at the beginning of user id's to make it unique.
                 all_res_nodes.extend({str(meme_id) + str(node) for node in res_output})
                 all_true_nodes.extend({str(meme_id) + str(node) for node in true_output})
 

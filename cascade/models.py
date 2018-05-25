@@ -239,12 +239,24 @@ class AsLT(object):
         self.r_param_name = 'r'
 
     def fit(self, tree):
+        """
+        Set the tree of initial activated nodes.
+        :param tree:    An instance of CascadeTree containing initial activated nodes
+        :return:        self
+        """
         if not isinstance(tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         self.tree = tree.copy()
         return self
 
     def predict(self, user_ids=None, log=False):
+        """
+        Predict activation cascade in the future starting from initial nodes in self.tree.
+        Set the final tree again in self.tree.
+        :param user_ids: List of possible users for activation. All of users if value is None.
+        :param log:      Log in console if True else does not log.
+        :return:         Returns self.tree
+        """
         if not self.tree:
             raise ValueError('fit a data before prediction')
 
@@ -262,9 +274,9 @@ class AsLT(object):
 
         # Get weights and delay vectors.
         t0 = time.time()
-        w = self.project.load_param(self.w_param_name, 'sparse')
+        w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
         w = w.tocsr()
-        r = self.project.load_param(self.r_param_name, 'array')
+        r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
         if log:
             logger.info('time2 = %.2f' % (time.time() - t0))
 
@@ -295,7 +307,7 @@ class AsLT(object):
                     # Try to activate the children.
                     sample = random.random()
                     #sample = 0.5
-                    # If activated successfully add it the tree and estimate the delay.
+                    # If activated successfully add it in the tree and estimate the delay.
                     if sample <= self.weight_sum[v]:
                         # Get delay parameter.
                         delay_param = r[v_i]
@@ -351,7 +363,7 @@ class IC(object):
 
         # Get diffusion probabilities and delay vectors.
         t0 = time.time()
-        p = self.project.load_param('p', 'sparse')
+        p = self.project.load_param('p', ParamTypes.SPARSE)
         p = p.tocsr()
         if log:
             logger.info('time2 = %.2f' % (time.time() - t0))
