@@ -3,7 +3,7 @@ import numpy
 
 
 class MEMM():
-    def fit(self, sequences, states, obs_dim):
+    def fit(self, sequences, obs_dim):
         """
         Learn MEMM lambdas and transition probabilities for each previous state.
         :param sequences:   list of sequences. Each sequence is a list of tuples (observation, state).

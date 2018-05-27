@@ -30,7 +30,7 @@ class Command(BaseCommand):
             type="float",
             dest="ratio",
             default=2.0 / 3,
-            help="ratio of training set size to test set size",
+            help="ratio of number of training set to number of all samples",
         ),
         make_option(
             "-p",

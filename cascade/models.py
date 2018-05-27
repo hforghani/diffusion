@@ -8,7 +8,7 @@ import time
 from django.conf import settings
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
-from crud.models import UserAccount, Post, Reshare
+from crud.models import UserAccount, Post, Reshare, Meme
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
@@ -229,27 +229,69 @@ class CascadeTree(object):
         return depth
 
 
+class ActSequence(object):
+    """
+    Activation Sequence: (u1, t1), (u2, t2), ..., (u_n, t_n)
+    """
+
+    def __init__(self, users=None, times=None, max_t=None):
+        # Suppose times are sorted and users[i] corresponds to times[i]
+        self.users = users if users is not None else []
+        self.times = times if times is not None else []
+        if users and times:
+            self.user_times = {users[i]: times[i] for i in range(len(users))}
+        self.max_t = max_t
+        self.rond_set = None
+
+    def users_before_time(self, datetime):
+        f = 0
+        l = len(self.times) - 1
+        while f != l:
+            m = (f + l) / 2
+            if datetime < self.times[m]:
+                l = m
+            else:
+                f = m
+        return self.users[:f + 1]
+
+    def users_before_user(self, user_id):
+        index = self.users.index(user_id)
+        return self.users[:index]
+
+    def get_rond_set(self, graph):
+        # Return set of non-active nodes with at least one active parent node for each.
+        if self.rond_set is None:
+            result = set()
+            for uid in self.users:
+                if uid in graph.nodes():
+                    result.update(set(graph.successors(uid)))
+            result = result - set(self.users)
+            self.rond_set = result
+        return self.rond_set
+
+    def get_active_parents(self, uid, graph):
+        rond_set = self.get_rond_set(graph)
+        parents = set(graph.predecessors(uid)) if uid in graph.nodes() else set()
+        if uid in rond_set:
+            active_parents = parents & set(self.users)
+        else:
+            active_parents = parents & set(self.users_before_user(uid))
+        return active_parents
+
+
 class AsLT(object):
     def __init__(self, project):
         self.project = project
-        self.tree = None
+        self.init_tree = None
         self.max_delay = 999999999
         self.weight_sum = {}  # dictionary of node id's to sums of parents weights
         self.w_param_name = 'w'
         self.r_param_name = 'r'
 
-    def fit(self, tree):
-        """
-        Set the tree of initial activated nodes.
-        :param tree:    An instance of CascadeTree containing initial activated nodes
-        :return:        self
-        """
-        if not isinstance(tree, CascadeTree):
-            raise ValueError('tree must be CascadeTree')
-        self.tree = tree.copy()
-        return self
+    #def fit(self, tree):
+    #    pass
 
-    def predict(self, user_ids=None, log=False):
+    def predict(self, initial_tree, user_ids=None, log=False):
         """
         Predict activation cascade in the future starting from initial nodes in self.tree.
         Set the final tree again in self.tree.
@@ -257,14 +299,15 @@ class AsLT(object):
         :param log:      Log in console if True else does not log.
         :return:         Returns self.tree
         """
-        if not self.tree:
-            raise ValueError('fit a data before prediction')
+        if not isinstance(initial_tree, CascadeTree):
+            raise ValueError('tree must be a CascadeTree')
+        tree = initial_tree.copy()
 
         # Initialize values.
         t0 = time.time()
-        now = self.tree.max_datetime()  # Find the datetime of now.
-        cur_step = sorted(self.tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        activated = self.tree.nodes()
+        now = tree.max_datetime()  # Find the datetime of now.
+        cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
+        activated = tree.nodes()
         self.weight_sum = {}
         if user_ids is None:
             user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
@@ -333,28 +376,26 @@ class AsLT(object):
             if log:
                 logger.info('time = %.2f' % (time.time() - t0))
 
-        return self.tree
+        return tree
 
 
 class IC(object):
     def __init__(self, project):
         self.project = project
-        self.tree = None
+        self.init_tree = None
 
-    def fit(self, tree):
-        if not isinstance(tree, CascadeTree):
+    #def fit(self, tree):
+    #    pass
+
+    def predict(self, initial_tree, user_ids=None, log=False):
+        if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
-        self.tree = tree.copy()
-        return self
-
-    def predict(self, user_ids=None, log=False):
-        if not self.tree:
-            raise ValueError('fit a data before prediction')
+        tree = initial_tree.copy()
 
         # Initialize values.
         t0 = time.time()
-        cur_step = sorted(self.tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        activated = self.tree.nodes()
+        cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
+        activated = tree.nodes()
         if user_ids is None:
             user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
         user_map = {user_ids[i]: i for i in range(len(user_ids))}
@@ -407,7 +448,7 @@ class IC(object):
             if log:
                 logger.info('time = %.2f' % (time.time() - t0))
 
-        return self.tree
+        return tree
 
 
 class ParamTypes(object):
@@ -472,6 +513,116 @@ class Project(object):
 
         self.trees = trees
         return trees
+
+    def load_or_extract_data(self):
+        """
+        Load the graph, list of activation sequences, and training set of the project if saved before.
+        Otherwise extract them from the training set and return them.
+        :return: tuple of graph, list of activation sequences, and training set
+        """
+        graph_fname = 'graph'
+        seq_fname = 'sequences'
+
+        train_set, test_set = self.load_data()
+
+        try:
+            graph = self.load_param(graph_fname, ParamTypes.GRAPH)
+            seq_copy = self.load_param(seq_fname, ParamTypes.JSON)
+            sequences = {}
+            for m in seq_copy:
+                users = [item[0] for item in seq_copy[m]['cascade']]
+                times = [item[1] for item in seq_copy[m]['cascade']]
+                sequences[int(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
+
+        except:  # If graph and sequence data does not exist.
+            logger.info('\tquerying posts and reshares ...')
+            t0 = time.time()
+            posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
+            reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
+            #posts = Post.objects.order_by('datetime')
+            #reshares = Reshare.objects.order_by('datetime')
+            resh_count = reshares.count()
+            post_count = posts.count()
+            logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+
+            # Create dictionary of first times of the memes.
+            logger.info('\textracting first times ...')
+            first_times = Meme.objects.values('id', 'first_time')
+            first_times = {obj['id']: obj['first_time'] for obj in first_times}
+
+            # Create graph and cascade data.
+            logger.info('\textracting cascades from %d posts and %d reshares ...' % (post_count, resh_count))
+            meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
+            edges, sequences = self.extract_data(posts, reshares, first_times, meme_ids)
+            graph = DiGraph()
+            graph.add_edges_from(edges)
+
+            logger.info('\tsetting max times ...')
+            i = 0
+            for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
+                sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
+                    3600.0 * 24)  # number of days
+                i += 1
+                if i % (len(meme_ids) / 10) == 0:
+                    logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+
+            logger.info('\tsaving data ...')
+            seq_copy = {}
+            for m in sequences:
+                seq_copy[m] = {
+                    'cascade': [(sequences[m].users[i], sequences[m].times[i]) for i in range(len(sequences[m].users))],
+                    'max_t': sequences[m].max_t
+                }
+            self.save_param(seq_copy, seq_fname, ParamTypes.JSON)
+            del seq_copy
+            self.save_param(graph, graph_fname, ParamTypes.GRAPH)
+
+        return graph, sequences, train_set
+
+    def extract_data(self, posts, reshares, first_times, meme_ids):
+        t0 = time.time()
+        edges = []
+        meme_ids = set(meme_ids)
+        resh_count = reshares.count()
+        i = 0
+
+        # Iterate on reshares to extract graph edges.
+        for resh in reshares.all():
+            user_id = resh.user_id
+            ref_user_id = resh.ref_user_id
+            if user_id != ref_user_id:
+                common_memes = meme_ids & set(resh.reshared_post.postmeme_set.values_list('meme_id', flat=True)) & set(
+                    resh.post.postmeme_set.values_list('meme_id', flat=True))
+                if common_memes:
+                    edges.append((ref_user_id, user_id))
+            i += 1
+            if i % (resh_count / 10) == 0:
+                logger.info('\t\t%d%% reshares done' % (i * 100 / resh_count))
+
+        del reshares
+        post_count = posts.count()
+        users = {m: [] for m in meme_ids}
+        times = {m: [] for m in meme_ids}
+        i = 0
+
+        # Iterate on posts to extract activation sequences.
+        for post in posts.all():
+            for m in post.postmeme_set.values_list('meme_id', flat=True):
+                if post.author_id not in users[m]:
+                    users[m].append(post.author_id)
+                    act_time = (post.datetime - first_times[m]).total_seconds() / (3600.0 * 24)  # number of days
+                    times[m].append(act_time)
+            i += 1
+            if i % (post_count / 10) == 0:
+                logger.info('\t\t%d%% posts done' % (i * 100 / post_count))
+
+        del posts
+        data = {}
+        for m in meme_ids:
+            if users[m]:
+                data[m] = ActSequence(users[m], times[m])
+        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        return edges, data
 
     SUFFIXES = {
         ParamTypes.JSON: 'json',

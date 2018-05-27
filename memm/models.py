@@ -15,35 +15,37 @@ logger = logging.getLogger('diffusion.memm.models')
 class MEMMModel():
     def __init__(self, project):
         self.project = project
-        self.tree = None
 
-    def fit(self, tree):
+    def fit(self, user_ids):
         """
         Set the tree of initial activated nodes.
-        :param tree:    An instance of CascadeTree containing initial activated nodes
+        :param user_ids:    Users which we want to set a MEMM for each of them.
         :return:        self
         """
-        if not isinstance(tree, CascadeTree):
-            raise ValueError('tree must be CascadeTree')
-        self.tree = tree.copy()
+        memms = []
+        for user_id in user_ids:
+            m = MEMM()
+            m.fit(observations, obs_dim)
+            memms.append(m)
+
         return self
 
-    def predict(self, user_ids=None, log=False):
+    def predict(self, initial_tree, user_ids=None, log=False):
         """
-        Predict activation cascade in the future starting from initial nodes in self.tree.
-        Set the final tree again in self.tree.
-        :param user_ids: List of possible users for activation. All of users if users_ids is None.
+        Predict activation cascade in the future starting from initial nodes in initial_tree.
+        :param user_ids: List of possible users for activation. All of users is considered if users_ids is None.
         :param log:      Log in console if True else does not log.
-        :return:         Returns self.tree
+        :return:         Predicted tree
         """
-        if not self.tree:
-            raise ValueError('fit a data before prediction')
+        if not isinstance(initial_tree, CascadeTree):
+            raise ValueError('tree must be CascadeTree')
+        tree = initial_tree.copy()
 
         # Initialize values.
         t0 = time.time()
-        now = self.tree.max_datetime()  # Find the datetime of now.
-        cur_step = sorted(self.tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        activated = self.tree.nodes()
+        #now = tree.max_datetime()  # Find the datetime of now.
+        cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
+        activated = tree.nodes()
         self.weight_sum = {}
         if user_ids is None:
             user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
@@ -51,10 +53,4 @@ class MEMMModel():
         if log:
             logger.info('time1 = %.2f' % (time.time() - t0))
 
-        memms = []
-        for node in activated:
-            m = MEMM()
-            m.fit(observations, states)
-            memms.append(m)
-
-        return self.tree
+        return tree

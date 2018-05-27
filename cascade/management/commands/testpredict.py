@@ -84,11 +84,11 @@ class Command(BaseCommand):
                     model = MEMMModel(project).fit(initial_tree)
                     res_tree = model.predict()
                 elif method == 'saito':
-                    model = Saito(project).fit(initial_tree)
-                    res_tree = model.predict()
+                    model = Saito(project)
+                    res_tree = model.predict(initial_tree)
                 elif method == 'avg':
-                    model = AsLT(project).fit(initial_tree)
-                    res_tree = model.predict()
+                    model = AsLT(project)
+                    res_tree = model.predict(initial_tree)
                 else:
                     raise Exception('invalid method "%s"' % method)
 

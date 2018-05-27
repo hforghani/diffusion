@@ -18,9 +18,9 @@ class Saito(AsLT):
     def calc_parameters(self, iterations=3):
         # Load dataset.
         logger.info('extracting data ...')
-        graph, data, meme_ids = self.load_or_extract_data()
+        graph, data, meme_ids = self.project.load_or_extract_data()
 
-        # Create db id to matrix id maps for users and memes.
+        # Create maps from users and memes db id's to their matrix id's.
         logger.info('creating user and meme id maps ...')
         user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
         user_map = {user_ids[i]: i for i in range(len(user_ids))}
@@ -126,111 +126,6 @@ class Saito(AsLT):
             del w_dif
 
             logger.info('iteration time: %.2f min' % ((time.time() - t0) / 60.0))
-
-    def load_or_extract_data(self):
-        graph_fname = 'graph'
-        seq_fname = 'sequences'
-
-        train_set, test_set = self.project.load_data()
-
-        try:
-            graph = self.project.load_param(graph_fname, ParamTypes.GRAPH)
-            seq_copy = self.project.load_param(seq_fname, ParamTypes.JSON)
-            sequences = {}
-            for m in seq_copy:
-                users = [item[0] for item in seq_copy[m]['cascade']]
-                times = [item[1] for item in seq_copy[m]['cascade']]
-                sequences[int(m)] = CascadeData(users=users, times=times, max_t=seq_copy[m]['max_t'])
-
-        except:  # If graph and sequence data does not exist.
-            logger.info('\tquerying posts and reshares ...')
-            t0 = time.time()
-            posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
-            reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
-            #posts = Post.objects.order_by('datetime')
-            #reshares = Reshare.objects.order_by('datetime')
-            resh_count = reshares.count()
-            post_count = posts.count()
-            logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
-
-            # Create dictionary of meme first times.
-            logger.info('\textracting first times ...')
-            first_times = Meme.objects.values('id', 'first_time')
-            first_times = {obj['id']: obj['first_time'] for obj in first_times}
-
-            # Create graph and cascade data.
-            logger.info('\textracting cascades from %d posts and %d reshares ...' % (post_count, resh_count))
-            meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
-            edges, sequences = self.extract_data(posts, reshares, first_times, meme_ids)
-            graph = DiGraph()
-            graph.add_edges_from(edges)
-
-            logger.info('\tsetting max times ...')
-            i = 0
-            for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
-                sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
-                    3600.0 * 24)  # number of days
-                i += 1
-                if i % (len(meme_ids) / 10) == 0:
-                    logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
-
-            logger.info('\tsaving data ...')
-            seq_copy = {}
-            for m in sequences:
-                seq_copy[m] = {
-                    'cascade': [(sequences[m].users[i], sequences[m].times[i]) for i in range(len(sequences[m].users))],
-                    'max_t': sequences[m].max_t
-                }
-            self.project.save_param(seq_copy, seq_fname, ParamTypes.JSON)
-            del seq_copy
-            self.project.save_param(graph, graph_fname, ParamTypes.GRAPH)
-
-        return graph, sequences, train_set
-
-    def extract_data(self, posts, reshares, first_times, meme_ids):
-        t0 = time.time()
-        edges = []
-        meme_ids = set(meme_ids)
-        resh_count = reshares.count()
-        i = 0
-
-        # Iterate on reshares to extract graph edges.
-        for resh in reshares.all():
-            user_id = resh.user_id
-            ref_user_id = resh.ref_user_id
-            if user_id != ref_user_id:
-                common_memes = meme_ids & set(resh.reshared_post.postmeme_set.values_list('meme_id', flat=True)) & set(
-                    resh.post.postmeme_set.values_list('meme_id', flat=True))
-                if common_memes:
-                    edges.append((ref_user_id, user_id))
-            i += 1
-            if i % (resh_count / 10) == 0:
-                logger.info('\t\t%d%% reshares done' % (i * 100 / resh_count))
-
-        del reshares
-        post_count = posts.count()
-        users = {m: [] for m in meme_ids}
-        times = {m: [] for m in meme_ids}
-        i = 0
-
-        # Iterate on posts to extract activation sequences.
-        for post in posts.all():
-            for m in post.postmeme_set.values_list('meme_id', flat=True):
-                if post.author_id not in users[m]:
-                    users[m].append(post.author_id)
-                    act_time = (post.datetime - first_times[m]).total_seconds() / (3600.0 * 24)  # number of days
-                    times[m].append(act_time)
-            i += 1
-            if i % (post_count / 10) == 0:
-                logger.info('\t\t%d%% posts done' % (i * 100 / post_count))
-
-        del posts
-        data = {}
-        for m in meme_ids:
-            if users[m]:
-                data[m] = CascadeData(users[m], times[m])
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
-        return edges, data
 
     def set_initial_values(self, graph, user_ids, user_map):
         t0 = time.time()
@@ -613,49 +508,3 @@ class Saito(AsLT):
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return w
-
-
-class CascadeData(object):
-    def __init__(self, users=None, times=None, max_t=None):
-        # Suppose times are sorted and users[i] corresponds to times[i]
-        self.users = users if users is not None else []
-        self.times = times if times is not None else []
-        if users and times:
-            self.user_times = {users[i]: times[i] for i in range(len(users))}
-        self.max_t = max_t
-        self.rond_set = None
-
-    def users_before_time(self, datetime):
-        f = 0
-        l = len(self.times) - 1
-        while f != l:
-            m = (f + l) / 2
-            if datetime < self.times[m]:
-                l = m
-            else:
-                f = m
-        return self.users[:f + 1]
-
-    def users_before_user(self, user_id):
-        index = self.users.index(user_id)
-        return self.users[:index]
-
-    def get_rond_set(self, graph):
-        # Return set of non-active nodes with at least one active parent node for each.
-        if self.rond_set is None:
-            result = set()
-            for uid in self.users:
-                if uid in graph.nodes():
-                    result.update(set(graph.successors(uid)))
-            result = result - set(self.users)
-            self.rond_set = result
-        return self.rond_set
-
-    def get_active_parents(self, uid, graph):
-        rond_set = self.get_rond_set(graph)
-        parents = set(graph.predecessors(uid)) if uid in graph.nodes() else set()
-        if uid in rond_set:
-            active_parents = parents & set(self.users)
-        else:
-            active_parents = parents & set(self.users_before_user(uid))
-        return active_parents
