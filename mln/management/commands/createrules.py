@@ -43,7 +43,7 @@ class Command(BaseCommand):
             project = Project(project_name)
 
             # Load training and test sets and all cascade trees.
-            train_memes, test_memes = project.load_data()
+            train_memes, test_memes = project.load_train_test()
             trees = project.load_trees()
 
             # Get the path of rules file.

@@ -59,7 +59,7 @@ class Command(BaseCommand):
             if project_name is None:
                 raise Exception('project not specified')
             project = Project(project_name)
-            train_set, test_set = project.load_data()
+            train_set, test_set = project.load_train_test()
 
             self.stdout.write('querying posts and reshares ...')
             posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')

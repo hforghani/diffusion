@@ -50,7 +50,7 @@ class Command(BaseCommand):
                 raise Exception('method not specified')
 
             # Load training and test sets and cascade trees.
-            train_set, test_set = project.load_data()
+            train_set, test_set = project.load_train_test()
             trees = project.load_trees()
             self.stdout.write('test set size = %d' % len(test_set))
 
@@ -81,8 +81,9 @@ class Command(BaseCommand):
                 if method == 'mln':
                     res_tree = mln_model.predict(meme_id, initial_tree, threshold=8)
                 elif method == 'memm':
-                    model = MEMMModel(project).fit(initial_tree)
-                    res_tree = model.predict()
+                    user_ids = initial_tree.node_ids()
+                    model = MEMMModel(project).fit(user_ids)
+                    res_tree = model.predict(initial_tree)
                 elif method == 'saito':
                     model = Saito(project)
                     res_tree = model.predict(initial_tree)

@@ -20,12 +20,14 @@ class MEMMModel():
         """
         Set the tree of initial activated nodes.
         :param user_ids:    Users which we want to set a MEMM for each of them.
-        :return:        self
+        :return:            self
         """
+        graph = self.project.load_or_extract_graph()
+
         memms = []
         for user_id in user_ids:
             m = MEMM()
-            m.fit(observations, obs_dim)
+            m.fit(sequences, obs_dim)
             memms.append(m)
 
         return self

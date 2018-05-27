@@ -80,7 +80,7 @@ class Command(BaseCommand):
                 raise 'invalid set "%s"' % options['set']
 
             # Load training and test sets and all cascade trees.
-            train_memes, test_memes = project.load_data()
+            train_memes, test_memes = project.load_train_test()
             trees = project.load_trees()
 
             do_all = not (options['follows'] or options['activates'] or options['isactivated'])

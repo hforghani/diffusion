@@ -480,7 +480,7 @@ class Project(object):
         sample_path = os.path.join(self.project_path, 'samples.json')
         json.dump(data, open(sample_path, 'w'), indent=4)
 
-    def load_data(self):
+    def load_train_test(self):
         sample_set_path = os.path.join(self.project_path, 'samples.json')
         if os.path.exists(sample_set_path):
             logger.info('loading training and test data ...')
@@ -514,16 +514,99 @@ class Project(object):
         self.trees = trees
         return trees
 
+    def load_or_extract_graph(self):
+        """
+        Load or extract the graph of memes in training set.
+        :return:
+        """
+        graph_fname = 'graph'
+        train_set, test_set = self.load_train_test()
+
+        try:
+            graph = self.load_param(graph_fname, ParamTypes.GRAPH)
+
+        except:  # If graph data does not exist.
+            logger.info('\tquerying posts and reshares ...')
+            t0 = time.time()
+            posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
+            reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
+            resh_count = reshares.count()
+            post_count = posts.count()
+            logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+
+            # Create graph.
+            logger.info('\textracting graph from %d posts and %d reshares ...' % (post_count, resh_count))
+            meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
+            graph = self.__extract_graph(reshares, meme_ids)
+
+            logger.info('\tsaving data ...')
+            self.save_param(graph, graph_fname, ParamTypes.GRAPH)
+
+        return graph
+
+    def load_or_extract_act_seq(self):
+        """
+        Load or extract list of activation sequences of memes in training set.
+        :return:
+        """
+        seq_fname = 'sequences'
+        train_set, test_set = self.load_train_test()
+
+        try:
+            seq_copy = self.load_param(seq_fname, ParamTypes.JSON)
+            sequences = {}
+            for m in seq_copy:
+                users = [item[0] for item in seq_copy[m]['cascade']]
+                times = [item[1] for item in seq_copy[m]['cascade']]
+                sequences[int(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
+
+        except:  # If graph data does not exist.
+            logger.info('\tquerying posts and reshares ...')
+            t0 = time.time()
+            posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
+            post_count = posts.count()
+            logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+
+            # Create dictionary of first times of the memes.
+            logger.info('\textracting first times ...')
+            first_times = Meme.objects.values('id', 'first_time')
+            first_times = {obj['id']: obj['first_time'] for obj in first_times}
+
+            # Create graph and cascade data.
+            logger.info('\textracting act sequences from %d posts ...' % post_count)
+            meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
+            sequences = self.__extract_act_seq(posts, first_times, meme_ids)
+
+            logger.info('\tsetting max times ...')
+            i = 0
+            for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
+                sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
+                    3600.0 * 24)  # number of days
+                i += 1
+                if i % (len(meme_ids) / 10) == 0:
+                    logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
+
+            logger.info('\tsaving data ...')
+            seq_copy = {}
+            for m in sequences:
+                seq_copy[m] = {
+                    'cascade': [(sequences[m].users[i], sequences[m].times[i]) for i in range(len(sequences[m].users))],
+                    'max_t': sequences[m].max_t
+                }
+            self.save_param(seq_copy, seq_fname, ParamTypes.JSON)
+
+        return sequences
+
     def load_or_extract_data(self):
         """
-        Load the graph, list of activation sequences, and training set of the project if saved before.
+        Load the graph, and list of activation sequences of the project if saved before.
         Otherwise extract them from the training set and return them.
-        :return: tuple of graph, list of activation sequences, and training set
+        :return: tuple of graph, and list of activation sequences
         """
         graph_fname = 'graph'
         seq_fname = 'sequences'
 
-        train_set, test_set = self.load_data()
+        train_set, test_set = self.load_train_test()
 
         try:
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
@@ -539,8 +622,6 @@ class Project(object):
             t0 = time.time()
             posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
             reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
-            #posts = Post.objects.order_by('datetime')
-            #reshares = Reshare.objects.order_by('datetime')
             resh_count = reshares.count()
             post_count = posts.count()
             logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
@@ -553,9 +634,8 @@ class Project(object):
             # Create graph and cascade data.
             logger.info('\textracting cascades from %d posts and %d reshares ...' % (post_count, resh_count))
             meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
-            edges, sequences = self.extract_data(posts, reshares, first_times, meme_ids)
-            graph = DiGraph()
-            graph.add_edges_from(edges)
+            graph = self.__extract_graph(reshares, meme_ids)
+            sequences = self.__extract_act_seq(posts, first_times, meme_ids)
 
             logger.info('\tsetting max times ...')
             i = 0
@@ -577,9 +657,15 @@ class Project(object):
             del seq_copy
             self.save_param(graph, graph_fname, ParamTypes.GRAPH)
 
-        return graph, sequences, train_set
+        return graph, sequences
 
-    def extract_data(self, posts, reshares, first_times, meme_ids):
+    def __extract_graph(self, reshares, meme_ids):
+        """
+        Extract graph from given meme id's.
+        :param reshares:    queryset of reshares related to posts of given meme id's
+        :param meme_ids:    meme id's
+        :return:            directed graph of all reshares
+        """
         t0 = time.time()
         edges = []
         meme_ids = set(meme_ids)
@@ -599,7 +685,22 @@ class Project(object):
             if i % (resh_count / 10) == 0:
                 logger.info('\t\t%d%% reshares done' % (i * 100 / resh_count))
 
-        del reshares
+        graph = DiGraph()
+        graph.add_edges_from(edges)
+
+        logger.info('\t\tgraph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
+        return graph
+
+    def __extract_act_seq(self, posts, first_times, meme_ids):
+        """
+        Extract list of activation sequences from given meme id's.
+        :param posts:       queryset of posts
+        :param first_times: dictionary of meme id's to their first post time
+        :param meme_ids:    meme id's
+        :return:            list of ActSequence's
+        """
+        t0 = time.time()
+        meme_ids = set(meme_ids)
         post_count = posts.count()
         users = {m: [] for m in meme_ids}
         times = {m: [] for m in meme_ids}
@@ -621,8 +722,8 @@ class Project(object):
         for m in meme_ids:
             if users[m]:
                 data[m] = ActSequence(users[m], times[m])
-        logger.info('\t\ttime: %.2f min' % ((time.time() - t0) / 60.0))
-        return edges, data
+        logger.info('\t\tact. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
+        return data
 
     SUFFIXES = {
         ParamTypes.JSON: 'json',
