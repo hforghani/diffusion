@@ -12,7 +12,7 @@ from crud.models import UserAccount, Post, Reshare, Meme
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
-logger = logging.getLogger('diffusion.diffusion.models')
+logger = logging.getLogger('cascade.models')
 
 
 class CascadeNode(object):
@@ -74,15 +74,15 @@ class CascadeNode(object):
 
 
 class CascadeTree(object):
-    tree = []
+    roots = []
     depth = 0
 
-    def __init__(self, tree=None):
-        if tree is not None:
-            if not isinstance(tree, list):
+    def __init__(self, roots=None):
+        if roots is not None:
+            if not isinstance(roots, list):
                 raise ValueError('tree must be a list of root nodes')
-            self.tree = tree
-            self.depth = self._calc_depth()
+            self.roots = roots
+            self.depth = self.__calc_depth()
 
     def extract_cascade(self, meme_id, log=False):
         # Fetch posts related to the meme and reshares.
@@ -106,7 +106,7 @@ class CascadeTree(object):
         t1 = time.time()
         if log:
             logger.info('\tTREE: reshares count = %d' % reshares.count())
-        self.tree = []
+        self.roots = []
         for reshare in reshares:
             child_id = reshare.user_id
             parent_id = reshare.ref_user_id
@@ -118,7 +118,7 @@ class CascadeTree(object):
                 parent.post_id = reshare.reshared_post_id
                 parent.datetime = reshare.ref_datetime.strftime(DT_FORMAT)
                 visited[parent_id] = True
-                self.tree.append(parent)
+                self.roots.append(parent)
 
             if not visited[child_id]:  # Any other node
                 child = nodes[child_id]
@@ -141,28 +141,28 @@ class CascadeTree(object):
                 post = first_posts[uid]
                 node.datetime = post.datetime.strftime(DT_FORMAT)
                 node.post_id = post.id
-                self.tree.append(node)
+                self.roots.append(node)
         if log:
             logger.info('\tTREE: time 4 = %.2f' % (time.time() - t1))
 
         # Calculate tree depth.
-        self.depth = self._calc_depth()
+        self.depth = self.__calc_depth()
 
         return self
 
     def get_dict(self):
-        return [node.get_dict() for node in self.tree]
+        return [node.get_dict() for node in self.roots]
 
     def get_detailed_dict(self):
         user_ids = self.node_ids()
         users = UserAccount.objects.filter(id__in=user_ids)
         user_map = {user.id: user for user in users}
-        return [node.get_detailed_dict(user_map) for node in self.tree]
+        return [node.get_detailed_dict(user_map) for node in self.roots]
 
     def from_dict(self, tree_dict):
-        self.tree = []
+        self.roots = []
         for node in tree_dict:
-            self.tree.append(CascadeNode().from_dict(node))
+            self.roots.append(CascadeNode().from_dict(node))
         return self
 
     def max_datetime(self, node=None):
@@ -171,9 +171,9 @@ class CascadeTree(object):
         """
         if node is None:
             max_dt = None
-            if self.tree and self.tree[0].datetime is not None:
-                max_dt = str_to_datetime(self.tree[0].datetime)
-            for root in self.tree:
+            if self.roots and self.roots[0].datetime is not None:
+                max_dt = str_to_datetime(self.roots[0].datetime)
+            for root in self.roots:
                 max_dt = max(max_dt, self.max_datetime(root))
         else:
             max_dt = str_to_datetime(node.datetime) if node.datetime is not None else None
@@ -183,7 +183,7 @@ class CascadeTree(object):
 
     def get_leaves(self, node=None):
         if node is None:
-            node = self.tree
+            node = self.roots
         leaves = []
         if not node.children:
             leaves.append(node)
@@ -198,7 +198,7 @@ class CascadeTree(object):
     def nodes(self, node=None):
         nodes_list = []
         if node is None:
-            for node in self.tree:
+            for node in self.roots:
                 nodes_list.extend(self.nodes(node))
         else:
             nodes_list = [node]
@@ -209,7 +209,7 @@ class CascadeTree(object):
     def edges(self, node=None):
         edges_list = []
         if node is None:
-            for root in self.tree:
+            for root in self.roots:
                 edges_list.extend(self.edges(root))
         else:
             parent_id = node.user_id
@@ -219,12 +219,12 @@ class CascadeTree(object):
         return edges_list
 
     def copy(self):
-        tree_copy = [root.copy() for root in self.tree]
+        tree_copy = [root.copy() for root in self.roots]
         return CascadeTree(tree_copy)
 
-    def _calc_depth(self):
+    def __calc_depth(self):
         depth = 0
-        for node in self.tree:
+        for node in self.roots:
             depth = max(depth, node.depth())
         return depth
 
@@ -495,20 +495,31 @@ class Project(object):
         return train_memes, test_memes
 
     def load_trees(self):
+        """
+        Load trees of memes in training and test sets.
+        :return:
+        """
         # Load trees from the json file.
-        trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
-        if os.path.exists(trees_path):
-            logger.info('loading trees ...')
-            trees = json.load(open(trees_path, 'r'))
+        try:
+            trees = self.load_param('trees', ParamTypes.JSON)
             trees = {long(key): value for key, value in trees.items()}
-        else:
-            raise Exception('Trees data not found. Run extracttrees command.')
+        except:
+            trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
+            if os.path.exists(trees_path):
+                logger.info('loading trees ...')
+                trees = json.load(open(trees_path, 'r'))
+            else:
+                raise Exception('Trees data not found. Run extracttrees command.')
 
-        # Keep just trees of the training and test set.
-        trees = {meme_id: trees[meme_id] for meme_id in self.training + self.test}
+            # Keep just trees of the training and test set.
+            trees = {long(key): value for key, value in trees.items()}
+            trees = {meme_id: trees[meme_id] for meme_id in self.training + self.test}
+            # Save trees for the project.
+            self.save_param(trees, 'trees', ParamTypes.JSON)
 
         # Convert tree dictionaries to tree objects.
         logger.info('converting trees to objects ...')
+        trees = {long(key): value for key, value in trees.items()}
         trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
 
         self.trees = trees
@@ -597,7 +608,7 @@ class Project(object):
 
         return sequences
 
-    def load_or_extract_data(self):
+    def load_or_extract_graph_seq(self):
         """
         Load the graph, and list of activation sequences of the project if saved before.
         Otherwise extract them from the training set and return them.
@@ -631,7 +642,7 @@ class Project(object):
             first_times = Meme.objects.values('id', 'first_time')
             first_times = {obj['id']: obj['first_time'] for obj in first_times}
 
-            # Create graph and cascade data.
+            # Create graph and activation sequence.
             logger.info('\textracting cascades from %d posts and %d reshares ...' % (post_count, resh_count))
             meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
             graph = self.__extract_graph(reshares, meme_ids)

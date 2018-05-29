@@ -1,13 +1,7 @@
 import logging
-import random
 import time
-from datetime import timedelta
-import numpy as np
-from cascade.models import CascadeNode, CascadeTree, ParamTypes
-from crud.models import UserAccount
-from memm.memm import MEMM
-from utils.time_utils import str_to_datetime, DT_FORMAT
-
+from cascade.models import CascadeNode, CascadeTree
+from memm import MEMM
 
 logger = logging.getLogger('diffusion.memm.models')
 
@@ -15,27 +9,65 @@ logger = logging.getLogger('diffusion.memm.models')
 class MEMMModel():
     def __init__(self, project):
         self.project = project
+        self.__memms = {}
+        self.__parents = {}
+        self.__children = {}
 
-    def fit(self, user_ids):
+    def fit(self, train_set):
         """
-        Set the tree of initial activated nodes.
-        :param user_ids:    Users which we want to set a MEMM for each of them.
+        Train MEMM's for each user in training set.
+        :param train_set:   meme id's in training set
         :return:            self
         """
-        graph = self.project.load_or_extract_graph()
+        graph, act_seqs = self.project.load_or_extract_graph_seq()
 
-        memms = []
-        for user_id in user_ids:
-            m = MEMM()
-            m.fit(sequences, obs_dim)
-            memms.append(m)
+        # Extract all user id's in training set.
+        user_ids = set()
+        for meme_id in train_set:
+            user_ids.update(act_seqs[meme_id].users)
+
+        # Create dictionary of parents and children of each node.
+        self.__parents = {uid: graph.predecessors(uid) if uid in graph.nodes() else []
+                          for uid in user_ids}
+        self.__children = {uid: graph.successors(uid) if uid in graph.nodes() else []
+                           for uid in user_ids}
+
+        sequences = {}  # sequences of (observation, state) for each user
+
+        # Iterate each activation sequence and extract sequences of (observation, state) for each user
+        for meme_id in train_set:
+            act_seq = act_seqs[meme_id]
+            observations = {}
+            activated = set()
+            meme_seqs = {}
+
+            for uid in act_seq.users:   # Notice users are sorted by activation time.
+                activated.add(uid)
+                u_obs = observations.setdefault(uid, [0] * len(self.__parents[uid]))
+                if u_obs:
+                    meme_seqs.setdefault(uid, [])
+                    meme_seqs[uid].append((''.join([str(o) for o in u_obs]), 0))
+                for child in self.__children[uid]:
+                    obs = observations.setdefault(child, [0] * len(self.__parents[child]))
+                    if child not in activated and obs:
+                        meme_seqs.setdefault(child, [])
+                        meme_seqs[child].append((''.join([str(o) for o in obs]), 0))
+                    index = self.__parents[child].index(uid)
+                    obs[index] = 1
+            for uid in meme_seqs:
+                if len(meme_seqs[uid]) > 1:
+                    sequences.setdefault(uid, [])
+                    sequences[uid].append(meme_seqs[uid])
+
+        for uid in sequences:
+            m = MEMM().fit(sequences[uid], len(self.__parents[uid]))
+            self.__memms[uid] = m
 
         return self
 
-    def predict(self, initial_tree, user_ids=None, log=False):
+    def predict(self, initial_tree, log=False):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
-        :param user_ids: List of possible users for activation. All of users is considered if users_ids is None.
         :param log:      Log in console if True else does not log.
         :return:         Predicted tree
         """
@@ -43,15 +75,38 @@ class MEMMModel():
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()
 
-        # Initialize values.
         t0 = time.time()
-        #now = tree.max_datetime()  # Find the datetime of now.
+
+        # Find initially activated nodes.
         cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        activated = tree.nodes()
-        self.weight_sum = {}
-        if user_ids is None:
-            user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
-        user_map = {user_ids[i]: i for i in range(len(user_ids))}
+        active_ids = initial_tree.node_ids()
+
+        # Create dictionary of current observations of the nodes.
+        observations = {uid: [0] * len(self.__parents.get(uid, [])) for uid in active_ids}
+
+        # Predict the cascade tree.
+        # At each iteration find newly activated nodes based on MEMM probabilities and add them to the tree.
+        while cur_step:
+            next_step = []
+            for node in cur_step:
+                uid = node.user_id
+                for child_id in self.__children.get(uid, []):
+                    obs = observations.setdefault(child_id, [0] * len(self.__parents[child_id]))
+                    index = self.__parents[child_id].index(uid)
+                    obs[index] = 1
+                    if child_id not in active_ids and child_id in self.__memms:
+                        memm = self.__memms[child_id]
+                        obs_str = ''.join([str(o) for o in obs])
+                        new_state = memm.predict(obs_str)
+                        if new_state == 1:
+                            child = CascadeNode(child_id)
+                            node.children.append(child)
+                            next_step.append(child)
+                            active_ids.append(child_id)
+                            if log:
+                                logger.info('\ta reshare predicted')
+            cur_step = next_step
+
         if log:
             logger.info('time1 = %.2f' % (time.time() - t0))
 

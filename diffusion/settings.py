@@ -102,7 +102,7 @@ INSTALLED_APPS = (
     'crud',
     'cascade',
     'mln',
-    'south',
+    'memm',
 )
 
 # A sample logging configuration. The only tangible logging
@@ -115,7 +115,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'simple': {
-            'format': '[%(levelname)s] [%(asctime)s] %(message)s'
+            'format': '[%(levelname)s] [%(asctime)s] [%(module)s] %(message)s'
         },
     },
     'filters': {

@@ -19,7 +19,7 @@ class Saito(AsLT):
         # Load dataset.
         logger.info('extracting data ...')
         meme_ids, _ = self.project.load_train_test()
-        graph, sequences = self.project.load_or_extract_data()
+        graph, sequences = self.project.load_or_extract_graph_seq()
 
         # Create maps from users and memes db id's to their matrix id's.
         logger.info('creating user and meme id maps ...')

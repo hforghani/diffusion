@@ -1,8 +1,17 @@
 import copy
+import logging
 import numpy
+
+logger = logging.getLogger('memm.memm')
 
 
 class MEMM():
+    def __init__(self):
+        self.Lambda = {}
+        self.TPM = None
+        self.__map_obs_index = {}
+        self.__map_index_obs = {}
+
     def fit(self, sequences, obs_dim):
         """
         Learn MEMM lambdas and transition probabilities for each previous state.
@@ -10,48 +19,59 @@ class MEMM():
                             Each observation is a string of 0 and 1 representing the activation state of input neighbors.
         :param states:      list of states
         :param obs_dim:     number of observation dimensions
+        :return:            self
         """
 
-        all_obs = [('{:0>' + str(obs_dim) + '}').format(bin(x)[2:]) for x in range(2 ** obs_dim)]
-        map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
-        map_index_obs = {v: k for k, v in map_obs_index.items()}
+        all_obs = set()
+        for seq in sequences:
+            all_obs.update([obs for obs, state in seq])
+        all_obs = list(all_obs)
+        self.__map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
+        self.__map_index_obs = {v: k for k, v in self.__map_obs_index.items()}
 
         epsilon = 0.1
         C = obs_dim + 1                        # This should be number of features + 1
-        Lambda = {}
-        TPM = self.__init_tpm(map_index_obs)
+        self.TPM = self.__init_tpm(self.__map_index_obs)
 
         # Divide (o,s) into |S| buckets
         tuples = self.__divide_tuples(sequences)
 
-        last_feature_list = self.__buildLastFeature(obs_dim, C, map_index_obs)
+        last_feature_list = self.__buildLastFeature(obs_dim, C, self.__map_index_obs)
 
         # Initialize Lambda as 1 then learn from training data
         # Lambda is different per s' (previous state)
         F = self.__buildAverageFeature(tuples, obs_dim, last_feature_list)
 
-        Lambda = self.__init_lambda(F)
-        E = self.initExpectation(F)
+        self.Lambda = self.__init_lambda(F)
+        E = self.__initExpectation(F)
 
         # GIS, run until convergence
         iter_count = 0
         while True:
-            print("iteratoin = {0}".format(iter_count))
-            Lambda0 = copy.deepcopy(Lambda)
-            self.__build_tpm(TPM, Lambda, obs_dim, map_index_obs, last_feature_list)
-            self.__build_expectation(E, tuples, obs_dim, last_feature_list, TPM, map_obs_index)
-            self.__build_next_lambda(Lambda, C, F, E)
+            #logger.info("iteration = {0}".format(iter_count))
+            Lambda0 = copy.deepcopy(self.Lambda)
+            self.__build_tpm(self.TPM, self.Lambda, obs_dim, self.__map_index_obs, last_feature_list)
+            self.__build_expectation(E, tuples, obs_dim, last_feature_list, self.TPM, self.__map_obs_index)
+            self.__build_next_lambda(self.Lambda, C, F, E)
             iter_count += 1
 
-            if self.__check_lambda_convergence(Lambda0, Lambda, epsilon):
-                print " ".join(["iter_count:", str(iter_count)])
+            if self.__check_lambda_convergence(Lambda0, self.Lambda, epsilon):
+                logger.info('GIS iterations : %d', iter_count)
                 break
 
-    def get_probabilities(self):
-        return self.prop
+        return self
 
-    def predict(self, obs, state):
-        pass
+    def predict(self, obs):
+        """
+        Predict the state conditioned on the given observation if the previous state is 0 (inactivated).
+        :param obs:     current observation
+        :return:        predicted next state
+        """
+        if obs not in self.__map_index_obs:
+            return 0
+        else:
+            index = self.__map_obs_index[obs]
+            return 1 if self.TPM[index][1] > self.TPM[index][0] else 0
 
     def __init_tpm(self, map_index_symbol):
         """
@@ -112,8 +132,8 @@ class MEMM():
             if temp_tuple == obs_state_tuple:
                 return last_feature_list[(obs, state)] # This should error if last_feature_list is not passed in
             else:
-                print(temp_tuple)
-                print(obs_state_tuple)
+                logger.info(temp_tuple)
+                logger.info(obs_state_tuple)
                 assert False, "Last feature error"
 
     def __buildAverageFeature(self, tuples, max_num_features, last_feature_list):
@@ -150,7 +170,7 @@ class MEMM():
             Lambda[key] = float(1)
         return Lambda
 
-    def initExpectation(self, F):
+    def __initExpectation(self, F):
         """
         Initialize Expectation to 0's
         :param F: feature averages
@@ -213,7 +233,7 @@ class MEMM():
                 k = map_obs_index[obs]
                 for state in [0, 1]:
                     obs_state_tuple = (obs, state)
-                    # print(i, state, k, l)
+                    # logger.info(i, state, k, l)
                     E[l] += TPM[k][state] * self.__feature(l, obs, state, last_feature_list, obs_state_tuple)
             E[l] /= m_s
 

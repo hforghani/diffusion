@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import logging
 from optparse import make_option
 import traceback
 from django.core.management.base import BaseCommand
@@ -9,6 +10,8 @@ from cascade.saito import Saito
 from cascade.models import Project, AsLT
 from memm.models import MEMMModel
 from mln.models import MLN
+
+logger = logging.getLogger('cascade.management.commands.testpredict')
 
 
 class Command(BaseCommand):
@@ -52,15 +55,23 @@ class Command(BaseCommand):
             # Load training and test sets and cascade trees.
             train_set, test_set = project.load_train_test()
             trees = project.load_trees()
-            self.stdout.write('test set size = %d' % len(test_set))
+            logger.info('test set size = %d' % len(test_set))
 
-            mln_model = None
+            # Create and train the model if needed.
             if method == 'mln':
-                self.stdout.write('loading mln results ...')
+                logger.info('loading mln results ...')
                 file_path = 'D:/University Stuff/social/code/pracmln/experiments/social/results/%s-gibbs.results' % project_name
-                mln_model = MLN(project)
-                mln_model.load_results(file_path)
-                test_set = set(test_set) & set(mln_model.edges.keys())
+                model = MLN(project)
+                model.load_results(file_path)
+                test_set = set(test_set) & set(model.edges.keys())
+            elif method == 'memm':
+                model = MEMMModel(project).fit(train_set)
+            elif method == 'saito':
+                model = Saito(project)
+            elif method == 'avg':
+                model = AsLT(project)
+            else:
+                raise Exception('invalid method "%s"' % method)
 
             i = 0
             prp1_list = []
@@ -74,28 +85,19 @@ class Command(BaseCommand):
 
                 # Copy roots in a new tree.
                 initial_tree = tree.copy()
-                for node in initial_tree.tree:
+                for node in initial_tree.roots:
                     node.children = []
 
                 # Predict remaining nodes.
                 if method == 'mln':
-                    res_tree = mln_model.predict(meme_id, initial_tree, threshold=8)
-                elif method == 'memm':
-                    user_ids = initial_tree.node_ids()
-                    model = MEMMModel(project).fit(user_ids)
-                    res_tree = model.predict(initial_tree)
-                elif method == 'saito':
-                    model = Saito(project)
-                    res_tree = model.predict(initial_tree)
-                elif method == 'avg':
-                    model = AsLT(project)
-                    res_tree = model.predict(initial_tree)
+                    res_tree = model.predict(meme_id, initial_tree, threshold=8)
                 else:
-                    raise Exception('invalid method "%s"' % method)
+                    res_tree = model.predict(initial_tree)
 
+                # Evaluate the results.
                 meas, prec, rec, res_output, true_output = self.evaluate(initial_tree, res_tree, tree)
 
-                if method != 'mln':
+                if method in ['saito', 'avg']:
                     prp = meas.prp(model.weight_sum)
                     prp1 = prp[0] if prp else 0
                     prp2 = prp[1] if len(prp) > 1 else 0
@@ -109,23 +111,23 @@ class Command(BaseCommand):
                 i += 1
                 log = 'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f' % (
                     i, len(res_output), len(true_output), prec, rec)
-                if method != 'mln':
+                if method in ['saito', 'avg']:
                     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-                self.stdout.write(log)
+                logger.info(log)
 
             # Evaluate total results.
             meas = Validation(all_res_nodes, all_true_nodes)
             prec, rec, f1 = meas.precision(), meas.recall(), meas.f1()
-            self.stdout.write('total: %d outputs, %d true, precision = %.3f, recall = %.3f, f1 = %.3f' % (
+            logger.info('total: %d outputs, %d true, precision = %.3f, recall = %.3f, f1 = %.3f' % (
                 len(all_res_nodes), len(all_true_nodes), prec, rec, f1))
 
-            if method != 'mln':
-                self.stdout.write('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
-                self.stdout.write('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
+            if method in ['saito', 'avg']:
+                logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
+                logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
 
-            self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
+            logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:
-            self.stdout.write(traceback.format_exc())
+            logger.info(traceback.format_exc())
             raise
 
     def evaluate(self, initial_tree, res_tree, tree):
