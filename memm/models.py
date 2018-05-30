@@ -50,7 +50,7 @@ class MEMMModel():
                 if self.__parents[uid]:
                     u_obs = observations.setdefault(uid, [0] * len(self.__parents[uid]))
                     meme_seqs.setdefault(uid, [])
-                    meme_seqs[uid].append((''.join([str(o) for o in u_obs]), 0))
+                    meme_seqs[uid].append((''.join([str(o) for o in u_obs]), 1))
                 for child in self.__children[uid]:
                     obs = observations.setdefault(child, [0] * len(self.__parents[child]))
                     if child not in activated:
