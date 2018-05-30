@@ -27,14 +27,18 @@ class MEMMModel():
             user_ids.update(act_seqs[meme_id].users)
 
         # Create dictionary of parents and children of each node.
-        self.__parents = {uid: graph.predecessors(uid) if uid in graph.nodes() else []
+        logger.info('collecting parents and children data ...')
+        graph_nodes = set(graph.nodes())
+        self.__parents = {uid: graph.predecessors(uid) if uid in graph_nodes else []
                           for uid in user_ids}
-        self.__children = {uid: graph.successors(uid) if uid in graph.nodes() else []
+        self.__children = {uid: graph.successors(uid) if uid in graph_nodes else []
                            for uid in user_ids}
 
         sequences = {}  # sequences of (observation, state) for each user
+        count = 0
 
         # Iterate each activation sequence and extract sequences of (observation, state) for each user
+        logger.info('extracting sequences from memes ...')
         for meme_id in train_set:
             act_seq = act_seqs[meme_id]
             observations = {}
@@ -43,13 +47,13 @@ class MEMMModel():
 
             for uid in act_seq.users:   # Notice users are sorted by activation time.
                 activated.add(uid)
-                u_obs = observations.setdefault(uid, [0] * len(self.__parents[uid]))
-                if u_obs:
+                if self.__parents[uid]:
+                    u_obs = observations.setdefault(uid, [0] * len(self.__parents[uid]))
                     meme_seqs.setdefault(uid, [])
                     meme_seqs[uid].append((''.join([str(o) for o in u_obs]), 0))
                 for child in self.__children[uid]:
                     obs = observations.setdefault(child, [0] * len(self.__parents[child]))
-                    if child not in activated and obs:
+                    if child not in activated:
                         meme_seqs.setdefault(child, [])
                         meme_seqs[child].append((''.join([str(o) for o in obs]), 0))
                     index = self.__parents[child].index(uid)
@@ -58,8 +62,15 @@ class MEMMModel():
                 if len(meme_seqs[uid]) > 1:
                     sequences.setdefault(uid, [])
                     sequences[uid].append(meme_seqs[uid])
+            count += 1
+            if count % 1000 == 0:
+                logger.info('%d memes done', count)
 
+        logger.info("training %d MEMM's ...", len(sequences))
+        count = 0
         for uid in sequences:
+            count += 1
+            logger.info('training MEMM %d ...', count)
             m = MEMM().fit(sequences[uid], len(self.__parents[uid]))
             self.__memms[uid] = m
 

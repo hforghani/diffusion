@@ -483,7 +483,6 @@ class Project(object):
     def load_train_test(self):
         sample_set_path = os.path.join(self.project_path, 'samples.json')
         if os.path.exists(sample_set_path):
-            logger.info('loading training and test data ...')
             data = json.load(open(sample_set_path))
             train_memes, test_memes = data['training'], data['test']
         else:
