@@ -22,42 +22,53 @@ class MEMM():
         :return:            self
         """
 
+        new_sequences, map_index = self.__decrease_dim(sequences, obs_dim)
+
         all_obs = set()
-        for seq in sequences:
+        for seq in new_sequences:
             all_obs.update([obs for obs, state in seq])
         all_obs = list(all_obs)
         self.__map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
         self.__map_index_obs = {v: k for k, v in self.__map_obs_index.items()}
 
         epsilon = 0.1
-        C = obs_dim + 1                        # This should be number of features + 1
+        new_obs_dim = len(map_index)
+        C = new_obs_dim + 1                        # This should be number of features + 1
         self.TPM = self.__init_tpm(self.__map_index_obs)
 
         # Divide (o,s) into |S| buckets
-        tuples = self.__divide_tuples(sequences)
+        tuples = self.__divide_tuples(new_sequences)
 
-        last_feature_list = self.__buildLastFeature(obs_dim, C, self.__map_index_obs)
+        last_feature_list = self.__build_last_feature(new_obs_dim, C, self.__map_index_obs)
 
         # Initialize Lambda as 1 then learn from training data
         # Lambda is different per s' (previous state)
-        F = self.__buildAverageFeature(tuples, obs_dim, last_feature_list)
+        F = self.__build_average_feature(tuples, new_obs_dim, last_feature_list)
 
         self.Lambda = self.__init_lambda(F)
-        E = self.__initExpectation(F)
+        E = self.__init_expectation(F)
 
         # GIS, run until convergence
         iter_count = 0
         while True:
-            #logger.info("iteration = {0}".format(iter_count))
-            Lambda0 = copy.deepcopy(self.Lambda)
-            self.__build_tpm(self.TPM, self.Lambda, obs_dim, self.__map_index_obs, last_feature_list)
-            self.__build_expectation(E, tuples, obs_dim, last_feature_list, self.TPM, self.__map_obs_index)
-            self.__build_next_lambda(self.Lambda, C, F, E)
             iter_count += 1
+            logger.info("iteration = %d ...", iter_count)
+            Lambda0 = copy.deepcopy(self.Lambda)
+            self.__build_tpm(self.TPM, self.Lambda, new_obs_dim, self.__map_index_obs, last_feature_list)
+            self.__build_expectation(E, tuples, new_obs_dim, last_feature_list, self.TPM, self.__map_obs_index)
+            self.__build_next_lambda(self.Lambda, C, F, E)
 
+            logger.info("TPM: %s", self.TPM)
+            logger.info("F: %s", F)
+            logger.info("E: %s", E)
+            logger.info("lambda: %s", self.Lambda)
             if self.__check_lambda_convergence(Lambda0, self.Lambda, epsilon):
                 logger.info('GIS iterations : %d', iter_count)
                 break
+
+        # Increase dimensions of Lambda to the original ones.
+        if obs_dim != new_obs_dim:
+            self.Lambda = self.__inc_dimensions(self.Lambda, map_index, obs_dim)
 
         return self
 
@@ -79,7 +90,7 @@ class MEMM():
         """
         N = 2
         M = len(map_index_symbol)
-        TPM = numpy.zeros(shape=(N * M, N), dtype=float)    # TPM (N * M) x N transitional probability matrix
+        TPM = numpy.zeros(shape=(M, N), dtype=float)    # TPM (N * M) x N transitional probability matrix
 
         return TPM
 
@@ -104,7 +115,7 @@ class MEMM():
 
         return tuples
 
-    def __buildLastFeature(self, obs_dim, C, map_index_obs):
+    def __build_last_feature(self, obs_dim, C, map_index_obs):
         """
         Build the last, (o, s) specific feature.
         :param obs_dim: number of observation dimensions
@@ -136,7 +147,7 @@ class MEMM():
                 logger.info(obs_state_tuple)
                 assert False, "Last feature error"
 
-    def __buildAverageFeature(self, tuples, max_num_features, last_feature_list):
+    def __build_average_feature(self, tuples, max_num_features, last_feature_list):
         """
         Calculate the training data average for each feature.
         Length = max_num_features + N * M
@@ -170,7 +181,7 @@ class MEMM():
             Lambda[key] = float(1)
         return Lambda
 
-    def __initExpectation(self, F):
+    def __init_expectation(self, F):
         """
         Initialize Expectation to 0's
         :param F: feature averages
@@ -271,3 +282,52 @@ class MEMM():
             if abs(Lambda0[feature_index] - Lambda1[feature_index]) > epsilon:
                 return False
         return True
+
+    def __decrease_dim(self, sequences, obs_dim):
+        """
+        Decrease dimensions of observations in sequences. Remove the dimensions related to the parents
+        which has no activation (e.t. has no digit 1) in any observation.
+        :param sequences:   list of sequences of (obs, state)
+        :param obs_dim:     number of dimensions
+        :return: new sequences, map of new indexes to the old ones
+        """
+        # Find the dimensions with any non-zero value.
+        has_nonzero = [False for _ in range(obs_dim)]
+        for i in range(len(sequences)):
+            seq = sequences[i]
+            for obs, state in seq:
+                has_nonzero = [has_nonzero[j] or obs[j] == '1' for j in range(obs_dim)]
+
+        if sum(has_nonzero) == obs_dim:
+            return sequences, {i: i for i in range(obs_dim)}
+
+        # Decrease the dimensions and create the new sequences.
+        new_sequences = []
+        for seq in sequences:
+            new_sequences.append([])
+            for obs, state in seq:
+                new_obs = ''.join([obs[i] for i in range(obs_dim) if has_nonzero[i]])
+                new_sequences[-1].append((new_obs, state))
+
+        # Create map of new dimension indexes to the old indexes.
+        map_index = {}
+        i = 0
+        for j in range(obs_dim):
+            if has_nonzero[j]:
+                map_index[i] = j
+                i += 1
+
+        return new_sequences, map_index
+
+    def __inc_dimensions(self, Lambda, map_index, obs_dim):
+        """
+        Add the removed features to Lambda. Add all-zero dimensions in the correct positions.
+        :param Lambda:      Lambda with decreased dimensions
+        :param map_index:   map of indexes of decreased dimensions to the original indexes
+        :param obs_dim:     original number of dimensions
+        :return:            new Lambda
+        """
+        new_lambda = {i: float(0) for i in range(obs_dim)}
+        for i in map_index:
+            new_lambda[map_index[i]] = Lambda[i]
+        return new_lambda

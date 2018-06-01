@@ -104,9 +104,9 @@ class Command(BaseCommand):
                     prp1_list.append(prp1)
                     prp2_list.append(prp2)
 
-                # Put meme id str at the beginning of user id's to make it unique.
-                all_res_nodes.extend({str(meme_id) + str(node) for node in res_output})
-                all_true_nodes.extend({str(meme_id) + str(node) for node in true_output})
+                # Put meme id str at the beginning of user id to make it unique.
+                all_res_nodes.extend({'{}-{}'.format(meme_id, node) for node in res_output})
+                all_true_nodes.extend({'{}-{}'.format(meme_id, node) for node in true_output})
 
                 i += 1
                 log = 'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f' % (

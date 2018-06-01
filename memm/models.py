@@ -3,7 +3,7 @@ import time
 from cascade.models import CascadeNode, CascadeTree
 from memm import MEMM
 
-logger = logging.getLogger('diffusion.memm.models')
+logger = logging.getLogger('memm.models')
 
 
 class MEMMModel():
@@ -66,12 +66,14 @@ class MEMMModel():
             if count % 1000 == 0:
                 logger.info('%d memes done', count)
 
+        # Train a MEMM for each user.
         logger.info("training %d MEMM's ...", len(sequences))
         count = 0
         for uid in sequences:
             count += 1
-            logger.info('training MEMM %d ...', count)
-            m = MEMM().fit(sequences[uid], len(self.__parents[uid]))
+            obs_dim = len(self.__parents[uid])
+            logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
+            m = MEMM().fit(sequences[uid], obs_dim)
             self.__memms[uid] = m
 
         return self
