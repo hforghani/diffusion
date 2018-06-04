@@ -52,19 +52,22 @@ class MEMM():
         iter_count = 0
         while True:
             iter_count += 1
-            logger.info("iteration = %d ...", iter_count)
+            #logger.info("iteration = %d ...", iter_count)
             Lambda0 = copy.deepcopy(self.Lambda)
             self.__build_tpm(self.TPM, self.Lambda, new_obs_dim, self.__map_index_obs, last_feature_list)
             self.__build_expectation(E, tuples, new_obs_dim, last_feature_list, self.TPM, self.__map_obs_index)
             self.__build_next_lambda(self.Lambda, C, F, E)
 
-            logger.info("TPM: %s", self.TPM)
-            logger.info("F: %s", F)
-            logger.info("E: %s", E)
-            logger.info("lambda: %s", self.Lambda)
+            #tpm_str = str(self.TPM)
+            #logger.info("TPM: %s", tpm_str[:200] + ' ...' if len(tpm_str) > 200 else '')
+            #logger.info("lambda: %s", self.Lambda)
             if self.__check_lambda_convergence(Lambda0, self.Lambda, epsilon):
                 logger.info('GIS iterations : %d', iter_count)
                 break
+
+        tpm_str = numpy.array2string(self.TPM, formatter={'float_kind': lambda x: "%.2f" % x})
+        logger.info("TPM: %s", tpm_str[:100] + ' ...' if len(tpm_str) > 100 else tpm_str)
+        logger.info("lambda: %s", self.Lambda)
 
         # Increase dimensions of Lambda to the original ones.
         if obs_dim != new_obs_dim:
@@ -82,7 +85,7 @@ class MEMM():
             return 0
         else:
             index = self.__map_obs_index[obs]
-            return 1 if self.TPM[index][1] > self.TPM[index][0] else 0
+            return 1 if self.TPM[index][1] * 5 > self.TPM[index][0] else 0
 
     def __init_tpm(self, map_index_symbol):
         """
@@ -137,7 +140,7 @@ class MEMM():
 
     def __feature(self, l, obs, state, last_feature_list={}, obs_state_tuple=()):
         if l < len(obs):
-            return int(obs[l])
+            return 1 if obs[l] == '1' and state == 1 else 0
         else:
             temp_tuple = (obs, state)
             if temp_tuple == obs_state_tuple:

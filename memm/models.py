@@ -1,6 +1,6 @@
 import logging
 import time
-from cascade.models import CascadeNode, CascadeTree
+from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm import MEMM
 
 logger = logging.getLogger('memm.models')
@@ -34,46 +34,55 @@ class MEMMModel():
         self.__children = {uid: graph.successors(uid) if uid in graph_nodes else []
                            for uid in user_ids}
 
-        sequences = {}  # sequences of (observation, state) for each user
-        count = 0
+        try:
+            sequences = self.project.load_param('seq-obs-state', ParamTypes.JSON)
 
-        # Iterate each activation sequence and extract sequences of (observation, state) for each user
-        logger.info('extracting sequences from memes ...')
-        for meme_id in train_set:
-            act_seq = act_seqs[meme_id]
-            observations = {}
-            activated = set()
-            meme_seqs = {}
+        except:
+            sequences = {}  # sequences of (observation, state) for each user
+            count = 0
 
-            for uid in act_seq.users:   # Notice users are sorted by activation time.
-                activated.add(uid)
-                if self.__parents[uid]:
-                    u_obs = observations.setdefault(uid, [0] * len(self.__parents[uid]))
-                    meme_seqs.setdefault(uid, [])
-                    meme_seqs[uid].append((''.join([str(o) for o in u_obs]), 1))
-                for child in self.__children[uid]:
-                    obs = observations.setdefault(child, [0] * len(self.__parents[child]))
-                    if child not in activated:
-                        meme_seqs.setdefault(child, [])
-                        meme_seqs[child].append((''.join([str(o) for o in obs]), 0))
-                    index = self.__parents[child].index(uid)
-                    obs[index] = 1
-            for uid in meme_seqs:
-                if len(meme_seqs[uid]) > 1:
-                    sequences.setdefault(uid, [])
-                    sequences[uid].append(meme_seqs[uid])
-            count += 1
-            if count % 1000 == 0:
-                logger.info('%d memes done', count)
+            # Iterate each activation sequence and extract sequences of (observation, state) for each user
+            logger.info('extracting sequences from memes ...')
+            for meme_id in train_set:
+                act_seq = act_seqs[meme_id]
+                observations = {}
+                activated = set()
+                meme_seqs = {}
+
+                for uid in act_seq.users:   # Notice users are sorted by activation time.
+                    activated.add(uid)
+                    if self.__parents[uid]:
+                        u_obs = observations.setdefault(uid, [0] * len(self.__parents[uid]))
+                        meme_seqs.setdefault(uid, [])
+                        meme_seqs[uid].append((''.join([str(o) for o in u_obs]), 1))
+                    for child in self.__children[uid]:
+                        obs = observations.setdefault(child, [0] * len(self.__parents[child]))
+                        if child not in activated:
+                            meme_seqs.setdefault(child, [])
+                            meme_seqs[child].append((''.join([str(o) for o in obs]), 0))
+                        index = self.__parents[child].index(uid)
+                        obs[index] = 1
+                for uid in meme_seqs:
+                    if len(meme_seqs[uid]) > 1:
+                        sequences.setdefault(uid, [])
+                        sequences[uid].append(meme_seqs[uid])
+                count += 1
+                if count % 1000 == 0:
+                    logger.info('%d memes done', count)
+
+            self.project.save_param(sequences, 'seq-obs-state', ParamTypes.JSON)
 
         # Train a MEMM for each user.
         logger.info("training %d MEMM's ...", len(sequences))
         count = 0
-        for uid in sequences:
+        for uid, seq in sequences.items():
             count += 1
+            uid = long(uid)
             obs_dim = len(self.__parents[uid])
             logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
-            m = MEMM().fit(sequences[uid], obs_dim)
+            if uid in (82604, 130749):
+                pass
+            m = MEMM().fit(seq, obs_dim)
             self.__memms[uid] = m
 
         return self
