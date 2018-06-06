@@ -19,6 +19,7 @@ class MEMMModel():
         :param train_set:   meme id's in training set
         :return:            self
         """
+        t0 = time.time()
         graph, act_seqs = self.project.load_or_extract_graph_seq()
 
         # Extract all user id's in training set.
@@ -80,11 +81,10 @@ class MEMMModel():
             uid = long(uid)
             obs_dim = len(self.__parents[uid])
             logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
-            if uid in [82604, 99158, 130749]:
-                pass
             m = MEMM().fit(seq, obs_dim)
             self.__memms[uid] = m
 
+        logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
         return self
 
     def predict(self, initial_tree, log=False):

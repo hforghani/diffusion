@@ -1,4 +1,3 @@
-import copy
 import logging
 import numpy as np
 import time
@@ -20,13 +19,12 @@ class MEMM():
         Learn MEMM lambdas and transition probabilities for each previous state.
         :param sequences:   list of sequences. Each sequence is a list of tuples (observation, state).
                             Each observation is a string of 0 and 1 representing the activation state of input neighbors.
-        :param states:      list of states
         :param obs_dim:     number of observation dimensions
         :return:            self
         """
 
         #t0 = time.time()
-        new_sequences, map_index = self.__decrease_dim(sequences, obs_dim)
+        new_sequences, orig_indexes = self.__decrease_dim(sequences, obs_dim)
         #logger.info('time 1: %.2f', time.time() - t0)
 
         #t0 = time.time()
@@ -41,13 +39,13 @@ class MEMM():
 
         #t0 = time.time()
         epsilon = 0.1
-        new_obs_dim = len(map_index)
-
-        #logger.info('time 3: %.2f', time.time() - t0)
-        #t0 = time.time()
+        new_obs_dim = len(orig_indexes)
 
         # Get tuples of (obs, state) which their previous state is 0.
         tuples, tuple_indexes = self.__divide_tuples(new_sequences, self.__map_obs_index)
+
+        #logger.info('time 3: %.2f', time.time() - t0)
+        #t0 = time.time()
 
         # Create observations and states matrices for tuples.
         obs_mat, state_mat = self.__create_matrices(tuples)
@@ -85,14 +83,16 @@ class MEMM():
                 logger.info('GIS iterations : %d', iter_count)
                 break
 
-        tpm_str = np.array2string(self.TPM, formatter={'float_kind': lambda x: "%.2f" % x})
-        logger.info("TPM: \n%s", tpm_str[:100] + ' ...' if len(tpm_str) > 100 else tpm_str)
-        lambda_str = np.array2string(self.Lambda, formatter={'float_kind': lambda x: "%.2f" % x})
-        logger.info("lambda: %s", lambda_str[:100] + ' ...' if len(lambda_str) > 100 else lambda_str)
+        #tpm_str = np.array2string(self.TPM, formatter={'float_kind': lambda x: "%.2f" % x})
+        #logger.info("TPM: \n%s", tpm_str[:100] + ' ...' if len(tpm_str) > 100 else tpm_str)
+        #lambda_str = np.array2string(self.Lambda, formatter={'float_kind': lambda x: "%.2f" % x})
+        #logger.info("lambda: %s", lambda_str[:100] + ' ...' if len(lambda_str) > 100 else lambda_str)
 
         # Increase dimensions of Lambda to the original ones.
         if obs_dim != new_obs_dim:
-            self.Lambda = self.__inc_dimensions(self.Lambda, map_index, obs_dim)
+            self.Lambda = self.__inc_matrix_dim(self.Lambda, orig_indexes, obs_dim)
+            self.__all_obs = self.__inc_matrix_dim(self.__all_obs, orig_indexes, obs_dim)
+            self.__map_obs_index = self.__inc_map_obs_dim(self.__map_obs_index, orig_indexes, obs_dim)
 
         return self
 
@@ -106,13 +106,9 @@ class MEMM():
         if obs in self.__map_obs_index:
             index = self.__map_obs_index[obs]
         else:
-            max_sim = -1
-            index = -1
-            for i in range(self.__all_obs.shape[0]):
-                sim = np.sum(self.__all_obs[i, :] == obs_vec)
-                if sim > max_sim:
-                    max_sim = sim
-                    index = i
+            obs_num = self.__all_obs.shape[0]
+            sim = np.sum(self.__all_obs == np.tile(obs_vec, (obs_num, 1)), axis=1)
+            index = np.argmax(sim)
         return 1 if self.TPM[index][1] > self.TPM[index][0] else 0
 
     def __create_matrices(self, tuples):
@@ -246,24 +242,36 @@ class MEMM():
                 new_sequences[-1].append((new_obs, state))
 
         # Create map of new dimension indexes to the old indexes.
-        map_index = {}
-        i = 0
-        for j in range(obs_dim):
-            if has_nonzero[j]:
-                map_index[i] = j
-                i += 1
+        orig_indexes = []
+        for i in range(obs_dim):
+            if has_nonzero[i]:
+                orig_indexes.append(i)
 
-        return new_sequences, map_index
+        return new_sequences, orig_indexes
 
-    def __inc_dimensions(self, Lambda, map_index, obs_dim):
+    def __inc_matrix_dim(self, matrix, orig_indexes, obs_dim):
         """
-        Add the removed features to Lambda. Add all-zero dimensions in the correct positions.
-        :param Lambda:      Lambda with decreased dimensions
-        :param map_index:   map of indexes of decreased dimensions to the original indexes
-        :param obs_dim:     original number of dimensions
-        :return:            new Lambda
+        Add the removed features to matrix (observations or lambda). Add all-zero dimensions in the correct positions.
+        :param matrix:          if a vector with size D is given it increases its dimension to obs_dim using map_index.
+                                if a matrix with size N*D is given it returns a matrix with size N*obs_dim using map_index.
+        :param orig_indexes:    list of indexes of original indexes related to each decreased dimension
+        :param obs_dim:         original number of dimensions
+        :return:                the matrix with original dimensions
         """
-        new_lambda = {i: float(0) for i in range(obs_dim)}
-        for i in map_index:
-            new_lambda[map_index[i]] = Lambda[i]
-        return new_lambda
+        if len(matrix.shape) == 1:
+            orig_matrix = np.zeros(obs_dim, dtype=matrix.dtype)
+            orig_matrix[orig_indexes] = matrix
+        else:
+            orig_matrix = np.zeros((matrix.shape[0], obs_dim), dtype=matrix.dtype)
+            orig_matrix[:, orig_indexes] = matrix
+        return orig_matrix
+
+    def __inc_map_obs_dim(self, map_obs_index, orig_indexes, obs_dim):
+        new_map = {}
+        for obs, index in map_obs_index.items():
+            obs_vec = np.array([int(d) for d in obs], dtype=bool)
+            orig_vec = np.zeros(obs_dim)
+            orig_vec[orig_indexes] = obs_vec
+            orig_obs = ''.join(str(int(d)) for d in orig_vec)
+            new_map[orig_obs] = index
+        return new_map
