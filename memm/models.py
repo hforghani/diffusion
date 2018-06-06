@@ -80,7 +80,7 @@ class MEMMModel():
             uid = long(uid)
             obs_dim = len(self.__parents[uid])
             logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
-            if uid in (82604, 130749):
+            if uid in [82604, 99158, 130749]:
                 pass
             m = MEMM().fit(seq, obs_dim)
             self.__memms[uid] = m

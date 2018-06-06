@@ -1,6 +1,8 @@
 import copy
 import logging
-import numpy
+import numpy as np
+import time
+import scipy
 
 logger = logging.getLogger('memm.memm')
 
@@ -9,8 +11,9 @@ class MEMM():
     def __init__(self):
         self.Lambda = {}
         self.TPM = None
+        self.__all_obs = None
         self.__map_obs_index = {}
-        self.__map_index_obs = {}
+        #self.__map_index_obs = {}
 
     def fit(self, sequences, obs_dim):
         """
@@ -22,52 +25,70 @@ class MEMM():
         :return:            self
         """
 
+        #t0 = time.time()
         new_sequences, map_index = self.__decrease_dim(sequences, obs_dim)
+        #logger.info('time 1: %.2f', time.time() - t0)
 
-        all_obs = set()
+        #t0 = time.time()
+        all_obs_str = set()
         for seq in new_sequences:
-            all_obs.update([obs for obs, state in seq])
-        all_obs = list(all_obs)
-        self.__map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
-        self.__map_index_obs = {v: k for k, v in self.__map_obs_index.items()}
+            all_obs_str.update([obs for obs, _ in seq])
+        all_obs_str = list(all_obs_str)
+        self.__all_obs = [[int(d) for d in obs] for obs in all_obs_str]
+        self.__all_obs = np.array(self.__all_obs, dtype=bool)
+        self.__map_obs_index = {v: k for k, v in dict(enumerate(all_obs_str)).items()}
+        #logger.info('time 2: %.2f', time.time() - t0)
 
+        #t0 = time.time()
         epsilon = 0.1
         new_obs_dim = len(map_index)
-        C = new_obs_dim + 1                        # This should be number of features + 1
-        self.TPM = self.__init_tpm(self.__map_index_obs)
 
-        # Divide (o,s) into |S| buckets
-        tuples = self.__divide_tuples(new_sequences)
+        #logger.info('time 3: %.2f', time.time() - t0)
+        #t0 = time.time()
 
-        last_feature_list = self.__build_last_feature(new_obs_dim, C, self.__map_index_obs)
+        # Get tuples of (obs, state) which their previous state is 0.
+        tuples, tuple_indexes = self.__divide_tuples(new_sequences, self.__map_obs_index)
 
-        # Initialize Lambda as 1 then learn from training data
-        # Lambda is different per s' (previous state)
-        F = self.__build_average_feature(tuples, new_obs_dim, last_feature_list)
+        # Create observations and states matrices for tuples.
+        obs_mat, state_mat = self.__create_matrices(tuples)
 
-        self.Lambda = self.__init_lambda(F)
-        E = self.__init_expectation(F)
+        # Calculate features for tuples observations/states. Shape of f1 is observations_num * (observations_dim+1)
+        features, C = self.__calc_features(obs_mat, state_mat)
+
+        # Calculate the training data average for each feature.
+        F = np.mean(features, axis=0).T
+
+        # Initialize Lambda as 1 then learn from training data.
+        # Lambda is different per s' (previous state), But here just we use s' = 0.
+        self.Lambda = np.ones(new_obs_dim + 1)
+
+        #logger.info('time 4: %.2f', time.time() - t0)
 
         # GIS, run until convergence
         iter_count = 0
         while True:
             iter_count += 1
             #logger.info("iteration = %d ...", iter_count)
-            Lambda0 = copy.deepcopy(self.Lambda)
-            self.__build_tpm(self.TPM, self.Lambda, new_obs_dim, self.__map_index_obs, last_feature_list)
-            self.__build_expectation(E, tuples, new_obs_dim, last_feature_list, self.TPM, self.__map_obs_index)
-            self.__build_next_lambda(self.Lambda, C, F, E)
+            Lambda0 = np.copy(self.Lambda)
+            #t0 = time.time()
+            self.TPM = self.__build_tpm(self.Lambda, self.__all_obs)
+            #t1 = time.time() - t0
+            #t0 = time.time()
+            E = self.__build_expectation(obs_mat, self.TPM, tuple_indexes)
+            #t2 = time.time() - t0
+            #t0 = time.time()
+            self.Lambda = self.__build_next_lambda(self.Lambda, C, F, E)
+            #t3 = time.time() - t0
+            #logger.info('iteration %d times: %.2f, %.2f, %.2f', iter_count, t1, t2, t3)
 
-            #tpm_str = str(self.TPM)
-            #logger.info("TPM: %s", tpm_str[:200] + ' ...' if len(tpm_str) > 200 else '')
-            #logger.info("lambda: %s", self.Lambda)
             if self.__check_lambda_convergence(Lambda0, self.Lambda, epsilon):
                 logger.info('GIS iterations : %d', iter_count)
                 break
 
-        tpm_str = numpy.array2string(self.TPM, formatter={'float_kind': lambda x: "%.2f" % x})
-        logger.info("TPM: %s", tpm_str[:100] + ' ...' if len(tpm_str) > 100 else tpm_str)
-        logger.info("lambda: %s", self.Lambda)
+        tpm_str = np.array2string(self.TPM, formatter={'float_kind': lambda x: "%.2f" % x})
+        logger.info("TPM: \n%s", tpm_str[:100] + ' ...' if len(tpm_str) > 100 else tpm_str)
+        lambda_str = np.array2string(self.Lambda, formatter={'float_kind': lambda x: "%.2f" % x})
+        logger.info("lambda: %s", lambda_str[:100] + ' ...' if len(lambda_str) > 100 else lambda_str)
 
         # Increase dimensions of Lambda to the original ones.
         if obs_dim != new_obs_dim:
@@ -81,29 +102,44 @@ class MEMM():
         :param obs:     current observation
         :return:        predicted next state
         """
-        if obs not in self.__map_index_obs:
-            return 0
-        else:
+        obs_vec = np.array([int(d) for d in obs], dtype=bool)
+        if obs in self.__map_obs_index:
             index = self.__map_obs_index[obs]
-            return 1 if self.TPM[index][1] * 5 > self.TPM[index][0] else 0
+        else:
+            max_sim = -1
+            index = -1
+            for i in range(self.__all_obs.shape[0]):
+                sim = np.sum(self.__all_obs[i, :] == obs_vec)
+                if sim > max_sim:
+                    max_sim = sim
+                    index = i
+        return 1 if self.TPM[index][1] > self.TPM[index][0] else 0
 
-    def __init_tpm(self, map_index_symbol):
-        """
-         Initialize TPM as all zeros
-        """
-        N = 2
-        M = len(map_index_symbol)
-        TPM = numpy.zeros(shape=(M, N), dtype=float)    # TPM (N * M) x N transitional probability matrix
+    def __create_matrices(self, tuples):
+        obs_array = []
+        state_array = []
+        for obs, state in tuples:
+            obs_array.append(obs)
+            state_array.append(state)
+        return np.array(obs_array, dtype=bool), np.array(state_array, dtype=bool)
 
-        return TPM
+    def __calc_features(self, obs_mat, state_mat):
+        obs_num, obs_dim = obs_mat.shape
+        f1 = np.multiply(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
+        feat_sum = np.sum(f1, axis=1)
+        C = np.max(np.sum(obs_mat, axis=1)) + 1  # C is chosen so that is greater than sum of any row.
+        last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
+        f1 = np.concatenate((f1, last_feat), axis=1)
+        return f1, C
 
-    def __divide_tuples(self, sequences):
+    def __divide_tuples(self, sequences, map_obs_index):
         """
         Return list of tuples of (obs, state) which their previous state is 0 (inactivated).
         :param sequences: list of sequences
         :return: list of tuples
         """
         tuples = []
+        tuple_indexes = []
 
         for seq in sequences:
             if not seq:
@@ -113,165 +149,65 @@ class MEMM():
                 if previous_state == 1:
                     break
                 else:
-                    tuples.append((obs, state))
+                    obs_vec = np.array([int(d) for d in obs], dtype=bool)
+                    tuples.append((obs_vec, state))
+                    tuple_indexes.append(map_obs_index[obs])
                     previous_state = state
 
-        return tuples
+        return tuples, tuple_indexes
 
-    def __build_last_feature(self, obs_dim, C, map_index_obs):
-        """
-        Build the last, (o, s) specific feature.
-        :param obs_dim: number of observation dimensions
-        :param C: number of features (num of observations + 1)
-        :param map_index_obs: map of indexes to observations
-        :return: a dictionary that d[(obs, state)] = feature_value
-        """
-        last_feature_list = {}
-
-        for state in [0, 1]:
-            for j in map_index_obs:
-                obs = map_index_obs[j]
-                total = 0
-                for l in range(obs_dim):
-                    total += self.__feature(l, obs, state)
-                last_feature_list[(obs, state)] = C - total
-
-        return last_feature_list
-
-    def __feature(self, l, obs, state, last_feature_list={}, obs_state_tuple=()):
-        if l < len(obs):
-            return 1 if obs[l] == '1' and state == 1 else 0
-        else:
-            temp_tuple = (obs, state)
-            if temp_tuple == obs_state_tuple:
-                return last_feature_list[(obs, state)] # This should error if last_feature_list is not passed in
-            else:
-                logger.info(temp_tuple)
-                logger.info(obs_state_tuple)
-                assert False, "Last feature error"
-
-    def __build_average_feature(self, tuples, max_num_features, last_feature_list):
-        """
-        Calculate the training data average for each feature.
-        Length = max_num_features + N * M
-        :param tuples: list of (obs, state) tuples
-        :param max_num_features: number of features
-        :param last_feature_list: last dictionary of feature values
-        :return: dictionary of feature numbers to average values
-        """
-        F = {}
-        m_s = len(tuples)
-        # Regular features + special, normalizing feature
-        for l in range(max_num_features + 1):
-            F[l] = float(0)
-            if m_s == 0:
-                continue
-            for obs, state in tuples:
-                obs_state_tuple = (obs, state)
-                F[l] += self.__feature(l, obs, state, last_feature_list, obs_state_tuple)
-            F[l] = F[l] / m_s
-
-        return F
-
-    def __init_lambda(self, F):
-        """
-        Initialize Lambda to 1's
-        :param F: feature averages
-        :return: lambda
-        """
-        Lambda = copy.deepcopy(F)
-        for key in F:
-            Lambda[key] = float(1)
-        return Lambda
-
-    def __init_expectation(self, F):
-        """
-        Initialize Expectation to 0's
-        :param F: feature averages
-        :return: expectations
-        """
-        E = copy.deepcopy(F)
-        for key in F:
-            E[key] = float(1)
-        return E
-
-    def __build_tpm(self, TPM, Lambda, max_num_features, map_index_obs, last_feature_list):
+    def __build_tpm(self, Lambda, all_obs):
         """
         Create normalized transition probability matrix (TPM) from previous state of 0 (inactivated) given current observation
-        :param TPM: current transition probability matrix
-        :param Lambda: weights of features
-        :param max_num_features: number of features
-        :param map_index_obs: map of indexes to observations
-        :param last_feature_list: feature values
-        :return: new TPM
+        :param Lambda:      np array of Lambda weights
+        :param all_obs:     np array of all unique observations: obs_num * obs_dim
+        :return:
         """
-        M = len(map_index_obs)
+        obs_num = all_obs.shape[0]
+        # f0 is features of observations with state = 0.
+        state_mat = np.zeros((obs_num, 1), dtype=bool)
+        f0, _ = self.__calc_features(all_obs, state_mat)
 
-        # Calculate states
-        for k in range(0, M):                # Current observation
-            for state in [0, 1]:            # Current target state
-                TPM[k][state] = float(0)
-                obs = map_index_obs[k]
-                obs_state_tuple = (obs, state)
-                # Sum(Lambda_a * feature_a)
-                for l in range(0, max_num_features + 1):  # Normal features + special feature
-                    TPM[k][state] += Lambda[l] * self.__feature(l, obs, state, last_feature_list, obs_state_tuple)
+        # f1 is features of observations with state = 1.
+        state_mat = np.ones((obs_num, 1), dtype=bool)
+        f1, _ = self.__calc_features(all_obs, state_mat)
 
-                # Raise to exponential
-                TPM[k][state] = numpy.exp(TPM[k][state])
+        TPM = np.zeros((obs_num, 2))
+        TPM[:, 0] = np.squeeze(f0.dot(Lambda))
+        TPM[:, 1] = np.squeeze(f1.dot(Lambda))
+        diff1 = np.reshape(scipy.special.expit(TPM[:, 0] - TPM[:, 1]), (obs_num, 1))
+        diff2 = np.reshape(scipy.special.expit(TPM[:, 1] - TPM[:, 0]), (obs_num, 1))
+        TPM = np.concatenate((diff1, diff2), axis=1)
 
-            # Normalize
-            row_sum = numpy.sum(TPM[k])
-            for state in [0, 1]:            # Current target state
-                TPM[k][state] = TPM[k][state] / row_sum
+        return TPM
 
-    def __build_expectation(self, E, tuples, max_num_features, last_feature_list, TPM, map_obs_index):
-        """
-        Calculate the expectation for each feature
-        Note this is only for 1 bucket per call
-        :param E: current expected value of features
-        :param tuples: list of (obs, state) tuples
-        :param max_num_features: number of features
-        :param last_feature_list: feature values
-        :param TPM: current TPM
-        :param map_obs_index: map of indexes to observations
-        :return: expected value of features
-        """
-        m_s = len(tuples)
+    def __build_expectation(self, obs_mat, TPM, tuple_indexes):
+        obs_num, obs_dim = obs_mat.shape
 
-        for l in range(max_num_features + 1):
-            E[l] = float(0)
-            if m_s == 0:
-                continue
-            for obs, state in tuples:
-                k = map_obs_index[obs]
-                for state in [0, 1]:
-                    obs_state_tuple = (obs, state)
-                    # logger.info(i, state, k, l)
-                    E[l] += TPM[k][state] * self.__feature(l, obs, state, last_feature_list, obs_state_tuple)
-            E[l] /= m_s
+        # f0 is features of observations with state = 0.
+        state_mat = np.zeros((obs_num, 1), dtype=bool)
+        f0, _ = self.__calc_features(obs_mat, state_mat)
 
+        # f1 is features of observations with state = 1.
+        state_mat = np.ones((obs_num, 1), dtype=bool)
+        f1, _ = self.__calc_features(obs_mat, state_mat)
+
+        tuples_TPM = TPM[tuple_indexes, :]
+        E = tuples_TPM[:, 0].T.dot(f0) + tuples_TPM[:, 1].T.dot(f1)
+        E /= obs_num
         return E
 
     def __build_next_lambda(self, Lambda, C, F, E):
         """
         Use Generalized iterative scaling (GIS) to learn Lambda parameter
-        :param Lambda: current lambda (feature weights)
-        :param C: number of features + 1
-        :param F: feature averages
-        :param E: expected value of features
-        :return: next lambda
         """
-        for feature_index in Lambda:
-            assert not (E[feature_index] == 0 and E[feature_index] != F[feature_index]), \
-                "E[{1}] == 0 but not F".format(feature_index)
+        for i in range(Lambda.size):
             # If the average for the feature is 0, it has no contribution to the probability
-            if F[feature_index] == 0:
-                Lambda[feature_index] = 0
+            if F[i] == 0:
+                Lambda[i] = 0
             else:
-                log_F = numpy.log(F[feature_index])
-                log_E = numpy.log(E[feature_index])
-                Lambda[feature_index] = Lambda[feature_index] + (log_F - log_E) / C
+                Lambda[i] += (np.log(F[i]) - np.log(E[i])) / C
+        return Lambda
 
     def __check_lambda_convergence(self, Lambda0, Lambda1, epsilon):
         """
@@ -281,10 +217,7 @@ class MEMM():
         :param epsilon: threshold of distance
         :return: True if the distance is lower than epsilon
         """
-        for feature_index in Lambda0:
-            if abs(Lambda0[feature_index] - Lambda1[feature_index]) > epsilon:
-                return False
-        return True
+        return np.count_nonzero(np.absolute(Lambda0 - Lambda1) > epsilon) == 0
 
     def __decrease_dim(self, sequences, obs_dim):
         """
