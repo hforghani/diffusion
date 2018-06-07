@@ -12,7 +12,6 @@ class MEMM():
         self.TPM = None
         self.__all_obs = None
         self.__map_obs_index = {}
-        #self.__map_index_obs = {}
 
     def fit(self, sequences, obs_dim):
         """
@@ -106,10 +105,11 @@ class MEMM():
         if obs in self.__map_obs_index:
             index = self.__map_obs_index[obs]
         else:
+            #return 0
             obs_num = self.__all_obs.shape[0]
             sim = np.sum(self.__all_obs == np.tile(obs_vec, (obs_num, 1)), axis=1)
             index = np.argmax(sim)
-        return 1 if self.TPM[index][1] > self.TPM[index][0] else 0
+        return 1 if self.TPM[index][1] > .35 else 0
 
     def __create_matrices(self, tuples):
         obs_array = []
@@ -121,12 +121,12 @@ class MEMM():
 
     def __calc_features(self, obs_mat, state_mat):
         obs_num, obs_dim = obs_mat.shape
-        f1 = np.multiply(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
-        feat_sum = np.sum(f1, axis=1)
+        features = np.multiply(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
+        feat_sum = np.sum(features, axis=1)
         C = np.max(np.sum(obs_mat, axis=1)) + 1  # C is chosen so that is greater than sum of any row.
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
-        f1 = np.concatenate((f1, last_feat), axis=1)
-        return f1, C
+        features = np.concatenate((features, last_feat), axis=1)
+        return features, C
 
     def __divide_tuples(self, sequences, map_obs_index):
         """
