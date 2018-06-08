@@ -18,13 +18,13 @@ class Command(BaseCommand):
     help = 'Test information diffusion prediction'
 
     option_list = BaseCommand.option_list + (
-        make_option(
-            "-p",
-            "--project",
-            type="string",
-            dest="project",
-            help="project name",
-        ),
+        #make_option(
+        #    "-p",
+        #    "--project",
+        #    type="string",
+        #    dest="project",
+        #    help="project name",
+        #),
         make_option(
             "-m",
             "--method",
@@ -78,7 +78,7 @@ class Command(BaseCommand):
         # Create and train the model if needed.
         if method == 'mln':
             logger.info('loading mln results ...')
-            file_path = 'D:/University Stuff/social/code/pracmln/experiments/social/results/%s-gibbs.results' % project_name
+            file_path = 'D:/University Stuff/social/code/pracmln/experiments/social/results/%s-gibbs.results' % project.project_name
             model = MLN(project)
             model.load_results(file_path)
             test_set = set(test_set) & set(model.edges.keys())

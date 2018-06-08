@@ -23,6 +23,8 @@ class MEMM():
         """
 
         #t0 = time.time()
+        #new_sequences = sequences
+        #orig_indexes = {i: i for i in range(obs_dim)}
         new_sequences, orig_indexes = self.__decrease_dim(sequences, obs_dim)
         #logger.info('time 1: %.2f', time.time() - t0)
 
@@ -109,7 +111,7 @@ class MEMM():
             obs_num = self.__all_obs.shape[0]
             sim = np.sum(self.__all_obs == np.tile(obs_vec, (obs_num, 1)), axis=1)
             index = np.argmax(sim)
-        return 1 if self.TPM[index][1] > .35 else 0
+        return 1 if self.TPM[index][1] > 0.7 else 0
 
     def __create_matrices(self, tuples):
         obs_array = []
@@ -121,9 +123,11 @@ class MEMM():
 
     def __calc_features(self, obs_mat, state_mat):
         obs_num, obs_dim = obs_mat.shape
-        features = np.multiply(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
+        #features = np.logical_and(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
+        features = np.logical_not(np.logical_xor(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim)))
+        #C = np.max(np.sum(obs_mat, axis=1)) + 1  # C is chosen so that is greater than sum of any row.
+        C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
-        C = np.max(np.sum(obs_mat, axis=1)) + 1  # C is chosen so that is greater than sum of any row.
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
         features = np.concatenate((features, last_feat), axis=1)
         return features, C
