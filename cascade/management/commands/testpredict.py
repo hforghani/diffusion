@@ -40,11 +40,13 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             start = time.time()
+            #projects = ['small0', 'small1', 'small3', 'small4', 'small5', 'small6', 'small7']
+            projects = ['big']
             prec = []
             recall = []
             f1 = []
 
-            for project_name in ['small0', 'small1', 'small3', 'small4', 'small5', 'small6', 'small7']:
+            for project_name in projects:
                 ## Get project or raise exception.
                 #project_name = options['project']
                 #if project_name is None:
@@ -61,9 +63,10 @@ class Command(BaseCommand):
                 recall.append(measure.recall())
                 f1.append(measure.f1())
 
-            logger.info('final precision = %.3f', np.mean(np.array(prec)))
-            logger.info('final recall = %.3f', np.mean(np.array(recall)))
-            logger.info('final f1 = %.3f', np.mean(np.array(f1)))
+            if len(projects) > 1:
+                logger.info('final precision = %.3f', np.mean(np.array(prec)))
+                logger.info('final recall = %.3f', np.mean(np.array(recall)))
+                logger.info('final f1 = %.3f', np.mean(np.array(f1)))
             logger.info('command done in %.2f min' % ((time.time() - start) / 60))
         except:
             logger.info(traceback.format_exc())
