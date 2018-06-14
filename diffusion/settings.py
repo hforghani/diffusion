@@ -1,6 +1,7 @@
 # Django settings for social project.
 import sys
 from local_settings import *
+from predict_settings import *
 
 DEBUG = True
 TEMPLATE_DEBUG = DEBUG

@@ -284,20 +284,22 @@ class AsLT(object):
         self.project = project
         self.init_tree = None
         self.max_delay = 999999999
-        self.weight_sum = {}  # dictionary of node id's to sums of parents weights
+        self.probabilities = {}  # dictionary of node id's to probabilities of activation
         self.w_param_name = 'w'
         self.r_param_name = 'r'
 
-    #def fit(self, tree):
-    #    pass
+    def fit(self, tree):
+        pass
 
-    def predict(self, initial_tree, user_ids=None, log=False):
+    def predict(self, initial_tree, threshold=None, user_ids=None, log=False):
         """
         Predict activation cascade in the future starting from initial nodes in self.tree.
         Set the final tree again in self.tree.
-        :param user_ids: List of possible users for activation. All of users if value is None.
-        :param log:      Log in console if True else does not log.
-        :return:         Returns self.tree
+        :param initial_tree:    Initial tree of activated nodes
+        :param threshold:       Threshold of activation probability. IF None, threshold is sampled randomly.
+        :param user_ids:        List of possible users for activation. All of users if value is None.
+        :param log:             Log in console if True else does not log.
+        :return:                Returns self.tree
         """
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be a CascadeTree')
@@ -308,10 +310,11 @@ class AsLT(object):
         now = tree.max_datetime()  # Find the datetime of now.
         cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         activated = tree.nodes()
-        self.weight_sum = {}
+        self.probabilities = {}
         if user_ids is None:
             user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
         user_map = {user_ids[i]: i for i in range(len(user_ids))}
+        thresholds = {}
         if log:
             logger.info('time1 = %.2f' % (time.time() - t0))
 
@@ -319,7 +322,7 @@ class AsLT(object):
         t0 = time.time()
         w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
         w = w.tocsr()
-        r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
+        #r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
         if log:
             logger.info('time2 = %.2f' % (time.time() - t0))
 
@@ -343,30 +346,39 @@ class AsLT(object):
                     v = user_ids[int(v_i)]  # receiver (child) user id
                     if v in activated:
                         continue
-                    if v not in self.weight_sum:
-                        self.weight_sum[v] = 0
-                    self.weight_sum[v] += w_u[v_i]
+                    if v not in self.probabilities:
+                        self.probabilities[v] = 0
+                    self.probabilities[v] += w_u[v_i]
 
-                    # Try to activate the children.
-                    sample = random.random()
-                    #sample = 0.5
-                    # If activated successfully add it in the tree and estimate the delay.
-                    if sample <= self.weight_sum[v]:
-                        # Get delay parameter.
-                        delay_param = r[v_i]
-                        if delay_param == 0:
-                            continue
-                        if delay_param < 0:  # Due to some rare bugs in delays
-                            delay_param = -delay_param
+                    # Set the threshold or sample it randomly if None.
+                    if threshold is None:
+                        if v_i in thresholds:
+                            thresh = thresholds[v_i]
+                        else:
+                            thresh = random.random()
+                            thresholds[v_i] = thresh
+                    else:
+                        thresh = threshold
 
-                        # Sample delay from exponential distribution and calculate the receive time.
-                        delay = np.random.exponential(delay_param)  # in days
-                        #delay = delay_param  # in days
-                        send_dt = str_to_datetime(node.datetime)
-                        receive_dt = send_dt + timedelta(days=delay)
-                        if receive_dt < now:
-                            continue
-                        child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
+                    if self.probabilities[v] >= thresh:
+                        ## Get delay parameter.
+                        #delay_param = r[v_i]
+                        #if delay_param == 0:
+                        #    continue
+                        #if delay_param < 0:  # Due to some rare bugs in delays
+                        #    delay_param = -delay_param
+                        #
+                        ## Sample delay from exponential distribution and calculate the receive time.
+                        #delay = np.random.exponential(delay_param)  # in days
+                        ##delay = delay_param  # in days
+                        #send_dt = str_to_datetime(node.datetime)
+                        #receive_dt = send_dt + timedelta(days=delay)
+                        #if receive_dt < now:
+                        #    continue
+
+                        # Add it in the tree.
+                        #child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
+                        child = CascadeNode(v)
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
@@ -383,14 +395,18 @@ class IC(object):
     def __init__(self, project):
         self.project = project
         self.init_tree = None
+        self.p_param_name = 'p'
+        self.r_param_name = 'r'
+        self.probabilities = {}  # dictionary of node id's to probabilities of activation
 
-    #def fit(self, tree):
-    #    pass
+    def fit(self, tree):
+        pass
 
-    def predict(self, initial_tree, user_ids=None, log=False):
+    def predict(self, initial_tree, threshold=None, user_ids=None, log=False):
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()
+        now = tree.max_datetime()  # Find the datetime of now.
 
         # Initialize values.
         t0 = time.time()
@@ -404,8 +420,10 @@ class IC(object):
 
         # Get diffusion probabilities and delay vectors.
         t0 = time.time()
-        p = self.project.load_param('p', ParamTypes.SPARSE)
+        p = self.project.load_param(self.p_param_name, ParamTypes.SPARSE)
         p = p.tocsr()
+        r = self.project.load_param(self.r_param_name, ParamTypes.SPARSE)
+        r = r.tolil()
         if log:
             logger.info('time2 = %.2f' % (time.time() - t0))
 
@@ -422,7 +440,7 @@ class IC(object):
             for node in cur_step:
                 u = node.user_id  # sender user id
                 u_i = user_map[u]
-                p_u = np.squeeze(np.array(p[u_i, :].todense()))  # weights of the children of u
+                p_u = np.squeeze(np.array(p[u_i, :].todense()))  # probabilities of the children of u
 
                 # Iterate on children of u
                 for v_i in np.nonzero(p_u)[0]:
@@ -430,12 +448,36 @@ class IC(object):
                     if v in activated:
                         continue
 
-                    # Try to activate the child.
-                    sample = random.random()
-                    #sample = 0.5
-                    # If activated successfully add it the tree and estimate the delay.
-                    if sample <= p_u[v_i]:
+                    # Set the threshold or sample it randomly if None.
+                    if threshold is None:
+                        thresh = random.random()
+                    else:
+                        thresh = threshold
+
+                    # Update probability of activation of the receiver.
+                    p_u_v = p_u[v_i]
+                    if v not in self.probabilities:
+                        self.probabilities[v] = p_u_v
+                    else:
+                        self.probabilities[v] = max(p_u_v, self.probabilities[v])
+
+                    if thresh <= p_u[v_i]:
                         # Get delay parameter.
+                        delay_param = r[u_i, v_i]
+                        if delay_param == 0:
+                            continue
+                        if delay_param < 0:  # Due to some rare bugs in delays
+                            delay_param = -delay_param
+
+                        # Sample delay from exponential distribution and calculate the receive time.
+                        delay = np.random.exponential(delay_param)  # in days
+                        #delay = delay_param  # in days
+                        send_dt = str_to_datetime(node.datetime)
+                        receive_dt = send_dt + timedelta(days=delay)
+                        if receive_dt < now:
+                            continue
+
+                        # Add it in the tree.
                         send_dt = str_to_datetime(node.datetime)
                         receive_dt = send_dt + timedelta(days=1)
                         child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))

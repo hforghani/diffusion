@@ -2,6 +2,7 @@
 import logging
 from optparse import make_option
 import traceback
+from django.conf import settings
 from django.core.management.base import BaseCommand
 import time
 import numpy as np
@@ -85,12 +86,16 @@ class Command(BaseCommand):
             model = MLN(project)
             model.load_results(file_path)
             test_set = set(test_set) & set(model.edges.keys())
+            threshold = settings.MLN_THRES
         elif method == 'memm':
             model = MEMMModel(project).fit(train_set)
+            threshold = settings.MEMM_THRES
         elif method == 'saito':
             model = Saito(project)
+            threshold = settings.ASLT_THRES
         elif method == 'avg':
             model = AsLT(project)
+            threshold = settings.LT_THRES
         else:
             raise Exception('invalid method "%s"' % method)
 
@@ -111,15 +116,15 @@ class Command(BaseCommand):
 
             # Predict remaining nodes.
             if method == 'mln':
-                res_tree = model.predict(meme_id, initial_tree, threshold=8)
+                res_tree = model.predict(meme_id, initial_tree, threshold=threshold)
             else:
-                res_tree = model.predict(initial_tree)
+                res_tree = model.predict(initial_tree, threshold=threshold)
 
             # Evaluate the results.
             meas, prec, rec, res_output, true_output = self.evaluate(initial_tree, res_tree, tree)
 
             if method in ['saito', 'avg']:
-                prp = meas.prp(model.weight_sum)
+                prp = meas.prp(model.probabilities)
                 prp1 = prp[0] if prp else 0
                 prp2 = prp[1] if len(prp) > 1 else 0
                 prp1_list.append(prp1)

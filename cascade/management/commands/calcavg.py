@@ -107,19 +107,29 @@ class Command(BaseCommand):
         project.save_param(weights, 'w', ParamTypes.SPARSE)
 
     def calc_delays(self, reshares, continue_prev, project):
-        self.stdout.write('prepairing user pairs ...')
+        self.stdout.write('collecting user ids ...')
 
-        save_path = os.path.join('data', 'diffparam_delay_saved.npy')
-        if continue_prev and os.path.exists(save_path):
-            data = np.load(save_path).item()
-            delays = data['delays']
-            i = data['index']
-            ignoring = True
-            self.stdout.write('ignoring processed reshares ...')
-        else:
-            delays = {(pair['ref_user_id'], pair['user_id']): {'count': 0, 'avg': 0} for pair in
-                      reshares.values('ref_user_id', 'user_id').distinct()}
+        user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+        user_map = {user_ids[i]: i for i in range(len(user_ids))}
+        u_count = len(user_ids)
+
+        index_param_name = 'r-index'
+        counts_param_name = 'r-counts'
+        r = None
+        if continue_prev:
+            try:
+                self.stdout.write('loading delay temp data ...')
+                i = project.load_param(index_param_name, ParamTypes.JSON)['index']
+                counts = sparse.lil_matrix(project.load_param(counts_param_name, ParamTypes.SPARSE))
+                r = sparse.lil_matrix(project.load_param('r', ParamTypes.SPARSE))
+                ignoring = True
+                self.stdout.write('ignoring processed reshares ...')
+            except:
+                self.stdout.write('delay temp data does not exist. extracting from beginning ...')
+        if r is None:
             i = 0
+            counts = sparse.lil_matrix((u_count, u_count), dtype='d')
+            r = sparse.lil_matrix((u_count, u_count), dtype='d')
             ignoring = False
 
         # Iterate on reshares. Average on the delays of reshares between each pair of users. Save it as diffusion delay
@@ -138,29 +148,26 @@ class Command(BaseCommand):
             i += 1
             delay = (resh.datetime - resh.ref_datetime).total_seconds() / (3600.0 * 24)  # in days
             if delay > 0:
-                delay_data = delays[(resh.ref_user_id, resh.user_id)]
-                if not delay_data['count']:
-                    delay_data['avg'] = delay
+                index1 = user_map[resh.ref_user_id]
+                index2 = user_map[resh.user_id]
+                avg = r[index1, index2]
+                count = counts[index1, index2]
+                if not counts[index1, index2] == 0:
+                    avg = delay
                 else:
-                    delay_data['avg'] = (delay_data['avg'] * delay_data['count'] + delay) / (delay_data['count'] + 1)
-                delay_data['avg'] = np.array(delay_data['avg'], np.float16)
-                delay_data['count'] += 1
+                    avg = (avg * count + delay) / (count + 1)
+                r[index1, index2] = avg
+                counts[index1, index2] += 1
             if i % 100000 == 0:
                 self.stdout.write('\t%d reshares done' % i)
 
             # Save to continue in the future.
             if i % (10 ** 6) == 0:
                 self.stdout.write('saving data ...')
-                np.save(save_path, {'index': i, 'delays': delays})
+                project.save_param({'index': i}, index_param_name, ParamTypes.JSON)
+                project.save_param(sparse.csc_matrix(counts), counts_param_name, ParamTypes.SPARSE)
+                project.save_param(sparse.csc_matrix(r), 'r', ParamTypes.SPARSE)
 
         self.stdout.write('saving diff. delays in db ...')
-        j = 0
-        for pair in delays:
-            j += 1
-            if delays[pair]:
-                delay = delays[pair]['avg']
-                if np.isnan(delay):
-                    delay = 1.0 / (24 * 60)  # 1 minute
-                DiffusionParam.objects.filter(sender_id=pair[0], receiver_id=pair[1]).update(delay=delay)
-            if j % 10000 == 0:
-                self.stdout.write('\t%d diffusion delays set' % j)
+        project.save_param(sparse.csc_matrix(r), 'r', ParamTypes.SPARSE)
+        self.stdout.write('diff. delays saved')

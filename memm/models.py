@@ -87,7 +87,7 @@ class MEMMModel():
         logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
         return self
 
-    def predict(self, initial_tree, log=False):
+    def predict(self, initial_tree, threshold=None, log=False):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :param log:      Log in console if True else does not log.
@@ -119,7 +119,7 @@ class MEMMModel():
                     if child_id not in active_ids and child_id in self.__memms:
                         memm = self.__memms[child_id]
                         obs_str = ''.join([str(o) for o in obs])
-                        new_state = memm.predict(obs_str)
+                        new_state = memm.predict(obs_str, threshold)
                         if new_state == 1:
                             child = CascadeNode(child_id)
                             node.children.append(child)

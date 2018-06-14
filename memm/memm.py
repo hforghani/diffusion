@@ -97,7 +97,7 @@ class MEMM():
 
         return self
 
-    def predict(self, obs):
+    def predict(self, obs, threshold=None):
         """
         Predict the state conditioned on the given observation if the previous state is 0 (inactivated).
         :param obs:     current observation
@@ -111,7 +111,9 @@ class MEMM():
             obs_num = self.__all_obs.shape[0]
             sim = np.sum(self.__all_obs == np.tile(obs_vec, (obs_num, 1)), axis=1)
             index = np.argmax(sim)
-        return 1 if self.TPM[index][1] > 0.7 else 0
+        if threshold is None:
+            threshold = 0.5
+        return 1 if self.TPM[index][1] >= threshold else 0
 
     def __create_matrices(self, tuples):
         obs_array = []
