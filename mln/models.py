@@ -7,9 +7,10 @@ class MLN(object):
     def __init__(self, project):
         self.project = project
         self.edges = {}
+        self.results_file_path = 'D:/University Stuff/social/code/pracmln/experiments/social/results/%s-gibbs.results' % project.project_name
 
-    def load_results(self, file_path):
-        with open(file_path) as f:
+    def load_results(self):
+        with open(self.results_file_path) as f:
             line = f.readline()
             while line:
                 match = re.search(r'.+\s+([\d\.]+) % activates\(u(\d+),u(\d+),m(\d+)\)', line)

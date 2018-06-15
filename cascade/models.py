@@ -2,10 +2,12 @@
 from datetime import timedelta
 import json
 import logging
+from multiprocessing import Pool
 import os
 import random
 import time
 from django.conf import settings
+import math
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
 from crud.models import UserAccount, Post, Reshare, Meme
@@ -279,16 +281,23 @@ class ActSequence(object):
         return active_parents
 
 
+def get_w_row(row_indexes, w):
+    print 'getting w rows for indexes %s ...' % row_indexes
+    rows = {}
+    for ind in row_indexes:
+        row = np.squeeze(np.array(w[ind, :].todense()))
+        rows[ind] = row
+    return rows
+
+
 class AsLT(object):
     def __init__(self, project):
         self.project = project
         self.init_tree = None
         self.max_delay = 999999999
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
-        self.w_param_name = 'w'
-        self.r_param_name = 'r'
 
-    def fit(self, tree):
+    def fit(self):
         pass
 
     def predict(self, initial_tree, threshold=None, user_ids=None, log=False):
@@ -322,9 +331,12 @@ class AsLT(object):
         t0 = time.time()
         w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
         w = w.tocsr()
-        #r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
+        r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
         if log:
             logger.info('time2 = %.2f' % (time.time() - t0))
+
+        # Id of visited users. Do not visit these nodes again.
+        visited = [n for n in activated]
 
         # Iterate on steps. For each step try to activate other nodes.
         i = 0
@@ -336,6 +348,7 @@ class AsLT(object):
 
             next_step = []
 
+            # Iterate on current step nodes to check if a child will be activated.
             for node in cur_step:
                 u = node.user_id  # sender user id
                 u_i = user_map[u]
@@ -344,8 +357,9 @@ class AsLT(object):
                 # Iterate on children of u
                 for v_i in np.nonzero(w_u)[0]:
                     v = user_ids[int(v_i)]  # receiver (child) user id
-                    if v in activated:
+                    if v in activated or v in visited:
                         continue
+                    visited.append(v)
                     if v not in self.probabilities:
                         self.probabilities[v] = 0
                     self.probabilities[v] += w_u[v_i]
@@ -361,24 +375,24 @@ class AsLT(object):
                         thresh = threshold
 
                     if self.probabilities[v] >= thresh:
-                        ## Get delay parameter.
-                        #delay_param = r[v_i]
-                        #if delay_param == 0:
-                        #    continue
-                        #if delay_param < 0:  # Due to some rare bugs in delays
-                        #    delay_param = -delay_param
-                        #
-                        ## Sample delay from exponential distribution and calculate the receive time.
-                        #delay = np.random.exponential(delay_param)  # in days
-                        ##delay = delay_param  # in days
-                        #send_dt = str_to_datetime(node.datetime)
-                        #receive_dt = send_dt + timedelta(days=delay)
-                        #if receive_dt < now:
-                        #    continue
+                        # Get delay parameter.
+                        delay_param = r[v_i]
+                        if delay_param == 0:
+                            continue
+                        if delay_param < 0:  # Due to some rare bugs in delays
+                            delay_param = -delay_param
+
+                        # Sample delay from exponential distribution and calculate the receive time.
+                        delay = np.random.exponential(delay_param)  # in days
+                        #delay = delay_param  # in days
+                        send_dt = str_to_datetime(node.datetime)
+                        receive_dt = send_dt + timedelta(days=delay)
+                        if receive_dt < now:
+                            continue
 
                         # Add it in the tree.
-                        #child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
-                        child = CascadeNode(v)
+                        child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
+                        #child = CascadeNode(v)
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
@@ -399,7 +413,7 @@ class IC(object):
         self.r_param_name = 'r'
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
 
-    def fit(self, tree):
+    def fit(self):
         pass
 
     def predict(self, initial_tree, threshold=None, user_ids=None, log=False):
