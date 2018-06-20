@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 import logging
+from multiprocessing import Pool
 from optparse import make_option
 import traceback
 from django.conf import settings
 from django.core.management.base import BaseCommand
 import time
+import math
 import numpy as np
 from cascade.avg import LTAvg
 from cascade.validation import Validation
@@ -31,46 +33,51 @@ def evaluate(initial_tree, res_tree, tree):
 
 
 def test_meme(meme_ids, method, model, threshold, trees):
-    prp1_list = []
-    prp2_list = []
-    all_res_nodes = []
-    all_true_nodes = []
+    try:
+        prp1_list = []
+        prp2_list = []
+        all_res_nodes = []
+        all_true_nodes = []
 
-    for meme_id in meme_ids:
-        tree = trees[meme_id]
+        for meme_id in meme_ids:
+            tree = trees[meme_id]
 
-        # Copy roots in a new tree.
-        initial_tree = tree.copy()
-        for node in initial_tree.roots:
-            node.children = []
+            # Copy roots in a new tree.
+            initial_tree = tree.copy()
+            for node in initial_tree.roots:
+                node.children = []
 
-        # Predict remaining nodes.
-        if method == 'mln':
-            res_tree = model.predict(meme_id, initial_tree, threshold=threshold)
-        else:
-            res_tree = model.predict(initial_tree, threshold=threshold)
+            # Predict remaining nodes.
+            if method == 'mln':
+                res_tree = model.predict(meme_id, initial_tree, threshold=threshold)
+            else:
+                res_tree = model.predict(initial_tree, threshold=threshold)
 
-        # Evaluate the results.
-        meas, prec, rec, res_output, true_output = evaluate(initial_tree, res_tree, tree)
+            # Evaluate the results.
+            meas, prec, rec, res_output, true_output = evaluate(initial_tree, res_tree, tree)
 
-        if method in ['saito', 'avg']:
-            prp = meas.prp(model.probabilities)
-            prp1 = prp[0] if prp else 0
-            prp2 = prp[1] if len(prp) > 1 else 0
-            prp1_list.append(prp1)
-            prp2_list.append(prp2)
+            if method in ['saito', 'avg']:
+                prp = meas.prp(model.probabilities)
+                prp1 = prp[0] if prp else 0
+                prp2 = prp[1] if len(prp) > 1 else 0
+                prp1_list.append(prp1)
+                prp2_list.append(prp2)
 
-        # Put meme id str at the beginning of user id to make it unique.
-        all_res_nodes.extend({'{}-{}'.format(meme_id, node) for node in res_output})
-        all_true_nodes.extend({'{}-{}'.format(meme_id, node) for node in true_output})
+            # Put meme id str at the beginning of user id to make it unique.
+            all_res_nodes.extend({'{}-{}'.format(meme_id, node) for node in res_output})
+            all_true_nodes.extend({'{}-{}'.format(meme_id, node) for node in true_output})
 
-        log = 'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f' % (
-            meme_id, len(res_output), len(true_output), prec, rec)
-        if method in ['saito', 'avg']:
-            log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-        print log
+            log = 'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f' % (
+                meme_id, len(res_output), len(true_output), prec, rec)
+            if method in ['saito', 'avg']:
+                log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
+            print log
 
-    return all_res_nodes, all_true_nodes, prp1_list, prp2_list
+        return all_res_nodes, all_true_nodes, prp1_list, prp2_list
+
+    except:
+        print traceback.format_exc()
+        raise
 
 
 class Command(BaseCommand):
@@ -157,38 +164,38 @@ class Command(BaseCommand):
             raise Exception('invalid method "%s"' % method)
 
         ## Create a process pool to distribute the prediction.
-        #process_count = 4
-        #pool = Pool(processes=process_count)
-        #step = int(math.ceil(float(len(test_set)) / process_count))
-        #results = []
-        #for j in range(0, len(test_set), step):
-        #    meme_ids = test_set[j: j + step]
-        #    res = pool.apply_async(test_meme, (meme_ids, method, model, threshold, trees))
-        #    results.append(res)
-        #
-        #pool.close()
-        #pool.join()
-        #
-        #prp1_list = []
-        #prp2_list = []
-        #all_res_nodes = []
-        #all_true_nodes = []
-        #
-        ## Collect results of the processes.
-        #for res in results:
-        #    r1, r2, r3, r4 = res.get()
-        #    all_res_nodes.extend(r1)
-        #    all_true_nodes.extend(r2)
-        #    prp1_list.extend(r3)
-        #    prp2_list.extend(r4)
+        process_count = 3
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(float(len(test_set)) / process_count))
+        results = []
+        for j in range(0, len(test_set), step):
+            meme_ids = test_set[j: j + step]
+            res = pool.apply_async(test_meme, (meme_ids, method, model, threshold, trees))
+            results.append(res)
 
-        all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees)
+        pool.close()
+        pool.join()
+
+        prp1_list = []
+        prp2_list = []
+        all_res_nodes = []
+        all_true_nodes = []
+
+        # Collect results of the processes.
+        for res in results:
+            r1, r2, r3, r4 = res.get()
+            all_res_nodes.extend(r1)
+            all_true_nodes.extend(r2)
+            prp1_list.extend(r3)
+            prp2_list.extend(r4)
+
+        #all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees)
 
         # Evaluate total results.
         meas = Validation(all_res_nodes, all_true_nodes)
         prec, rec, f1 = meas.precision(), meas.recall(), meas.f1()
-        logger.info('total: %d outputs, %d true, precision = %.3f, recall = %.3f, f1 = %.3f' % (
-            len(all_res_nodes), len(all_true_nodes), prec, rec, f1))
+        logger.info('project %s: %d outputs, %d true, precision = %.3f, recall = %.3f, f1 = %.3f' % (
+            project.project_name, len(all_res_nodes), len(all_true_nodes), prec, rec, f1))
 
         if method in ['saito', 'avg']:
             logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
