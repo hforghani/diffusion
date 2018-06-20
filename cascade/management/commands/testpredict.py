@@ -159,7 +159,7 @@ class Command(BaseCommand):
             threshold = settings.ASLT_THRES
         elif method == 'avg':
             model = LTAvg(project)
-            threshold = settings.LT_THRES
+            threshold = settings.LTAVG_THRES
         else:
             raise Exception('invalid method "%s"' % method)
 
