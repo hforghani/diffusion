@@ -24,9 +24,12 @@ class MLN(object):
                 line = f.readline()
 
     def predict(self, meme_id, initial_tree, threshold=30):
-        predicted_edges = [edge for edge in self.edges[meme_id] if edge['p'] > threshold]
         res_tree = initial_tree.copy()
-        self.add_edges(res_tree, predicted_edges)
+        if meme_id in self.edges:
+            predicted_edges = [edge for edge in self.edges[meme_id] if edge['p'] > threshold]
+            self.add_edges(res_tree, predicted_edges)
+        else:
+            print 'WARNING: meme id {} does not exists in MLN results'.format(meme_id)
         return res_tree
 
     def add_edges(self, tree, edges):

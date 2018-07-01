@@ -104,39 +104,35 @@ class Command(BaseCommand):
         super(Command, self).__init__()
 
     def handle(self, *args, **options):
-        try:
-            start = time.time()
-            projects = ['small0', 'small1', 'small3', 'small4', 'small5', 'small6', 'small7']
-            #projects = ['big']
-            prec = []
-            recall = []
-            f1 = []
+        start = time.time()
+        projects = ['small0', 'small1', 'small3', 'small4', 'small5', 'small6', 'small7']
+        #projects = ['big']
+        prec = []
+        recall = []
+        f1 = []
 
-            for project_name in projects:
-                ## Get project or raise exception.
-                #project_name = options['project']
-                #if project_name is None:
-                #    raise Exception('project not specified')
-                project = Project(project_name)
+        for project_name in projects:
+            ## Get project or raise exception.
+            #project_name = options['project']
+            #if project_name is None:
+            #    raise Exception('project not specified')
+            project = Project(project_name)
 
-                # Get the method or raise exception.
-                method = options['method']
-                if method is None:
-                    raise Exception('method not specified')
+            # Get the method or raise exception.
+            method = options['method']
+            if method is None:
+                raise Exception('method not specified')
 
-                measure = self.test(project, method)
-                prec.append(measure.precision())
-                recall.append(measure.recall())
-                f1.append(measure.f1())
+            measure = self.test(project, method)
+            prec.append(measure.precision())
+            recall.append(measure.recall())
+            f1.append(measure.f1())
 
-            if len(projects) > 1:
-                logger.info('final precision = %.3f', np.mean(np.array(prec)))
-                logger.info('final recall = %.3f', np.mean(np.array(recall)))
-                logger.info('final f1 = %.3f', np.mean(np.array(f1)))
-            logger.info('command done in %.2f min' % ((time.time() - start) / 60))
-        except:
-            logger.info(traceback.format_exc())
-            raise
+        if len(projects) > 1:
+            logger.info('final precision = %.3f', np.mean(np.array(prec)))
+            logger.info('final recall = %.3f', np.mean(np.array(recall)))
+            logger.info('final f1 = %.3f', np.mean(np.array(f1)))
+        logger.info('command done in %.2f min' % ((time.time() - start) / 60))
 
     def test(self, project, method):
         # Load training and test sets and cascade trees.
@@ -149,7 +145,6 @@ class Command(BaseCommand):
             logger.info('loading mln results ...')
             model = MLN(project)
             model.load_results()
-            test_set = set(test_set) & set(model.edges.keys())
             threshold = settings.MLN_THRES
         elif method == 'memm':
             model = MEMMModel(project).fit(train_set)
