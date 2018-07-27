@@ -29,7 +29,7 @@ class MLN(object):
             predicted_edges = [edge for edge in self.edges[meme_id] if edge['p'] > threshold]
             self.add_edges(res_tree, predicted_edges)
         else:
-            print 'WARNING: meme id {} does not exists in MLN results'.format(meme_id)
+            print('WARNING: meme id {} does not exists in MLN results'.format(meme_id))
         return res_tree
 
     def add_edges(self, tree, edges):

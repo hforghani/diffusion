@@ -1,5 +1,5 @@
-from django.conf.urls import patterns, url
+from django.conf.urls import url
+from crud import ajax
 
-urlpatterns = patterns('',
-                       url(r'ajax/$', 'crud.ajax.main', name='crud/ajax'),
-)
+urlpatterns = [url(r'ajax/$', ajax.main, name='crud/ajax'),
+]

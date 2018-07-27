@@ -6,6 +6,7 @@ from multiprocessing import Pool
 import os
 import random
 import time
+import django
 from django.conf import settings
 import math
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
@@ -369,7 +370,7 @@ class AsLT(object):
                         if delay_param > 0:
                             delay = np.random.exponential(delay_param)  # in days
                         else:
-                            print 'WARNING: delay param = {}'.format(delay_param)
+                            print('WARNING: delay param = {}'.format(delay_param))
                             delay = 1000    # a very large delay!
                         send_dt = str_to_datetime(node.datetime)
                         receive_dt = send_dt + timedelta(days=delay)
@@ -541,7 +542,7 @@ class Project(object):
         # Load trees from the json file.
         try:
             trees = self.load_param('trees', ParamTypes.JSON)
-            trees = {long(key): value for key, value in trees.items()}
+            trees = {int(key): value for key, value in trees.items()}
         except:
             trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
             if os.path.exists(trees_path):
@@ -551,14 +552,14 @@ class Project(object):
                 raise Exception('Trees data not found. Run extracttrees command.')
 
             # Keep just trees of the training and test set.
-            trees = {long(key): value for key, value in trees.items()}
+            trees = {int(key): value for key, value in trees.items()}
             trees = {meme_id: trees[meme_id] for meme_id in self.training + self.test}
             # Save trees for the project.
             self.save_param(trees, 'trees', ParamTypes.JSON)
 
         # Convert tree dictionaries to tree objects.
         logger.info('converting trees to objects ...')
-        trees = {long(key): value for key, value in trees.items()}
+        trees = {int(key): value for key, value in trees.items()}
         trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
 
         self.trees = trees

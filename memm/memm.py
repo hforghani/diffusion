@@ -91,7 +91,9 @@ class MEMM():
 
         # Increase dimensions of Lambda to the original ones.
         if obs_dim != new_obs_dim:
-            self.Lambda = self.__inc_matrix_dim(self.Lambda, orig_indexes, obs_dim)
+            lambda_indexes = [i for i in orig_indexes]
+            lambda_indexes.append(obs_dim - 1)
+            self.Lambda = self.__inc_matrix_dim(self.Lambda, lambda_indexes, obs_dim)
             self.__all_obs = self.__inc_matrix_dim(self.__all_obs, orig_indexes, obs_dim)
             self.__map_obs_index = self.__inc_map_obs_dim(self.__map_obs_index, orig_indexes, obs_dim)
 

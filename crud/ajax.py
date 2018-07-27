@@ -1,17 +1,11 @@
 # -*- coding: utf-8 -*-
 from copy import copy
 import logging
-import traceback
-from django.core.exceptions import ObjectDoesNotExist
-import unicodecsv as csv
-import json
-from threading import Thread
 from django.contrib.auth.decorators import login_required
 from django.db.models import DateTimeField
 from django.http.response import HttpResponse
 from django.db.models.fields.related import ManyToManyField
 from crud.models import *
-from utils.time_utils import str_to_datetime
 
 logger = logging.getLogger('diffusion.crud.ajax')
 

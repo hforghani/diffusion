@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
 import logging
 from multiprocessing import Pool
-from optparse import make_option
 import traceback
+import django
+from django.apps import apps
 from django.conf import settings
 from django.core.management.base import BaseCommand
 import time
 import math
 import numpy as np
+
+if not apps.ready and not settings.configured:
+    django.setup()
+
 from cascade.avg import LTAvg
 from cascade.validation import Validation
 from cascade.saito import Saito
@@ -71,34 +76,34 @@ def test_meme(meme_ids, method, model, threshold, trees):
                 meme_id, len(res_output), len(true_output), prec, rec)
             if method in ['saito', 'avg']:
                 log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-            print log
+            print(log)
 
         return all_res_nodes, all_true_nodes, prp1_list, prp2_list
 
     except:
-        print traceback.format_exc()
+        print(traceback.format_exc())
         raise
 
 
 class Command(BaseCommand):
     help = 'Test information diffusion prediction'
 
-    option_list = BaseCommand.option_list + (
-        #make_option(
+    def add_arguments(self, parser):
+        # Named (optional) arguments
+        #parser.add_argument(
         #    "-p",
         #    "--project",
         #    type="string",
         #    dest="project",
         #    help="project name",
-        #),
-        make_option(
+        #)
+        parser.add_argument(
             "-m",
             "--method",
-            type="string",
+            type=str,
             dest="method",
             help="the method by which we want to test. values: saito, mln",
-        ),
-    )
+        )
 
     def __init__(self):
         super(Command, self).__init__()

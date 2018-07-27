@@ -1,7 +1,7 @@
 import logging
 import time
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
-from memm import MEMM
+from memm.memm import MEMM
 
 logger = logging.getLogger('memm.models')
 
@@ -30,9 +30,9 @@ class MEMMModel():
         # Create dictionary of parents and children of each node.
         logger.info('collecting parents and children data ...')
         graph_nodes = set(graph.nodes())
-        self.__parents = {uid: graph.predecessors(uid) if uid in graph_nodes else []
+        self.__parents = {uid: list(graph.predecessors(uid)) if uid in graph_nodes else []
                           for uid in user_ids}
-        self.__children = {uid: graph.successors(uid) if uid in graph_nodes else []
+        self.__children = {uid: list(graph.successors(uid)) if uid in graph_nodes else []
                            for uid in user_ids}
 
         try:
@@ -78,7 +78,7 @@ class MEMMModel():
         count = 0
         for uid, seq in sequences.items():
             count += 1
-            uid = long(uid)
+            uid = int(uid)
             obs_dim = len(self.__parents[uid])
             logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
             m = MEMM().fit(seq, obs_dim)

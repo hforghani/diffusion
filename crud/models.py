@@ -15,7 +15,7 @@ class SocialNet(models.Model):
 
 
 class UserAccount(models.Model):
-    social_net = models.ForeignKey(SocialNet, verbose_name=u'شبکه اجتماعی')
+    social_net = models.ForeignKey(SocialNet, verbose_name=u'شبکه اجتماعی', on_delete=models.CASCADE)
     username = models.CharField(u'نام کاربری', max_length=100)
     friends_count = models.IntegerField(u'تعداد دوستان', null=True, blank=True)
     start_datetime = models.DateTimeField(u'زمان آغاز', null=True, blank=True)
@@ -45,8 +45,10 @@ class UserAccount(models.Model):
 
 
 class Friendship(models.Model):
-    user1 = models.ForeignKey(UserAccount, verbose_name=u'کاربر 1', related_name='+', db_index=True)
-    user2 = models.ForeignKey(UserAccount, verbose_name=u'کاربر 2', related_name='+', db_index=True)
+    user1 = models.ForeignKey(UserAccount, verbose_name=u'کاربر 1', related_name='+', db_index=True,
+                              on_delete=models.CASCADE)
+    user2 = models.ForeignKey(UserAccount, verbose_name=u'کاربر 2', related_name='+', db_index=True,
+                              on_delete=models.CASCADE)
     start_datetime = models.DateTimeField(u'زمان آغاز', null=True, blank=True)
     end_datetime = models.DateTimeField(u'زمان پایان', null=True, blank=True)
 
@@ -55,7 +57,7 @@ class Friendship(models.Model):
 
 
 class Post(models.Model):
-    author = models.ForeignKey(UserAccount, verbose_name=u'نویسنده')
+    author = models.ForeignKey(UserAccount, verbose_name=u'نویسنده', on_delete=models.CASCADE)
     datetime = models.DateTimeField(u'زمان', null=True, blank=True, db_index=True)
     text = models.TextField(u'متن', null=True, blank=True)
     url = models.CharField(u'آدرس', null=True, blank=True, max_length=100, db_index=True)
@@ -82,11 +84,13 @@ class Post(models.Model):
 
 
 class Reshare(models.Model):
-    post = models.ForeignKey(Post, verbose_name=u'پست', related_name='parents')
-    reshared_post = models.ForeignKey(Post, verbose_name=u'پست مرجع', related_name='children', null=True)
-    user = models.ForeignKey(UserAccount, verbose_name=u'کاربر', null=True, blank=True, related_name='parent_reshares')
+    post = models.ForeignKey(Post, verbose_name=u'پست', related_name='parents', on_delete=models.CASCADE)
+    reshared_post = models.ForeignKey(Post, verbose_name=u'پست مرجع', related_name='children', null=True,
+                                      on_delete=models.CASCADE)
+    user = models.ForeignKey(UserAccount, verbose_name=u'کاربر', null=True, blank=True, related_name='parent_reshares',
+                             on_delete=models.CASCADE)
     ref_user = models.ForeignKey(UserAccount, verbose_name=u'کاربر مرجع', null=True, blank=True,
-                                 related_name='children_reshares')
+                                 related_name='children_reshares', on_delete=models.CASCADE)
     datetime = models.DateTimeField(u'زمان', null=True, blank=True, db_index=True)
     ref_datetime = models.DateTimeField(u'زمان پست مرجع', null=True, blank=True)
 
@@ -106,5 +110,5 @@ class Meme(models.Model):
 
 
 class PostMeme(models.Model):
-    post = models.ForeignKey(Post, verbose_name=u'پست', db_index=True)
-    meme = models.ForeignKey(Meme, verbose_name=u'محتوای جریان‌ساز', db_index=True)
+    post = models.ForeignKey(Post, verbose_name=u'پست', db_index=True, on_delete=models.CASCADE)
+    meme = models.ForeignKey(Meme, verbose_name=u'محتوای جریان‌ساز', db_index=True, on_delete=models.CASCADE)

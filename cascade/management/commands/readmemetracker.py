@@ -102,7 +102,7 @@ class Command(BaseCommand):
                     UserAccount.objects.all().delete()
                     SocialNet.objects.all().delete()
 
-                # Create social net.
+                # Get or create social net.
                 try:
                     net = SocialNet.objects.get(name='memetracker')
                 except ObjectDoesNotExist:
