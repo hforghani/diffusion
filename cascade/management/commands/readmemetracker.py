@@ -8,6 +8,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand
 from django.db.models.aggregates import Count, Min, Max
 import time
+import pygtrie
 from crud.models import UserAccount, SocialNet, Post, Reshare, Meme, PostMeme
 from utils.time_utils import str_to_datetime
 
@@ -15,54 +16,53 @@ from utils.time_utils import str_to_datetime
 class Command(BaseCommand):
     help = 'Create database instances using memetracker dataset.'
 
-    option_list = BaseCommand.option_list + (
-        make_option(
+    def add_arguments(self, parser):
+        parser.add_argument(
             "-s",
             "--start",
-            type="int",
+            type=int,
             dest="start_index",
             help="determine which index of post in the dataset file to start from"
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-a",
             "--attributes",
             action="store_true",
             dest="set_attributes",
             help="just set attributes and ignore creating data"
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-c",
             "--clear",
             action="store_true",
             dest="clear",
             help="clear existing data and continue"
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-e",
             "--entities",
             action="store_true",
             dest="entities",
             help="just create meme, user_account, and post entities"
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-r",
             "--relations",
             action="store_true",
             dest="relations",
             help="just create post_meme and reshare relations"
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-t",
             "--text",
             action="store_true",
             dest="post_texts",
             help="Set post texts according to their memes"
-        ),
-    )
+        )
 
     def __init__(self):
         super(Command, self).__init__()
-        self.memes_map = {}  # Map from meme texts to ids
+        self.memes_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
 
     def handle(self, *args, **options):
         try:
@@ -136,7 +136,7 @@ class Command(BaseCommand):
         i = 0
 
         self.stdout.write('reading urls and memes from dataset ...')
-        with open(path) as f:
+        with open(path, encoding="utf8") as f:
             line = f.readline()
 
             while line:
@@ -149,9 +149,10 @@ class Command(BaseCommand):
                 if char == 'P':
                     i += 1
                     if i % 1000000 == 0:
-                        print '%d posts read' % i
+                        print('%d posts read' % i)
                 line = f.readline()
-        print '%d posts read' % i
+        print('%d posts read' % i)
+        self.stdout.write('{} memes extracted from dataset'.format(len(set(memes))))
 
         self.stdout.write('loading existing memes ...')
         existing_memes = set(Meme.objects.values_list('text', flat=True))
@@ -163,7 +164,7 @@ class Command(BaseCommand):
         for text in memes:
             meme_entities.append(Meme(text=text))
             i += 1
-            if i % 1000000 == 0:
+            if i % 100000 == 0:
                 Meme.objects.bulk_create(meme_entities)
                 self.stdout.write('%d memes created' % i)
                 meme_entities = []
@@ -200,6 +201,7 @@ class Command(BaseCommand):
         users_map = {user['username']: user['id'] for user in users}
         del users
 
+        # Create all posts with empty texts. Texts are set later in create_relations.
         self.stdout.write('creating %d new posts ...' % len(urls))
         posts = []
         i = 0
@@ -211,10 +213,10 @@ class Command(BaseCommand):
             i += 1
             if i % 1000 == 0:
                 Post.objects.bulk_create(posts)
-                print '%d posts created' % i
+                print('%d posts created' % i)
                 posts = []
         Post.objects.bulk_create(posts)
-        print '%d posts created' % len(posts)
+        print('%d posts created' % len(posts))
         del posts, urls, users_map
 
     def create_relations(self, path, start_index):
@@ -233,7 +235,7 @@ class Command(BaseCommand):
         if start_index:
             ignoring = True
 
-        with open(path) as f:
+        with open(path, encoding="utf8") as f:
             line = f.readline()
 
             while line:
@@ -244,9 +246,9 @@ class Command(BaseCommand):
                 if char == 'P':
                     i += 1
                     if (not ignoring or i == start_index) and i % 100 == 0:
-                        self.stdout.write('processing post %d' % i)
-                    elif i % 10000 == 0:
-                        self.stdout.write('ignoring post %d' % i)
+                        self.stdout.write('processing posts: %d' % i)
+                    elif i % 100000 == 0:
+                        self.stdout.write('ignoring posts: %d' % i)
 
                 # Handle if it is in ignoring state.
                 if ignoring:
@@ -269,7 +271,7 @@ class Command(BaseCommand):
                             Reshare.objects.bulk_create(reshares)
                             post_memes = []
                             reshares = []
-                            self.stdout.write('time : %f' % (time.time() - t0))
+                            self.stdout.write('time : {.0f} s'.format(time.time() - t0))
                             t0 = time.time()
 
                     post_url = text
@@ -296,10 +298,12 @@ class Command(BaseCommand):
 
     def get_post_rels(self, post_url, datetime, meme_ids, meme_texts, source_urls):
         """
-        Assign post memes, and create reshares for the referenced links.
+        Create PostMeme and Reshare instances for the referenced links. Just create the instances not inserting in the db.
         """
+        trunc_url = self.truncate_url(post_url)
+
         # Create the post.
-        post = Post.objects.filter(url=self.truncate_url(post_url))[0]
+        post = Post.objects.filter(url=trunc_url)[0]
         post.datetime = datetime
         post.text = '. '.join(meme_texts)
         post.save()
@@ -309,7 +313,7 @@ class Command(BaseCommand):
 
         # Create reshares if the post is reshared.
         reshares = []
-        for src_url in set(source_urls) - {post_url}:
+        for src_url in set(source_urls) - {trunc_url}:
             try:
                 src_post = Post.objects.filter(url=self.truncate_url(src_url))[0]
             except IndexError:
@@ -319,9 +323,8 @@ class Command(BaseCommand):
                 # So assign the same memes as the post.
                 if not src_post.datetime:
                     post_memes.extend([PostMeme(post=src_post, meme_id=mid) for mid in meme_ids])
-                if not src_post.datetime or datetime - timedelta(days=1) < src_post.datetime:
                     src_post.datetime = datetime - timedelta(days=1)
-                    if not src_post.text or not src_post.text.strip():
+                    if src_post.text is None or not src_post.text.strip():
                         cur_memes = set()
                     else:
                         cur_memes = set(src_post.text.split('. '))
@@ -333,9 +336,14 @@ class Command(BaseCommand):
         return post_memes, reshares
 
     def load_memes(self):
+        """
+        Create map of meme texts to meme id's and put it in 'memes_map' field.
+        :return:
+        """
         self.stdout.write('loading meme ids ...')
         memes = Meme.objects.values('text', 'id')
-        self.memes_map = {meme['text']: meme['id'] for meme in memes}
+        for meme in memes:
+            self.memes_map[meme['text']] = meme['id']
         del memes
 
     def calc_memes_values(self):
@@ -373,14 +381,21 @@ class Command(BaseCommand):
                 self.stdout.write('%d memes saved' % i)
 
     def get_username(self, url):
+        """
+        Extract the username from the url. Consider the domain name as the username.
+        :param url: url
+        :return:    domain name as the username
+        """
         try:
             return re.match(r'https?://([^/?]+)', url.lower()).groups()[0][:100]
         except AttributeError:
             return None
 
     def truncate_url(self, url):
-        trunc = (url[:50] + url[-50:]) if len(url) > 100 else url
-        try:
-            return trunc.decode('utf-8')
-        except UnicodeDecodeError:
-            return trunc.decode('latin-1')
+        """
+        Truncate the url to maximum 100 characters to save in DB.
+        if the length is greater than 100, concatenate the first 50 and the last 50 characters.
+        :param url: original url
+        :return:    truncated url
+        """
+        return (url[:50] + url[-50:]) if len(url) > 100 else url
