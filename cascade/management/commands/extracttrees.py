@@ -29,7 +29,7 @@ class Command(BaseCommand):
             if os.path.exists(path):
                 self.stdout.write('loading trees ...')
                 trees = json.load(open(path, 'r'))
-                trees = {long(key): value for key, value in trees.items()}
+                trees = {int(key): value for key, value in trees.items()}
 
             # Check if all meme trees are in trees dictionary. Extract cascade tree for the ones not exist.
             self.stdout.write('checking if any tree not extracted ...')

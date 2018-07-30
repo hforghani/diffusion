@@ -10,23 +10,22 @@ from cascade.saito import Saito
 class Command(BaseCommand):
     help = 'Calculates diffusion model parameters using Saito method'
 
-    option_list = BaseCommand.option_list + (
-        make_option(
+    def add_arguments(self, parser):
+        parser.add_argument(
             "-p",
             "--project",
-            type="string",
+            type=str,
             dest="project",
             help="project name",
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-i",
             "--iterations",
-            type="int",
+            type=int,
             default=3,
             dest="iterations",
             help="number of iterations"
-        ),
-    )
+        )
 
     def handle(self, *args, **options):
         try:

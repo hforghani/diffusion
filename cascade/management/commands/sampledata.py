@@ -16,30 +16,30 @@ from scipy import sparse
 class Command(BaseCommand):
     help = 'Sample a subset of data and separate training and test sets and save them into the file'
 
-    option_list = BaseCommand.option_list + (
-        make_option(
+    def add_arguments(self, parser):
+        parser.add_argument(
             "-n",
             "--number",
-            type="int",
+            type=int,
             dest="sample_num",
             help="number of data samples consisting training and test sets",
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-r",
             "--ratio",
-            type="float",
+            type=float,
             dest="ratio",
             default=2.0 / 3,
             help="ratio of number of training set to number of all samples",
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-p",
             "--project",
-            type="string",
+            type=str,
             dest="project",
             help="project name",
-        ),
-    )
+        )
+
 
     def __init__(self):
         super(Command, self).__init__()

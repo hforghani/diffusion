@@ -10,36 +10,35 @@ from cascade.models import Project
 class Command(BaseCommand):
     help = 'Calculates diffusion model parameters'
 
-    option_list = BaseCommand.option_list + (
-        make_option(
+    def add_arguments(self, parser):
+        parser.add_argument(
             "-p",
             "--project",
-            type="string",
+            type=str,
             dest="project",
             help="project name",
-        ),
-        make_option(
+        )
+        parser.add_arguments(
             "-w",
             "--weight",
             action="store_true",
             dest="weight",
             help="just calculate diffusion weights"
-        ),
-        make_option(
+        )
+        parser.add_arguments(
             "-d",
             "--delay",
             action="store_true",
             dest="delay",
             help="just calculate diffusion delays"
-        ),
-        make_option(
+        )
+        parser.add_arguments(
             "-c",
             "--continue",
             action="store_true",
             dest="continue",
             help="continue from the last point"
-        ),
-    )
+        )
 
     def __init__(self):
         super(Command, self).__init__()
