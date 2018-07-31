@@ -1,16 +1,36 @@
 # -*- coding: utf-8 -*-
 import json
-from optparse import make_option
+from multiprocessing.pool import Pool
 import os
 import traceback
+import django
+from django.apps import apps
 from django.conf import settings
 from django.core.management.base import BaseCommand
 import time
-from django.db.models import Q, Count
-import numpy as np
+import math
+
+if not apps.ready and not settings.configured:
+    django.setup()
+
 from cascade.models import CascadeTree
-from crud.models import Reshare, UserAccount, Post, Meme
-from scipy import sparse
+from crud.models import Meme
+
+
+def extract_cascades(meme_ids, process_num):
+    t0 = time.time()
+    trees = {}
+    i = 0
+
+    for meme_id in meme_ids:
+        i += 1
+        tree = CascadeTree().extract_cascade(meme_id).get_dict()
+        trees[meme_id] = tree
+        if i % 1000 == 0:
+            print('process {}: {} memes done: {:.2f} m'.format(process_num, i, (time.time() - t0) / 60))
+            t0 = time.time()
+
+    return trees
 
 
 class Command(BaseCommand):
@@ -33,22 +53,32 @@ class Command(BaseCommand):
 
             # Check if all meme trees are in trees dictionary. Extract cascade tree for the ones not exist.
             self.stdout.write('checking if any tree not extracted ...')
-            i = 0
             if len(trees.keys()) < Meme.objects.count():
-                meme_ids = Meme.objects.exclude(id__in=trees.keys()).values_list('id', flat=True)
-                self.stdout.write('extracting cascade trees for %d memes ...' % meme_ids.count())
-                t0 = time.time()
+                meme_ids = Meme.objects.values_list('id', flat=True)
+                meme_ids = list(set(meme_ids) - set(trees.keys()))
+                self.stdout.write('extracting cascade trees for %d memes ...' % len(meme_ids))
 
-                for meme_id in meme_ids:
-                    i += 1
-                    tree = CascadeTree().extract_cascade(meme_id).get_dict()
-                    trees[meme_id] = tree
-                    if i % 1000 == 0:
-                        json.dump(trees, open(path, 'w'), indent=4)
-                        self.stdout.write('%d memes done: %.2f m' % (i, (time.time() - t0) / 60))
-                        t0 = time.time()
+                # Distribute the extraction into sum simultaneous processes.
+                process_count = 3
+                step = int(math.ceil(len(meme_ids) / process_count))
+                pool = Pool(processes=process_count)
+                results = []
 
-                json.dump(trees, open(path, 'w'), indent=4)
+                for process_num in range(1, step + 1):
+                    cur_meme_ids = meme_ids[(process_num - 1) * step: process_num * step]
+                    res = pool.apply_async(extract_cascades, (cur_meme_ids, process_num))
+                    results.append(res)
+
+                pool.close()
+                pool.join()
+
+                # Gather and add up the results of the processes.
+                for res in results:
+                    cur_trees = res.get()
+                    trees.update(cur_trees)
+
+                # Save the results into the file.
+                json.dump(trees, open(path, 'w'), indent=1)
 
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
         except:

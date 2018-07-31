@@ -271,7 +271,7 @@ class Command(BaseCommand):
                             Reshare.objects.bulk_create(reshares)
                             post_memes = []
                             reshares = []
-                            self.stdout.write('time : {:.0f} s'.format(time.time() - t0))
+                            self.stdout.write('time : {:.2f} m'.format((time.time() - t0) / 60))
                             t0 = time.time()
 
                     post_url = text
