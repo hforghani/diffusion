@@ -264,7 +264,7 @@ class Command(BaseCommand):
                         pm, resh = self.get_post_rels(post_url, datetime, meme_ids, meme_texts, source_urls)
                         post_memes.extend(pm)
                         reshares.extend(resh)
-                        if i % 5000 == 0:
+                        if i % 10000 == 0:
                             self.stdout.write(
                                 'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
                             PostMeme.objects.bulk_create(post_memes)
@@ -290,9 +290,10 @@ class Command(BaseCommand):
                 line = f.readline()
 
         pm, resh = self.get_post_rels(post_url, datetime, meme_ids, meme_texts, source_urls)
-        self.stdout.write('saving post memes and reshares ...')
         post_memes.extend(pm)
         reshares.extend(resh)
+        self.stdout.write(
+            'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
         PostMeme.objects.bulk_create(post_memes)
         Reshare.objects.bulk_create(reshares)
 

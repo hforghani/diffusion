@@ -27,7 +27,7 @@ def extract_cascades(meme_ids, process_num):
         tree = CascadeTree().extract_cascade(meme_id).get_dict()
         trees[meme_id] = tree
         if i % 1000 == 0:
-            print('process {}: {} memes done: {:.2f} m'.format(process_num, i, (time.time() - t0) / 60))
+            print('process {}: {} memes done: {:.0f} s'.format(process_num, i, time.time() - t0))
             t0 = time.time()
 
     return trees
@@ -59,7 +59,7 @@ class Command(BaseCommand):
                 self.stdout.write('extracting cascade trees for %d memes ...' % len(meme_ids))
 
                 # Distribute the extraction into sum simultaneous processes.
-                process_count = 3
+                process_count = 2
                 step = int(math.ceil(len(meme_ids) / process_count))
                 pool = Pool(processes=process_count)
                 results = []
