@@ -11,38 +11,40 @@ import time
 from scipy import sparse
 from cascade.models import CascadeTree, Project
 from crud.models import Meme, UserAccount, Reshare, Post
-from mln.file_generators import PracmlnCreator, Alchemy2Creator
+from mln.file_generators import PracmlnCreator, Alchemy2Creator, FileCreator
 
 
 class Command(BaseCommand):
     help = ''
 
-    option_list = BaseCommand.option_list + (
-        make_option(
+    def add_arguments(self, parser):
+        parser.add_argument(
             "-p",
             "--project",
-            type="string",
+            type=str,
             dest="project",
             help="project name",
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-o", "--output",
-            type="string",
+            type=str,
             dest="out_file",
             help="path of output file",
-        ),
-        make_option(
+        )
+        parser.add_argument(
             "-f", "--format",
-            type="string",
+            type=str,
             dest="format",
             default="pracmln",
-            help="format of files. Valid values are 'pracmln' and 'alchemy2'. The default value is 'pracmln'.",
-        ),
-    )
+            help="format of files. Valid values are '{}'. The default value is '{}'.".format(
+                "', '".join(self.CREATORS.keys()),
+                FileCreator.FORMAT_PRACMLN
+            ),
+        )
 
     CREATORS = {
-        'pracmln': PracmlnCreator,
-        'alchemy2': Alchemy2Creator
+        FileCreator.FORMAT_PRACMLN: PracmlnCreator,
+        FileCreator.FORMAT_ALCHEMY2: Alchemy2Creator
     }
 
     def handle(self, *args, **options):
