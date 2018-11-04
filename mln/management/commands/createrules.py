@@ -16,6 +16,11 @@ from mln.file_generators import PracmlnCreator, Alchemy2Creator, FileCreator
 
 class Command(BaseCommand):
     help = ''
+    CREATORS = {
+        FileCreator.FORMAT_PRACMLN: PracmlnCreator,
+        FileCreator.FORMAT_ALCHEMY2: Alchemy2Creator
+    }
+
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -41,11 +46,6 @@ class Command(BaseCommand):
                 FileCreator.FORMAT_PRACMLN
             ),
         )
-
-    CREATORS = {
-        FileCreator.FORMAT_PRACMLN: PracmlnCreator,
-        FileCreator.FORMAT_ALCHEMY2: Alchemy2Creator
-    }
 
     def handle(self, *args, **options):
         try:
