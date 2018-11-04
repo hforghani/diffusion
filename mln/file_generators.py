@@ -6,6 +6,7 @@ from scipy import sparse
 
 from crud.models import UserAccount, Post, Reshare
 
+
 logger = logging.getLogger('mln.file_generators')
 
 

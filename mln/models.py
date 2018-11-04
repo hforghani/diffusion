@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 import re
+
+from django.conf import settings
+
 from cascade.models import CascadeNode
 
 
@@ -7,7 +10,7 @@ class MLN(object):
     def __init__(self, project):
         self.project = project
         self.edges = {}
-        self.results_file_path = 'D:/University Stuff/social/code/pracmln/experiments/social/results/%s-gibbs.results' % project.project_name
+        self.results_file_path = '%s/%s-gibbs.results' % (settings.MLN_RESULTS_PATH, project.project_name)
 
     def load_results(self):
         with open(self.results_file_path) as f:
