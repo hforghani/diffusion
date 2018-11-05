@@ -10,6 +10,8 @@ import time
 import math
 import numpy as np
 
+from mln.file_generators import FileCreator
+
 if not apps.ready and not settings.configured:
     django.setup()
 
@@ -53,7 +55,7 @@ def test_meme(meme_ids, method, model, threshold, trees):
                 node.children = []
 
             # Predict remaining nodes.
-            if method == 'mln':
+            if method in ['mlnprac', 'mlnalch']:
                 res_tree = model.predict(meme_id, initial_tree, threshold=threshold)
             else:
                 res_tree = model.predict(initial_tree, threshold=threshold)
@@ -76,7 +78,9 @@ def test_meme(meme_ids, method, model, threshold, trees):
                 meme_id, len(res_output), len(true_output), prec, rec)
             if method in ['saito', 'avg']:
                 log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-            print(log)
+            logger.info(log)
+            # logger.info('output: %s', res_output)
+            # logger.info('true: %s', true_output)
 
         return all_res_nodes, all_true_nodes, prp1_list, prp2_list
 
@@ -89,14 +93,13 @@ class Command(BaseCommand):
     help = 'Test information diffusion prediction'
 
     def add_arguments(self, parser):
-        # Named (optional) arguments
-        #parser.add_argument(
-        #    "-p",
-        #    "--project",
-        #    type="string",
-        #    dest="project",
-        #    help="project name",
-        #)
+        parser.add_argument(
+            "-p",
+            "--project",
+            type=str,
+            dest="project",
+            help="project name or multiple comma-separated project names",
+        )
         parser.add_argument(
             "-m",
             "--method",
@@ -110,17 +113,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         start = time.time()
-        projects = ['small0', 'small1', 'small3', 'small4', 'small5', 'small6', 'small7']
-        #projects = ['big']
+        projects = options['project'].split(',')
         prec = []
         recall = []
         f1 = []
 
         for project_name in projects:
             ## Get project or raise exception.
-            #project_name = options['project']
-            #if project_name is None:
-            #    raise Exception('project not specified')
             project = Project(project_name)
 
             # Get the method or raise exception.
@@ -146,11 +145,12 @@ class Command(BaseCommand):
         logger.info('test set size = %d' % len(test_set))
 
         # Create and train the model if needed.
-        if method == 'mln':
-            logger.info('loading mln results ...')
-            model = MLN(project)
-            model.load_results()
-            threshold = settings.MLN_THRES
+        if method == 'mlnprac':
+            model = MLN(project, format=FileCreator.FORMAT_PRACMLN)
+            threshold = settings.MLNPRAC_THRES
+        elif method == 'mlnalch':
+            model = MLN(project, format=FileCreator.FORMAT_ALCHEMY2)
+            threshold = settings.MLNALCH_THRES
         elif method == 'memm':
             model = MEMMModel(project).fit(train_set)
             threshold = settings.MEMM_THRES
@@ -163,7 +163,7 @@ class Command(BaseCommand):
         else:
             raise Exception('invalid method "%s"' % method)
 
-        ## Create a process pool to distribute the prediction.
+        # Create a process pool to distribute the prediction.
         process_count = 3
         pool = Pool(processes=process_count)
         step = int(math.ceil(float(len(test_set)) / process_count))
@@ -189,7 +189,7 @@ class Command(BaseCommand):
             prp1_list.extend(r3)
             prp2_list.extend(r4)
 
-        #all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees)
+        # all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees)
 
         # Evaluate total results.
         meas = Validation(all_res_nodes, all_true_nodes)

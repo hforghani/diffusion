@@ -1,26 +1,18 @@
 # -*- coding: utf-8 -*-
-import json
-from optparse import make_option
-import os
 import traceback
-from django.conf import settings
-from django.db.models import Count
-import numpy as np
 from django.core.management.base import BaseCommand
 import time
-from scipy import sparse
-from cascade.models import CascadeTree, Project
-from crud.models import Meme, UserAccount, Reshare, Post
+from cascade.models import Project
 from mln.file_generators import PracmlnCreator, Alchemy2Creator, FileCreator
 
 
 class Command(BaseCommand):
     help = ''
+
     CREATORS = {
         FileCreator.FORMAT_PRACMLN: PracmlnCreator,
         FileCreator.FORMAT_ALCHEMY2: Alchemy2Creator
     }
-
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -40,7 +32,7 @@ class Command(BaseCommand):
             "-f", "--format",
             type=str,
             dest="format",
-            default="pracmln",
+            default=FileCreator.FORMAT_PRACMLN,
             help="format of files. Valid values are '{}'. The default value is '{}'.".format(
                 "', '".join(self.CREATORS.keys()),
                 FileCreator.FORMAT_PRACMLN
