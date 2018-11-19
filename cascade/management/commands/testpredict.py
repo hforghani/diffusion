@@ -61,7 +61,7 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, verbosity
             if method in ['mlnprac', 'mlnalch']:
                 res_tree = model.predict(meme_id, initial_tree, threshold=threshold, verbosity=verbosity)
             else:
-                res_tree = model.predict(initial_tree, threshold=threshold)
+                res_tree = model.predict(initial_tree, threshold=threshold, log=verbosity > 2)
 
             # Evaluate the results.
             meas, prec, rec, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids)
@@ -128,6 +128,8 @@ class Command(BaseCommand):
         'avg': settings.LTAVG_THRES
     }
 
+    THRESHOLDS_COUNT = 40
+
     def __init__(self):
         super(Command, self).__init__()
         self.verbosity = settings.VERBOSITY
@@ -148,9 +150,8 @@ class Command(BaseCommand):
             raise CommandError('invalid method "%s"' % method)
 
         if options['all_thresholds']:
-            count = 40
-            step = settings_thr / count * 2
-            thresholds = [step * i for i in range(count)]
+            step = settings_thr / self.THRESHOLDS_COUNT * 2
+            thresholds = [step * i for i in range(self.THRESHOLDS_COUNT)]
         else:
             thresholds = [settings_thr]
 
@@ -192,20 +193,13 @@ class Command(BaseCommand):
                 logger.info('final fpr = %.3f', ffpr)
 
         if options['all_thresholds']:
-            pyplot.figure(1)
-            pyplot.subplot(221)
-            pyplot.plot(thresholds, final_prec)
-            pyplot.title('precision')
-            pyplot.subplot(222)
-            pyplot.plot(thresholds, final_recall)
-            pyplot.title('recall')
-            pyplot.subplot(223)
-            pyplot.plot(thresholds, final_f1)
-            pyplot.title('F1')
-            pyplot.subplot(224)
-            pyplot.plot(final_fpr, final_recall)
-            pyplot.title('ROC curve')
-            pyplot.show()
+            # Find the threshold with maximum F1.
+            best_ind = int(np.argmax(np.array(final_f1)))
+            best_f1, best_thres = final_f1[best_ind], thresholds[best_ind]
+            logger.info('F1 max = %f in threshold = %f' % (best_f1, best_thres))
+
+            self.display_charts(best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
+                                thresholds)
 
         if self.verbosity:
             logger.info('command done in %.2f min' % ((time.time() - start) / 60))
@@ -225,7 +219,7 @@ class Command(BaseCommand):
         elif method == 'mlnalch':
             model = MLN(project, format=FileCreator.FORMAT_ALCHEMY2)
         elif method == 'memm':
-            model = MEMMModel(project).fit(train_set)
+            model = MEMMModel(project).fit(train_set, log=self.verbosity > 2)
         elif method == 'saito':
             model = Saito(project)
         elif method == 'avg':
@@ -278,3 +272,23 @@ class Command(BaseCommand):
             logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
 
         return meas
+
+    def display_charts(self, best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall, thresholds):
+        pyplot.figure(1)
+        pyplot.subplot(221)
+        pyplot.plot(thresholds, final_prec)
+        pyplot.scatter([best_thres], [final_prec[best_ind]], c='r', marker='o')
+        pyplot.title('precision')
+        pyplot.subplot(222)
+        pyplot.plot(thresholds, final_recall)
+        pyplot.scatter([best_thres], [final_recall[best_ind]], c='r', marker='o')
+        pyplot.title('recall')
+        pyplot.subplot(223)
+        pyplot.plot(thresholds, final_f1)
+        pyplot.scatter([best_thres], [best_f1], c='r', marker='o')
+        pyplot.title('F1')
+        pyplot.subplot(224)
+        pyplot.plot(final_fpr, final_recall)
+        pyplot.scatter([final_fpr[best_ind]], [final_recall[best_ind]], c='r', marker='o')
+        pyplot.title('ROC curve')
+        pyplot.show()

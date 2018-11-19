@@ -13,7 +13,7 @@ class MEMMModel():
         self.__parents = {}
         self.__children = {}
 
-    def fit(self, train_set):
+    def fit(self, train_set, log=False):
         """
         Train MEMM's for each user in training set.
         :param train_set:   meme id's in training set
@@ -28,7 +28,8 @@ class MEMMModel():
             user_ids.update(act_seqs[meme_id].users)
 
         # Create dictionary of parents and children of each node.
-        logger.info('collecting parents and children data ...')
+        if log:
+            logger.info('collecting parents and children data ...')
         graph_nodes = set(graph.nodes())
         self.__parents = {uid: list(graph.predecessors(uid)) if uid in graph_nodes else []
                           for uid in user_ids}
@@ -43,7 +44,8 @@ class MEMMModel():
             count = 0
 
             # Iterate each activation sequence and extract sequences of (observation, state) for each user
-            logger.info('extracting sequences from memes ...')
+            if log:
+                logger.info('extracting sequences from memes ...')
             for meme_id in train_set:
                 act_seq = act_seqs[meme_id]
                 observations = {}
@@ -69,22 +71,26 @@ class MEMMModel():
                         sequences[uid].append(meme_seqs[uid])
                 count += 1
                 if count % 1000 == 0:
-                    logger.info('%d memes done', count)
+                    if log:
+                        logger.info('%d memes done', count)
 
             self.project.save_param(sequences, 'seq-obs-state', ParamTypes.JSON)
 
         # Train a MEMM for each user.
-        logger.info("training %d MEMM's ...", len(sequences))
+        if log:
+            logger.info("training %d MEMM's ...", len(sequences))
         count = 0
         for uid, seq in sequences.items():
             count += 1
             uid = int(uid)
             obs_dim = len(self.__parents[uid])
-            logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
+            if log:
+                logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
             m = MEMM().fit(seq, obs_dim)
             self.__memms[uid] = m
 
-        logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
+        if log:
+            logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
         return self
 
     def predict(self, initial_tree, threshold=None, log=False):

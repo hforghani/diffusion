@@ -366,18 +366,19 @@ class AsLT(object):
                         delay_param = r[v_i]
 
                         # Sample delay from exponential distribution and calculate the receive time.
-                        #delay = 1 / delay_param if delay_param > 0 else 1000  # in days
-                        if delay_param > 0:
-                            delay = np.random.exponential(delay_param)  # in days
-                        else:
-                            print('WARNING: delay param = {}'.format(delay_param))
-                            delay = 1000    # a very large delay!
+                        delay = 1 / delay_param if delay_param > 0 else 1000  # in days
+                        # if delay_param > 0:
+                        #     delay = np.random.exponential(delay_param)  # in days
+                        # else:
+                        #     if log:
+                        #         logger.warn('delay param = {}'.format(delay_param))
+                        #     delay = 1000    # a very large delay!
                         send_dt = str_to_datetime(node.datetime)
                         receive_dt = send_dt + timedelta(days=delay)
 
-                        # Add it in the tree.
+                        # Add it to the tree.
                         child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
-                        #child = CascadeNode(v)
+                        # child = CascadeNode(v)
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)

@@ -13,7 +13,7 @@ class MEMM():
         self.__all_obs = None
         self.__map_obs_index = {}
 
-    def fit(self, sequences, obs_dim):
+    def fit(self, sequences, obs_dim, log=False):
         """
         Learn MEMM lambdas and transition probabilities for each previous state.
         :param sequences:   list of sequences. Each sequence is a list of tuples (observation, state).
@@ -81,7 +81,8 @@ class MEMM():
             #logger.info('iteration %d times: %.2f, %.2f, %.2f', iter_count, t1, t2, t3)
 
             if self.__check_lambda_convergence(Lambda0, self.Lambda, epsilon):
-                logger.info('GIS iterations : %d', iter_count)
+                if log:
+                    logger.info('GIS iterations : %d', iter_count)
                 break
 
         #tpm_str = np.array2string(self.TPM, formatter={'float_kind': lambda x: "%.2f" % x})
