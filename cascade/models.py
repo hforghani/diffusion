@@ -534,7 +534,7 @@ class Project(object):
 
         return train_memes, test_memes
 
-    def load_trees(self):
+    def load_trees(self, verbosity=settings.VERBOSITY):
         """
         Load trees of memes in training and test sets.
         :return:
@@ -558,7 +558,8 @@ class Project(object):
             self.save_param(trees, 'trees', ParamTypes.JSON)
 
         # Convert tree dictionaries to tree objects.
-        logger.info('converting trees to objects ...')
+        if verbosity > 2:
+            logger.info('converting trees to objects ...')
         trees = {int(key): value for key, value in trees.items()}
         trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
 
@@ -775,6 +776,15 @@ class Project(object):
                 data[m] = ActSequence(users[m], times[m])
         logger.info('\t\tact. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return data
+
+    def get_all_nodes(self):
+        if self.trees is None:
+            self.load_trees()
+
+        nodes = set()
+        for tree in self.trees.values():
+            nodes.update(tree.node_ids())
+        return list(nodes)
 
     SUFFIXES = {
         ParamTypes.JSON: 'json',

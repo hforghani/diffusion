@@ -25,20 +25,35 @@ class FileCreator:
         self.format = None
         self.put_declarations = None
         self.put_zero_weights = None
+        self.put_hard_formulas = None
         self.user_prefix = None
         self.meme_prefix = None
+        self.user_var_name = None
         self.meme_var_name = None
 
     def create_rules(self, out_file):
         contents = ''
-        print('training set size = %d' % len(self.train_memes))
+        logger.info('training set size = %d' % len(self.train_memes))
         if self.put_declarations:
             print('>>> writing declarations ...')
             contents += '// predicate declarations\n' \
                         'activates(user,user,meme)\n' \
                         'isActivated(user,meme)\n\n'
 
-        print('>>> writing rules ...')
+        logger.info('>>> writing rules ...')
+
+        if self.put_hard_formulas:
+            if self.format == self.FORMAT_PRACMLN:
+                pass  # TODO
+            elif self.format == self.FORMAT_ALCHEMY2:
+                print('>>> writing hard formulas ...')
+                contents += '!activates({0}1, {0}1, {1}).\n' \
+                            'activates({0}1, {0}2, {1}) => isActivated({0}2, {1}).\n' \
+                            '!(activates({0}1, {0}3, {1}) ^ activates({0}2, {0}3, {1}) ^ ({0}1 != {0}2)).\n\n'.format(
+                    self.user_var_name, self.meme_var_name)
+            else:
+                raise ValueError('invalid format %s' % self.format)
+
         edges = set()
         for meme_id in self.train_memes:
             edges.update(self.trees[meme_id].edges())
@@ -64,7 +79,7 @@ class FileCreator:
     def create_evidence(self, target_set, multiple):
         if target_set is None or target_set == 'train':
             # Get and delete the content of evidence file.
-            out_file = os.path.join(self.project.project_path,
+            out_file = os.path.join(self.project.project_path, 'evidence-%s' % self.format,
                                     'ev-train-%s-%s.db' % (self.project.project_name, self.format))
             open(out_file, 'w')
 
@@ -84,7 +99,7 @@ class FileCreator:
 
         if target_set is None or target_set == 'test':
             # Get and delete the content of evidence file.
-            out_file = os.path.join(self.project.project_path,
+            out_file = os.path.join(self.project.project_path, 'evidence-%s' % self.format,
                                     'ev-test-%s-%s.db' % (self.project.project_name, self.format))
             open(out_file, 'w')
 
@@ -96,9 +111,9 @@ class FileCreator:
             if multiple:
                 logger.info('>>> writing "isActivated" rules ...')
                 for meme_id in self.test_memes:
-                    meme_out_file = os.path.join(self.project.project_path,
+                    meme_out_file = os.path.join(self.project.project_path, 'evidence-%s' % self.format,
                                                  'ev-test-%s-%s-m%d.db' % (
-                                                 self.project.project_name, self.format, meme_id))
+                                                     self.project.project_name, self.format, meme_id))
                     self.__write_isactivated(self.trees, [meme_id], meme_out_file, initials=True)
 
     def __write_follows(self, user_ids, user_indexes, train_memes, out_file):
@@ -158,8 +173,10 @@ class PracmlnCreator(FileCreator):
         self.format = FileCreator.FORMAT_PRACMLN
         self.put_declarations = True
         self.put_zero_weights = True
+        self.put_hard_formulas = False
         self.user_prefix = 'u'
         self.meme_prefix = 'm'
+        self.user_var_name = '?u'
         self.meme_var_name = '?m'
 
 
@@ -169,6 +186,8 @@ class Alchemy2Creator(FileCreator):
         self.format = FileCreator.FORMAT_ALCHEMY2
         self.put_declarations = True
         self.put_zero_weights = False
+        self.put_hard_formulas = True
         self.user_prefix = 'U'
         self.meme_prefix = 'M'
+        self.user_var_name = 'u'
         self.meme_var_name = 'm'
