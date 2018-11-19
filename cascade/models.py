@@ -2,15 +2,15 @@
 from datetime import timedelta
 import json
 import logging
-from multiprocessing import Pool
 import os
 import random
 import time
-import django
+
+import scipy
 from django.conf import settings
-import math
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
+
 from crud.models import UserAccount, Post, Reshare, Meme
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
@@ -284,15 +284,26 @@ class ActSequence(object):
 
 class AsLT(object):
     def __init__(self, project):
+        """
+        w_param_name and r_param_name must be set in children.
+        :param project:
+        """
         self.project = project
         self.init_tree = None
-        self.max_delay = 999999999
+        self.max_delay = 1000
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
+        self.user_ids = None
+        self.users_map = None
+
+        self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
+        self.w = self.w.tocsr()
+        self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
 
     def fit(self):
         pass
 
-    def predict(self, initial_tree, threshold=None, user_ids=None, log=False):
+    # @profile
+    def predict(self, initial_tree, threshold=None, user_ids=None, users_map=None, log=False):
         """
         Predict activation cascade in the future starting from initial nodes in self.tree.
         Set the final tree again in self.tree.
@@ -311,45 +322,51 @@ class AsLT(object):
         cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         activated = tree.nodes()
         self.probabilities = {}
-        if user_ids is None:
+
+        if user_ids is None or users_map is None:
             user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
-        user_map = {user_ids[i]: i for i in range(len(user_ids))}
+            users_map = {user_ids[i]: i for i in range(len(user_ids))}
+        self.user_ids = user_ids
+        self.users_map = users_map
+
         thresholds = {}
         if log:
             logger.info('time1 = %.2f' % (time.time() - t0))
 
         # Get weights and delay vectors.
         t0 = time.time()
-        w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
-        w = w.tocsr()
-        r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
         if log:
             logger.info('time2 = %.2f' % (time.time() - t0))
 
         # Iterate on steps. For each step try to activate other nodes.
-        i = 0
+        step = 0
         while cur_step:
             t0 = time.time()
-            i += 1
-            if log:
-                logger.info('\tstep %d ...' % i)
+            step += 1
+            # if log:
+            #     logger.info('step %d ...' % step)
 
             next_step = []
 
             # Iterate on current step nodes to check if a child will be activated.
             for node in cur_step:
                 u = node.user_id  # sender user id
-                u_i = user_map[u]
-                w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
+                u_i = self.users_map[u]
+                # w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
+                w_u = self.w[u_i, :]
 
                 # Iterate on children of u
-                for v_i in np.nonzero(w_u)[0]:
-                    v = user_ids[int(v_i)]  # receiver (child) user id
+                # for v_i in np.nonzero(w_u)[0]:
+                for i in range(w_u.nnz):
+                    v_i = w_u.indices[i]
+                    v_i = int(v_i)
+                    v = user_ids[v_i]  # receiver (child) user id
                     if v in activated:
                         continue
                     if v not in self.probabilities:
                         self.probabilities[v] = 0
-                    self.probabilities[v] += w_u[v_i]
+                    # self.probabilities[v] += w_u[v_i]
+                    self.probabilities[v] += w_u.data[i]
 
                     # Set the threshold or sample it randomly if None.
                     if threshold is None:
@@ -363,10 +380,10 @@ class AsLT(object):
 
                     if self.probabilities[v] >= thresh:
                         # Get delay parameter.
-                        delay_param = r[v_i]
+                        delay_param = self.r[v_i]
 
                         # Sample delay from exponential distribution and calculate the receive time.
-                        delay = 1 / delay_param if delay_param > 0 else 1000  # in days
+                        delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
                         # if delay_param > 0:
                         #     delay = np.random.exponential(delay_param)  # in days
                         # else:
@@ -382,11 +399,11 @@ class AsLT(object):
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
-                        if log:
-                            logger.info('\ta reshare predicted')
+                        # if log:
+                        #     logger.info('a reshare predicted')
             cur_step = sorted(next_step, key=lambda n: n.datetime)
             if log:
-                logger.info('time = %.2f' % (time.time() - t0))
+                logger.info('step %d, time = %.2f' % (step, time.time() - t0))
 
         return tree
 
@@ -398,6 +415,7 @@ class IC(object):
         self.p_param_name = 'p'
         self.r_param_name = 'r'
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
+        self.user_map = None
 
     def fit(self):
         pass
@@ -412,9 +430,10 @@ class IC(object):
         t0 = time.time()
         cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         activated = tree.nodes()
-        if user_ids is None:
-            user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
-        user_map = {user_ids[i]: i for i in range(len(user_ids))}
+        if self.user_map is None:
+            if user_ids is None:
+                user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+            self.user_map = {user_ids[i]: i for i in range(len(user_ids))}
         if log:
             logger.info('time1 = %.2f' % (time.time() - t0))
 
@@ -439,7 +458,7 @@ class IC(object):
 
             for node in cur_step:
                 u = node.user_id  # sender user id
-                u_i = user_map[u]
+                u_i = self.user_map[u]
                 p_u = np.squeeze(np.array(p[u_i, :].todense()))  # probabilities of the children of u
 
                 # Iterate on children of u
@@ -471,7 +490,7 @@ class IC(object):
 
                         # Sample delay from exponential distribution and calculate the receive time.
                         delay = np.random.exponential(delay_param)  # in days
-                        #delay = delay_param  # in days
+                        # delay = delay_param  # in days
                         send_dt = str_to_datetime(node.datetime)
                         receive_dt = send_dt + timedelta(days=delay)
                         if receive_dt < now:
@@ -634,7 +653,7 @@ class Project(object):
             i = 0
             for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
                 sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
-                    3600.0 * 24)  # number of days
+                        3600.0 * 24)  # number of days
                 i += 1
                 if i % (len(meme_ids) / 10) == 0:
                     logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
@@ -694,7 +713,7 @@ class Project(object):
             i = 0
             for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
                 sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
-                    3600.0 * 24)  # number of days
+                        3600.0 * 24)  # number of days
                 i += 1
                 if i % (len(meme_ids) / 10) == 0:
                     logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))

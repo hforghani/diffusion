@@ -9,11 +9,12 @@ from crud.models import UserAccount, Meme, Post, Reshare
 
 class Saito(AsLT):
     def __init__(self, project):
-        super(Saito, self).__init__(project)
         self.project = project
         self.sample_count = 2500
         self.w_param_name = 'w-saito'
         self.r_param_name = 'r-saito'
+
+        super(Saito, self).__init__(project)
 
     def calc_parameters(self, iterations=3):
         # Load dataset.

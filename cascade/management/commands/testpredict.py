@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import multiprocessing
 from multiprocessing import Pool
 import traceback
 import django
@@ -11,8 +12,7 @@ import time
 import math
 import numpy as np
 from matplotlib import pyplot
-
-from mln.file_generators import FileCreator
+from profilehooks import timecall, profile
 
 if not apps.ready and not settings.configured:
     django.setup()
@@ -23,6 +23,8 @@ from cascade.saito import Saito
 from cascade.models import Project
 from memm.models import MEMMModel
 from mln.models import MLN
+from mln.file_generators import FileCreator
+from crud.models import UserAccount
 
 logger = logging.getLogger('cascade.management.commands.testpredict')
 
@@ -42,7 +44,8 @@ def evaluate(initial_tree, res_tree, tree, all_nodes, verbosity=settings.VERBOSI
     return meas, prec, rec, res_output, true_output
 
 
-def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, verbosity=settings.VERBOSITY):
+def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids, users_map,
+              verbosity=settings.VERBOSITY):
     try:
         prp1_list = []
         prp2_list = []
@@ -60,6 +63,9 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, verbosity
             # Predict remaining nodes.
             if method in ['mlnprac', 'mlnalch']:
                 res_tree = model.predict(meme_id, initial_tree, threshold=threshold, verbosity=verbosity)
+            elif method in ['saito', 'avg']:
+                res_tree = model.predict(initial_tree, threshold=threshold, user_ids=user_ids, users_map=users_map,
+                                         log=verbosity > 2)
             else:
                 res_tree = model.predict(initial_tree, threshold=threshold, log=verbosity > 2)
 
@@ -128,15 +134,17 @@ class Command(BaseCommand):
         'avg': settings.LTAVG_THRES
     }
 
-    THRESHOLDS_COUNT = 40
+    THRESHOLDS_COUNT = 20
 
     def __init__(self):
         super(Command, self).__init__()
         self.verbosity = settings.VERBOSITY
+        self.user_ids = None
+        self.users_map = None
 
     def handle(self, *args, **options):
         start = time.time()
-        projects = options['project'].split(',')
+        project_names = options['project'].split(',')
         self.verbosity = options['verbosity'] if options['verbosity'] is not None else settings.VERBOSITY
 
         # Get the method or raise exception.
@@ -160,6 +168,13 @@ class Command(BaseCommand):
         final_f1 = []
         final_fpr = []
 
+        if method in ['saito', 'avg']:
+            # Create dictionary of user id's to their sorted index.
+            self.user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+            self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
+
+        projects = {p_name: Project(p_name) for p_name in project_names}
+
         for thr in thresholds:
             if options['all_thresholds']:
                 if self.verbosity:
@@ -169,8 +184,8 @@ class Command(BaseCommand):
             f1 = []
             fpr = []
 
-            for project_name in projects:
-                project = Project(project_name)
+            for p_name in project_names:
+                project = projects[p_name]
                 measure = self.test(project, method, thr)
                 prec.append(measure.precision())
                 recall.append(measure.recall())
@@ -186,7 +201,7 @@ class Command(BaseCommand):
             final_f1.append(ff1)
             final_fpr.append(ffpr)
 
-            if len(projects) > 1 and self.verbosity:
+            if len(project_names) > 1 and self.verbosity:
                 logger.info('final precision = %.3f', fprec)
                 logger.info('final recall = %.3f', frecall)
                 logger.info('final f1 = %.3f', ff1)
@@ -198,8 +213,8 @@ class Command(BaseCommand):
             best_f1, best_thres = final_f1[best_ind], thresholds[best_ind]
             logger.info('F1 max = %f in threshold = %f' % (best_f1, best_thres))
 
-            self.display_charts(best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
-                                thresholds)
+            self.__display_charts(best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
+                                  thresholds)
 
         if self.verbosity:
             logger.info('command done in %.2f min' % ((time.time() - start) / 60))
@@ -208,7 +223,9 @@ class Command(BaseCommand):
         # Load training and test sets and cascade trees.
         train_set, test_set = project.load_train_test()
         trees = project.load_trees()
+
         all_node_ids = project.get_all_nodes()
+        # all_node_ids = self.user_ids
 
         if self.verbosity > 1:
             logger.info('test set size = %d' % len(test_set))
@@ -227,14 +244,46 @@ class Command(BaseCommand):
         else:
             raise Exception('invalid method "%s"' % method)
 
-        # Create a process pool to distribute the prediction.
-        process_count = 3
+        all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees,
+                                                                        all_node_ids, self.user_ids, self.users_map,
+                                                                        self.verbosity)
+
+        # all_res_nodes, all_true_nodes, prp1_list, prp2_list = self.__test_multi_processed(test_set, method, model,
+        #                                                                                   threshold, trees,
+        #                                                                                   all_node_ids)
+
+        # Gather all "meme_id-node_id" pairs as reference set.
+        all_nodes = []
+        for meme_id in set(test_set).union(set(train_set)):
+            all_nodes.extend({'{}-{}'.format(meme_id, node) for node in trees[meme_id].node_ids()})
+
+        # Evaluate total results.
+        meas = Validation(all_res_nodes, all_true_nodes, all_nodes)
+        prec, rec, f1 = meas.precision(), meas.recall(), meas.f1()
+        if self.verbosity > 1:
+            logger.info('project %s: %d outputs, %d true, precision = %.3f, recall = %.3f, f1 = %.3f' % (
+                project.project_name, len(all_res_nodes), len(all_true_nodes), prec, rec, f1))
+
+        if method in ['saito', 'avg'] and self.verbosity > 1:
+            logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
+            logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
+
+        return meas
+
+    def __test_multi_processed(self, test_set, method, model, threshold, trees, all_node_ids):
+        """
+        Create a process pool to distribute the prediction.
+        """
+        process_count = multiprocessing.cpu_count()
         pool = Pool(processes=process_count)
         step = int(math.ceil(float(len(test_set)) / process_count))
         results = []
         for j in range(0, len(test_set), step):
             meme_ids = test_set[j: j + step]
-            res = pool.apply_async(test_meme, (meme_ids, method, model, threshold, trees, all_node_ids, self.verbosity))
+            res = pool.apply_async(test_meme,
+                                   (meme_ids, method, model, threshold, trees, all_node_ids, self.user_ids,
+                                    self.users_map,
+                                    self.verbosity))
             results.append(res)
 
         pool.close()
@@ -253,42 +302,29 @@ class Command(BaseCommand):
             prp1_list.extend(r3)
             prp2_list.extend(r4)
 
-        # Gather all "meme_id-node_id" pairs as reference set.
-        all_nodes = []
-        for meme_id in set(test_set).union(set(train_set)):
-            all_nodes.extend({'{}-{}'.format(meme_id, node) for node in trees[meme_id].node_ids()})
+        return all_res_nodes, all_true_nodes, prp1_list, prp2_list
 
-        # all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees)
-
-        # Evaluate total results.
-        meas = Validation(all_res_nodes, all_true_nodes, all_nodes)
-        prec, rec, f1 = meas.precision(), meas.recall(), meas.f1()
-        if self.verbosity > 1:
-            logger.info('project %s: %d outputs, %d true, precision = %.3f, recall = %.3f, f1 = %.3f' % (
-                project.project_name, len(all_res_nodes), len(all_true_nodes), prec, rec, f1))
-
-        if method in ['saito', 'avg'] and self.verbosity > 1:
-            logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
-            logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
-
-        return meas
-
-    def display_charts(self, best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall, thresholds):
+    def __display_charts(self, best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
+                         thresholds):
         pyplot.figure(1)
         pyplot.subplot(221)
         pyplot.plot(thresholds, final_prec)
+        pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.scatter([best_thres], [final_prec[best_ind]], c='r', marker='o')
         pyplot.title('precision')
         pyplot.subplot(222)
         pyplot.plot(thresholds, final_recall)
         pyplot.scatter([best_thres], [final_recall[best_ind]], c='r', marker='o')
+        pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.title('recall')
         pyplot.subplot(223)
         pyplot.plot(thresholds, final_f1)
         pyplot.scatter([best_thres], [best_f1], c='r', marker='o')
+        pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.title('F1')
         pyplot.subplot(224)
         pyplot.plot(final_fpr, final_recall)
         pyplot.scatter([final_fpr[best_ind]], [final_recall[best_ind]], c='r', marker='o')
         pyplot.title('ROC curve')
+        pyplot.axis([0, 1, 0, 1])
         pyplot.show()

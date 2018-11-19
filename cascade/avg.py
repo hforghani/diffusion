@@ -11,10 +11,10 @@ logger = logging.getLogger('cascade.avg')
 
 class LTAvg(AsLT):
     def __init__(self, project):
-        super(LTAvg, self).__init__(project)
         self.project = project
         self.w_param_name = 'w-avg'
         self.r_param_name = 'r-avg'
+        super(LTAvg, self).__init__(project)
 
     def fit(self, calc_weights=True, calc_delays=True, continue_calc=False):
         train_set, test_set = self.project.load_train_test()
