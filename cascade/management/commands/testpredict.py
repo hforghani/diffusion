@@ -134,7 +134,7 @@ class Command(BaseCommand):
         'avg': settings.LTAVG_THRES
     }
 
-    THRESHOLDS_COUNT = 20
+    THRESHOLDS_COUNT = 40
 
     def __init__(self):
         super(Command, self).__init__()
@@ -173,7 +173,7 @@ class Command(BaseCommand):
             self.user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
             self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
 
-        projects = {p_name: Project(p_name) for p_name in project_names}
+        models = self.train(method, project_names)
 
         for thr in thresholds:
             if options['all_thresholds']:
@@ -185,8 +185,8 @@ class Command(BaseCommand):
             fpr = []
 
             for p_name in project_names:
-                project = projects[p_name]
-                measure = self.test(project, method, thr)
+                model = models[p_name]
+                measure = self.test(model, method, thr)
                 prec.append(measure.precision())
                 recall.append(measure.recall())
                 f1.append(measure.f1())
@@ -219,8 +219,30 @@ class Command(BaseCommand):
         if self.verbosity:
             logger.info('command done in %.2f min' % ((time.time() - start) / 60))
 
-    def test(self, project, method, threshold):
+    def train(self, method, project_names):
+        models = {}
+        for p_name in project_names:
+            project = Project(p_name)
+            # Create and train the model if needed.
+            if method == 'mlnprac':
+                model = MLN(project, format=FileCreator.FORMAT_PRACMLN)
+            elif method == 'mlnalch':
+                model = MLN(project, format=FileCreator.FORMAT_ALCHEMY2)
+            elif method == 'memm':
+                train_set, _ = project.load_train_test()
+                model = MEMMModel(project).fit(train_set, log=self.verbosity > 2)
+            elif method == 'saito':
+                model = Saito(project)
+            elif method == 'avg':
+                model = LTAvg(project)
+            else:
+                raise Exception('invalid method "%s"' % method)
+            models[p_name] = model
+        return models
+
+    def test(self, model, method, threshold):
         # Load training and test sets and cascade trees.
+        project = model.project
         train_set, test_set = project.load_train_test()
         trees = project.load_trees()
 
@@ -229,20 +251,6 @@ class Command(BaseCommand):
 
         if self.verbosity > 1:
             logger.info('test set size = %d' % len(test_set))
-
-        # Create and train the model if needed.
-        if method == 'mlnprac':
-            model = MLN(project, format=FileCreator.FORMAT_PRACMLN)
-        elif method == 'mlnalch':
-            model = MLN(project, format=FileCreator.FORMAT_ALCHEMY2)
-        elif method == 'memm':
-            model = MEMMModel(project).fit(train_set, log=self.verbosity > 2)
-        elif method == 'saito':
-            model = Saito(project)
-        elif method == 'avg':
-            model = LTAvg(project)
-        else:
-            raise Exception('invalid method "%s"' % method)
 
         all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees,
                                                                         all_node_ids, self.user_ids, self.users_map,
@@ -282,8 +290,7 @@ class Command(BaseCommand):
             meme_ids = test_set[j: j + step]
             res = pool.apply_async(test_meme,
                                    (meme_ids, method, model, threshold, trees, all_node_ids, self.user_ids,
-                                    self.users_map,
-                                    self.verbosity))
+                                    self.users_map, self.verbosity))
             results.append(res)
 
         pool.close()
@@ -326,5 +333,5 @@ class Command(BaseCommand):
         pyplot.plot(final_fpr, final_recall)
         pyplot.scatter([final_fpr[best_ind]], [final_recall[best_ind]], c='r', marker='o')
         pyplot.title('ROC curve')
-        pyplot.axis([0, 1, 0, 1])
+        pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.show()
