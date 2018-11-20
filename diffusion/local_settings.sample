@@ -24,8 +24,5 @@ STATIC_URL = SITE_URL + 'static/'
 MEDIA_ROOT = BASEPATH + 'media/'
 MEDIA_URL = SITE_URL + 'media/'
 
-PRACMLN_PATH = '/path/to/pracmln/results'
-ALCHEMY2_PATH = os.path.join(BASEPATH, 'data')
-
 # for bigdata command:
 MEMETRACKER_PATH = '<datasets_path>/memetracker9/quotes_2008-08.txt/quotes_2008-08.txt'

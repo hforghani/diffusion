@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-MEMM_THRES = 0.47025
+MEMM_THRES = 0.4
 MLNPRAC_THRES = 8
 MLNALCH_THRES = 0.2
 ASLT_THRES = 0.54

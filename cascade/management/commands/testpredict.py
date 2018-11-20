@@ -62,7 +62,7 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
 
             # Predict remaining nodes.
             if method in ['mlnprac', 'mlnalch']:
-                res_tree = model.predict(meme_id, initial_tree, threshold=threshold, verbosity=verbosity)
+                res_tree = model.predict(meme_id, initial_tree, threshold=threshold, log=verbosity > 2)
             elif method in ['saito', 'avg']:
                 res_tree = model.predict(initial_tree, threshold=threshold, user_ids=user_ids, users_map=users_map,
                                          log=verbosity > 2)
@@ -134,7 +134,7 @@ class Command(BaseCommand):
         'avg': settings.LTAVG_THRES
     }
 
-    THRESHOLDS_COUNT = 40
+    THRESHOLDS_COUNT = 100
 
     def __init__(self):
         super(Command, self).__init__()
@@ -202,16 +202,14 @@ class Command(BaseCommand):
             final_fpr.append(ffpr)
 
             if len(project_names) > 1 and self.verbosity:
-                logger.info('final precision = %.3f', fprec)
-                logger.info('final recall = %.3f', frecall)
-                logger.info('final f1 = %.3f', ff1)
-                logger.info('final fpr = %.3f', ffpr)
+                logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', fprec, frecall, ff1, ffpr)
 
         if options['all_thresholds']:
             # Find the threshold with maximum F1.
             best_ind = int(np.argmax(np.array(final_f1)))
             best_f1, best_thres = final_f1[best_ind], thresholds[best_ind]
-            logger.info('F1 max = %f in threshold = %f' % (best_f1, best_thres))
+            if self.verbosity:
+                logger.info('F1 max = %f in threshold = %f' % (best_f1, best_thres))
 
             self.__display_charts(best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
                                   thresholds)
@@ -225,9 +223,9 @@ class Command(BaseCommand):
             project = Project(p_name)
             # Create and train the model if needed.
             if method == 'mlnprac':
-                model = MLN(project, format=FileCreator.FORMAT_PRACMLN)
+                model = MLN(project, method='edge', format=FileCreator.FORMAT_PRACMLN)
             elif method == 'mlnalch':
-                model = MLN(project, format=FileCreator.FORMAT_ALCHEMY2)
+                model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
             elif method == 'memm':
                 train_set, _ = project.load_train_test()
                 model = MEMMModel(project).fit(train_set, log=self.verbosity > 2)
