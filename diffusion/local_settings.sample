@@ -12,6 +12,8 @@ DATABASES = {
         'PORT': '5432', # Set to empty string for default.
     }}
 
+VERBOSITY = 2
+
 SITE_URL = 'http://127.0.0.1:8000/'
 BASEPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '')
 
@@ -21,6 +23,9 @@ STATIC_URL = SITE_URL + 'static/'
 
 MEDIA_ROOT = BASEPATH + 'media/'
 MEDIA_URL = SITE_URL + 'media/'
+
+PRACMLN_PATH = '/path/to/pracmln/results'
+ALCHEMY2_PATH = os.path.join(BASEPATH, 'data')
 
 # for bigdata command:
 MEMETRACKER_PATH = '<datasets_path>/memetracker9/quotes_2008-08.txt/quotes_2008-08.txt'

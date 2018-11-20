@@ -60,3 +60,4 @@ target/
 */Thumbs.db
 .idea/*
 diffusion/local_settings.py
+*.lprof
