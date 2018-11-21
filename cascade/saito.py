@@ -140,7 +140,7 @@ class Saito(AsLT):
         for v_i in range(u_count):
             v = user_ids[v_i]
             if v in nodes:
-                parents = graph.predecessors(v)
+                parents = list(graph.predecessors(v))
                 parents.append(v)
                 par_indexes = [user_map[uid] for uid in parents]
                 values.extend([1.0 / len(parents)] * len(parents))

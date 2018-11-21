@@ -111,15 +111,18 @@ class CascadeTree(object):
             logger.info('\tTREE: reshares count = %d' % reshares.count())
         self.roots = []
         for reshare in reshares:
-            child_id = reshare.user_id
-            parent_id = reshare.ref_user_id
+            # child_id = reshare.user_id
+            # parent_id = reshare.ref_user_id
+            child_id = reshare.post.author_id
+            parent_id = reshare.reshared_post.author_id
             if child_id == parent_id:
                 continue  # Continue if the reshare is between same users.
             parent = nodes[parent_id]
 
             if not visited[parent_id]:  # It is a root
                 parent.post_id = reshare.reshared_post_id
-                parent.datetime = reshare.ref_datetime.strftime(DT_FORMAT)
+                # parent.datetime = reshare.ref_datetime.strftime(DT_FORMAT)
+                parent.datetime = reshare.reshared_post.datetime.strftime(DT_FORMAT)
                 visited[parent_id] = True
                 self.roots.append(parent)
 
@@ -749,8 +752,10 @@ class Project(object):
 
         # Iterate on reshares to extract graph edges.
         for resh in reshares.all():
-            user_id = resh.user_id
-            ref_user_id = resh.ref_user_id
+            # user_id = resh.user_id
+            user_id = resh.post.author_id
+            # ref_user_id = resh.ref_user_id
+            ref_user_id = resh.reshared_post.author_id
             if user_id != ref_user_id:
                 common_memes = meme_ids & set(resh.reshared_post.postmeme_set.values_list('meme_id', flat=True)) & set(
                     resh.post.postmeme_set.values_list('meme_id', flat=True))
