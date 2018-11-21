@@ -30,7 +30,7 @@ def load_sparse(filename):
 def load_sparse_list(filename):
     loader = np.load(filename)
     arr_list = []
-    for i in range(len(loader.files) / 4):
+    for i in range(len(loader.files) // 4):
         arr_list.append(sparse.csc_matrix((loader['data%d' % i], loader['indices%d' % i], loader['indptr%d' % i]),
                                           shape=loader['shape%d' % i]))
         #arr_list.append(sparse.coo_matrix((loader['data%d' % i], (loader['row%d' % i], loader['col%d' % i])),

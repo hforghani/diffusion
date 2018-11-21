@@ -332,71 +332,74 @@ class Command(BaseCommand):
                     cur_memes.update(meme_texts)
                     src_post.text = '. '.join(cur_memes)
                     src_post.save()
-                reshares.append(Reshare(post_id=post.id, reshared_post=src_post, datetime=datetime))
+                reshares.append(
+                    Reshare(post_id=post.id, reshared_post_id=src_post.id,
+                            user_id=post.author_id, ref_user_id=src_post.author_id,
+                            datetime=datetime, ref_datetime=src_post.datetime))
 
-        return post_memes, reshares
+            return post_memes, reshares
 
-    def load_memes(self):
-        """
-        Create map of meme texts to meme id's and put it in 'memes_map' field.
-        :return:
-        """
-        self.stdout.write('loading meme ids ...')
-        memes = Meme.objects.values('text', 'id')
-        for meme in memes:
-            self.memes_map[meme['text']] = meme['id']
-        del memes
+        def load_memes(self):
+            """
+            Create map of meme texts to meme id's and put it in 'memes_map' field.
+            :return:
+            """
+            self.stdout.write('loading meme ids ...')
+            memes = Meme.objects.values('text', 'id')
+            for meme in memes:
+                self.memes_map[meme['text']] = meme['id']
+            del memes
 
-    def calc_memes_values(self):
-        self.stdout.write('getting meme ids ...')
-        meme_ids = list(Meme.objects.values_list('id', flat=True))
-        self.stdout.write('creating queries ...')
-        meme_counts = PostMeme.objects.values('meme_id').annotate(count=Count('post'))
-        first_times = PostMeme.objects.values('meme_id').annotate(first=Min('post__datetime'))
-        last_times = PostMeme.objects.values('meme_id').annotate(last=Max('post__datetime'))
-        self.stdout.write('calculating meme counts ...')
-        meme_counts = {obj['meme_id']: obj['count'] for obj in meme_counts}
-        self.stdout.write('calculating first pub. times of memes ...')
-        first_times = {obj['meme_id']: obj['first'] for obj in first_times}
-        self.stdout.write('calculating last pub. times of memes ...')
-        last_times = {obj['meme_id']: obj['last'] for obj in last_times}
+        def calc_memes_values(self):
+            self.stdout.write('getting meme ids ...')
+            meme_ids = list(Meme.objects.values_list('id', flat=True))
+            self.stdout.write('creating queries ...')
+            meme_counts = PostMeme.objects.values('meme_id').annotate(count=Count('post'))
+            first_times = PostMeme.objects.values('meme_id').annotate(first=Min('post__datetime'))
+            last_times = PostMeme.objects.values('meme_id').annotate(last=Max('post__datetime'))
+            self.stdout.write('calculating meme counts ...')
+            meme_counts = {obj['meme_id']: obj['count'] for obj in meme_counts}
+            self.stdout.write('calculating first pub. times of memes ...')
+            first_times = {obj['meme_id']: obj['first'] for obj in first_times}
+            self.stdout.write('calculating last pub. times of memes ...')
+            last_times = {obj['meme_id']: obj['last'] for obj in last_times}
 
-        self.stdout.write('saving ...')
-        i = 0
-        for mid in meme_ids:
+            self.stdout.write('saving ...')
+            i = 0
+            for mid in meme_ids:
+                try:
+                    count = meme_counts[mid]
+                except:
+                    count = None
+                try:
+                    f_time = first_times[mid]
+                except:
+                    f_time = None
+                try:
+                    l_time = last_times[mid]
+                except:
+                    l_time = None
+                Meme.objects.filter(id=mid).update(count=count, first_time=f_time, last_time=l_time)
+                i += 1
+                if i % 10000 == 0:
+                    self.stdout.write('%d memes saved' % i)
+
+        def get_username(self, url):
+            """
+            Extract the username from the url. Consider the domain name as the username.
+            :param url: url
+            :return:    domain name as the username
+            """
             try:
-                count = meme_counts[mid]
-            except:
-                count = None
-            try:
-                f_time = first_times[mid]
-            except:
-                f_time = None
-            try:
-                l_time = last_times[mid]
-            except:
-                l_time = None
-            Meme.objects.filter(id=mid).update(count=count, first_time=f_time, last_time=l_time)
-            i += 1
-            if i % 10000 == 0:
-                self.stdout.write('%d memes saved' % i)
+                return re.match(r'https?://([^/?]+)', url.lower()).groups()[0][:100]
+            except AttributeError:
+                return None
 
-    def get_username(self, url):
-        """
-        Extract the username from the url. Consider the domain name as the username.
-        :param url: url
-        :return:    domain name as the username
-        """
-        try:
-            return re.match(r'https?://([^/?]+)', url.lower()).groups()[0][:100]
-        except AttributeError:
-            return None
-
-    def truncate_url(self, url):
-        """
-        Truncate the url to maximum 100 characters to save in DB.
-        if the length is greater than 100, concatenate the first 50 and the last 50 characters.
-        :param url: original url
-        :return:    truncated url
-        """
-        return (url[:50] + url[-50:]) if len(url) > 100 else url
+        def truncate_url(self, url):
+            """
+            Truncate the url to maximum 100 characters to save in DB.
+            if the length is greater than 100, concatenate the first 50 and the last 50 characters.
+            :param url: original url
+            :return:    truncated url
+            """
+            return (url[:50] + url[-50:]) if len(url) > 100 else url

@@ -295,9 +295,12 @@ class AsLT(object):
         self.user_ids = None
         self.users_map = None
 
-        self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
-        self.w = self.w.tocsr()
-        self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
+        try:
+            self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
+            self.w = self.w.tocsr()
+            self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
+        except FileNotFoundError:
+            pass
 
     def fit(self):
         pass

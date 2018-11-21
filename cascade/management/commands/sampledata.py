@@ -1,16 +1,10 @@
 # -*- coding: utf-8 -*-
-import json
-from optparse import make_option
-import os
 import traceback
-from django.conf import settings
 from django.core.management.base import BaseCommand
 import time
-from django.db.models import Q, Count
 import numpy as np
 from cascade.models import Project
-from crud.models import Reshare, UserAccount, Post, Meme
-from scipy import sparse
+from crud.models import UserAccount, Meme
 
 
 class Command(BaseCommand):
@@ -39,7 +33,6 @@ class Command(BaseCommand):
             dest="project",
             help="project name",
         )
-
 
     def __init__(self):
         super(Command, self).__init__()
@@ -74,12 +67,14 @@ class Command(BaseCommand):
                         pass
             else:
                 # Get all memes.
+                # TODO: shuffle randomly.
                 self.stdout.write('sampling data ...')
                 meme_ids = memes.values_list('id', flat=True)
 
             # Separate training and test sets.
             ratio = options['ratio']
             train_num = int(ratio * len(meme_ids))
+            meme_ids = [int(m_id) for m_id in meme_ids]
             train_set = meme_ids[:train_num]
             test_set = meme_ids[train_num:]
 

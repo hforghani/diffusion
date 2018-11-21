@@ -18,21 +18,21 @@ class Command(BaseCommand):
             dest="project",
             help="project name",
         )
-        parser.add_arguments(
+        parser.add_argument(
             "-w",
             "--weight",
             action="store_true",
             dest="weight",
             help="just calculate diffusion weights"
         )
-        parser.add_arguments(
+        parser.add_argument(
             "-d",
             "--delay",
             action="store_true",
             dest="delay",
             help="just calculate diffusion delays"
         )
-        parser.add_arguments(
+        parser.add_argument(
             "-c",
             "--continue",
             action="store_true",
