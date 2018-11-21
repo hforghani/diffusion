@@ -125,6 +125,14 @@ class Command(BaseCommand):
             default=False,
             help="test the method for all threshold values and show the charts",
         )
+        parser.add_argument(
+            "-u",
+            "--multiprocessed",
+            action='store_true',
+            dest="multi_processed",
+            default=False,
+            help="run tests on multiple processes",
+        )
 
     thresholds = {
         'mlnprac': settings.MLNPRAC_THRES,
@@ -146,6 +154,7 @@ class Command(BaseCommand):
         start = time.time()
         project_names = options['project'].split(',')
         self.verbosity = options['verbosity'] if options['verbosity'] is not None else settings.VERBOSITY
+        multi_processed = options['multi_processed']
 
         # Get the method or raise exception.
         method = options['method']
@@ -186,7 +195,7 @@ class Command(BaseCommand):
 
             for p_name in project_names:
                 model = models[p_name]
-                measure = self.test(model, method, thr)
+                measure = self.test(model, method, thr, multi_processed)
                 prec.append(measure.precision())
                 recall.append(measure.recall())
                 f1.append(measure.f1())
@@ -238,7 +247,7 @@ class Command(BaseCommand):
             models[p_name] = model
         return models
 
-    def test(self, model, method, threshold):
+    def test(self, model, method, threshold, multi_processed=False):
         # Load training and test sets and cascade trees.
         project = model.project
         train_set, test_set = project.load_train_test()
@@ -250,13 +259,14 @@ class Command(BaseCommand):
         if self.verbosity > 1:
             logger.info('test set size = %d' % len(test_set))
 
-        all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees,
-                                                                        all_node_ids, self.user_ids, self.users_map,
-                                                                        self.verbosity)
-
-        # all_res_nodes, all_true_nodes, prp1_list, prp2_list = self.__test_multi_processed(test_set, method, model,
-        #                                                                                   threshold, trees,
-        #                                                                                   all_node_ids)
+        if multi_processed:
+            all_res_nodes, all_true_nodes, prp1_list, prp2_list = self.__test_multi_processed(test_set, method, model,
+                                                                                              threshold, trees,
+                                                                                              all_node_ids)
+        else:
+            all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees,
+                                                                            all_node_ids, self.user_ids, self.users_map,
+                                                                            self.verbosity)
 
         # Gather all "meme_id-node_id" pairs as reference set.
         all_nodes = []
