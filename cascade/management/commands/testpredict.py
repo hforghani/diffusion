@@ -206,18 +206,19 @@ class Command(BaseCommand):
                 frecall = np.mean(np.array(recall))
                 ff1 = np.mean(np.array(f1))
                 ffpr = np.mean(np.array(fpr))
-                final_prec.append(fprec)
-                final_recall.append(frecall)
-                final_f1.append(ff1)
-                final_fpr.append(ffpr)
-
-                if self.verbosity:
-                    logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', fprec, frecall, ff1,
-                                ffpr)
             else:
-                if self.verbosity:
-                    logger.info('precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', prec[0], recall[0], f1[0],
-                                fpr[0])
+                fprec = prec[0]
+                frecall = recall[0]
+                ff1 = f1[0]
+                ffpr = fpr[0]
+
+            if self.verbosity:
+                logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', fprec, frecall, ff1, ffpr)
+
+            final_prec.append(fprec)
+            final_recall.append(frecall)
+            final_f1.append(ff1)
+            final_fpr.append(ffpr)
 
         if options['all_thresholds']:
             # Find the threshold with maximum F1.
