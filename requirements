@@ -13,3 +13,4 @@ pystruct
 beautifulsoup4
 nltk
 lda
+django-bulk-update
