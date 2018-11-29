@@ -51,14 +51,14 @@ class Command(BaseCommand):
                 trees = json.load(open(path, 'r'))
                 trees = {int(key): value for key, value in trees.items()}
 
-            # Check if all meme trees are in trees dictionary. Extract cascade tree for the ones not exist.
+            # Check if all meme trees are in trees dictionary. Extract cascade tree for the ones which not exist.
             self.stdout.write('checking if any tree not extracted ...')
             if len(trees.keys()) < Meme.objects.count():
                 meme_ids = Meme.objects.values_list('id', flat=True)
                 meme_ids = list(set(meme_ids) - set(trees.keys()))
                 self.stdout.write('extracting cascade trees for %d memes ...' % len(meme_ids))
 
-                # Distribute the extraction into sum simultaneous processes.
+                # Distribute the extraction into some simultaneous processes.
                 process_count = 2
                 step = int(math.ceil(len(meme_ids) / process_count))
                 pool = Pool(processes=process_count)

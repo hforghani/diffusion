@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import traceback
+from traceback import print_exc
+
 from django.core.management.base import BaseCommand
 import time
 import numpy as np
@@ -48,7 +50,7 @@ class Command(BaseCommand):
 
             # Load meme and user id's.
             memes = Meme.objects.filter(depth__gte=1)
-            user_ids = UserAccount.objects.values_list('id', flat=True)
+            # user_ids = UserAccount.objects.values_list('id', flat=True)
 
             if options['sample_num']:
                 meme_ids = []
@@ -57,14 +59,15 @@ class Command(BaseCommand):
                     # Sample user id's and get their memes. Sample memes from this set.
                     self.stdout.write('sampling data ...')
                     sample_num = options['sample_num']
-                    users_num = sample_num
-                    user_samples = list(np.random.choice(user_ids, users_num, replace=False))
-                    user_memes = memes.filter(postmeme__post__author__in=user_samples).distinct().values_list('id',
-                                                                                                              flat=True)
+                    # users_num = sample_num
+                    # user_samples = list(np.random.choice(user_ids, users_num, replace=False))
+                    # user_memes = memes.filter(postmeme__post__author__in=user_samples) \
+                    #     .distinct().values_list('id', flat=True)
+                    user_memes = memes.values_list('id', flat=True)
                     try:
                         meme_ids = list(np.random.choice(user_memes, sample_num, replace=False))
                     except ValueError:
-                        pass
+                        print_exc()
             else:
                 # Get all memes.
                 # TODO: shuffle randomly.

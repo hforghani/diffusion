@@ -584,9 +584,8 @@ class Project(object):
             self.save_param(trees, 'trees', ParamTypes.JSON)
 
         # Convert tree dictionaries to tree objects.
-        if verbosity > 2:
+        if verbosity:
             logger.info('converting trees to objects ...')
-        trees = {int(key): value for key, value in trees.items()}
         trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
 
         self.trees = trees
