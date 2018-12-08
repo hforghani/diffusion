@@ -21,8 +21,8 @@ class Command(BaseCommand):
             if os.path.exists(trees_path):
                 self.set_depths_by_trees_data(trees_path)
             else:
-                self.stdout.write('NOTICE: Trees data not found. We calculate depths from scratch. It takes too '
-                                  'many times. You can also stop this command and execute "ectracttrees" command '
+                self.stdout.write('NOTICE: Trees data not found. We calculate depths from scratch. It may tak too '
+                                  'much time. You can also stop this command and execute "ectracttrees" command '
                                   'and then this command.')
                 self.calc_depths()
 
@@ -58,7 +58,7 @@ class Command(BaseCommand):
                     json_str += ']}'
                     data = json.loads(json_str)
                     meme_id = int(list(data.keys())[0])
-                    # if meme_id in [229223, 4965313, 319945, 319945]:
+                    # if meme_id in [229223, 4965313, 319945]:
                     tree = CascadeTree().from_dict(list(data.values())[0])
                     # self.stdout.write('depth = %d' % tree.depth)
                     Meme.objects.filter(id=meme_id).update(depth=tree.depth)
