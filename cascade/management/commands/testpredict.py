@@ -12,7 +12,7 @@ import time
 import math
 import numpy as np
 from matplotlib import pyplot
-from profilehooks import timecall, profile
+#from profilehooks import timecall, profile
 
 if not apps.ready and not settings.configured:
     django.setup()

@@ -3,9 +3,8 @@ from optparse import make_option
 import re
 import traceback
 from datetime import timedelta
-from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db.models.aggregates import Count, Min, Max
 import time
 import pygtrie
@@ -17,6 +16,12 @@ class Command(BaseCommand):
     help = 'Create database instances using memetracker dataset.'
 
     def add_arguments(self, parser):
+        parser.add_argument(
+            "file",
+            type=str,
+            nargs='?',
+            help="Memetracker database text file path"
+        )
         parser.add_argument(
             "-s",
             "--start",
@@ -68,6 +73,10 @@ class Command(BaseCommand):
         try:
             start = time.time()
 
+            path = options['file']
+            if not path:
+                raise CommandError('file argument not specified')
+
             # Concatenate memes of each post and set it as the post text.
             if options['post_texts']:
                 self.stdout.write('setting post texts ...')
@@ -88,7 +97,6 @@ class Command(BaseCommand):
                                 self.stdout.write('%d / %d' % (i, count))
                         memes.add(post_meme['postmeme__meme__text'])
                     Post.objects.filter(id=cur_post_id).update(text='. '.join(memes))
-                self.stdout.write('correcting remained posts ...')
                 return
 
             if not options['set_attributes']:
@@ -108,22 +116,20 @@ class Command(BaseCommand):
                 except ObjectDoesNotExist:
                     net = SocialNet.objects.create(name='memetracker', icon='/media/img/memetracker.gif')
 
-                path = settings.MEMETRACKER_PATH
-
                 # Create instances of non-relation entities.
-                if not (options['entities'] or options['relations']) or options['entities']:
+                if options['entities'] or not options['relations']:
                     self.stdout.write('======== creating entities ...')
                     self.create_entities(path, net)
 
                 # Create instances of relation entities.
-                if not (options['entities'] or options['relations']) or options['relations']:
+                if options['relations'] or not options['entities']:
                     self.load_memes()
                     self.stdout.write('======== creating relations ...')
                     self.create_relations(path, start_index=options['start_index'])
 
             # Set the meme count, first time, and last time attributes of memes.
-            self.stdout.write('======== setting counts and publication times for the memes ...')
-            self.calc_memes_values()
+            #self.stdout.write('======== setting counts and publication times for the memes ...')
+            #self.calc_memes_values()
 
             self.stdout.write('======== command done in %f min' % ((time.time() - start) / 60))
         except:
@@ -339,67 +345,67 @@ class Command(BaseCommand):
 
             return post_memes, reshares
 
-        def load_memes(self):
-            """
-            Create map of meme texts to meme id's and put it in 'memes_map' field.
-            :return:
-            """
-            self.stdout.write('loading meme ids ...')
-            memes = Meme.objects.values('text', 'id')
-            for meme in memes:
-                self.memes_map[meme['text']] = meme['id']
-            del memes
+    def load_memes(self):
+        """
+        Create map of meme texts to meme id's and put it in 'memes_map' field.
+        :return:
+        """
+        self.stdout.write('loading meme ids ...')
+        memes = Meme.objects.values('text', 'id')
+        for meme in memes:
+            self.memes_map[meme['text']] = meme['id']
+        del memes
 
-        def calc_memes_values(self):
-            self.stdout.write('getting meme ids ...')
-            meme_ids = list(Meme.objects.values_list('id', flat=True))
-            self.stdout.write('creating queries ...')
-            meme_counts = PostMeme.objects.values('meme_id').annotate(count=Count('post'))
-            first_times = PostMeme.objects.values('meme_id').annotate(first=Min('post__datetime'))
-            last_times = PostMeme.objects.values('meme_id').annotate(last=Max('post__datetime'))
-            self.stdout.write('calculating meme counts ...')
-            meme_counts = {obj['meme_id']: obj['count'] for obj in meme_counts}
-            self.stdout.write('calculating first pub. times of memes ...')
-            first_times = {obj['meme_id']: obj['first'] for obj in first_times}
-            self.stdout.write('calculating last pub. times of memes ...')
-            last_times = {obj['meme_id']: obj['last'] for obj in last_times}
+    def calc_memes_values(self):
+        self.stdout.write('getting meme ids ...')
+        meme_ids = list(Meme.objects.values_list('id', flat=True))
+        self.stdout.write('creating queries ...')
+        meme_counts = PostMeme.objects.values('meme_id').annotate(count=Count('post'))
+        first_times = PostMeme.objects.values('meme_id').annotate(first=Min('post__datetime'))
+        last_times = PostMeme.objects.values('meme_id').annotate(last=Max('post__datetime'))
+        self.stdout.write('calculating meme counts ...')
+        meme_counts = {obj['meme_id']: obj['count'] for obj in meme_counts}
+        self.stdout.write('calculating first pub. times of memes ...')
+        first_times = {obj['meme_id']: obj['first'] for obj in first_times}
+        self.stdout.write('calculating last pub. times of memes ...')
+        last_times = {obj['meme_id']: obj['last'] for obj in last_times}
 
-            self.stdout.write('saving ...')
-            i = 0
-            for mid in meme_ids:
-                try:
-                    count = meme_counts[mid]
-                except:
-                    count = None
-                try:
-                    f_time = first_times[mid]
-                except:
-                    f_time = None
-                try:
-                    l_time = last_times[mid]
-                except:
-                    l_time = None
-                Meme.objects.filter(id=mid).update(count=count, first_time=f_time, last_time=l_time)
-                i += 1
-                if i % 10000 == 0:
-                    self.stdout.write('%d memes saved' % i)
-
-        def get_username(self, url):
-            """
-            Extract the username from the url. Consider the domain name as the username.
-            :param url: url
-            :return:    domain name as the username
-            """
+        self.stdout.write('saving ...')
+        i = 0
+        for mid in meme_ids:
             try:
-                return re.match(r'https?://([^/?]+)', url.lower()).groups()[0][:100]
-            except AttributeError:
-                return None
+                count = meme_counts[mid]
+            except:
+                count = None
+            try:
+                f_time = first_times[mid]
+            except:
+                f_time = None
+            try:
+                l_time = last_times[mid]
+            except:
+                l_time = None
+            Meme.objects.filter(id=mid).update(count=count, first_time=f_time, last_time=l_time)
+            i += 1
+            if i % 10000 == 0:
+                self.stdout.write('%d memes saved' % i)
 
-        def truncate_url(self, url):
-            """
-            Truncate the url to maximum 100 characters to save in DB.
-            if the length is greater than 100, concatenate the first 50 and the last 50 characters.
-            :param url: original url
-            :return:    truncated url
-            """
-            return (url[:50] + url[-50:]) if len(url) > 100 else url
+    def get_username(self, url):
+        """
+        Extract the username from the url. Consider the domain name as the username.
+        :param url: url
+        :return:    domain name as the username
+        """
+        try:
+            return re.match(r'https?://([^/?]+)', url.lower()).groups()[0][:100]
+        except AttributeError:
+            return None
+
+    def truncate_url(self, url):
+        """
+        Truncate the url to maximum 100 characters to save in DB.
+        if the length is greater than 100, concatenate the first 50 and the last 50 characters.
+        :param url: original url
+        :return:    truncated url
+        """
+        return (url[:50] + url[-50:]) if len(url) > 100 else url
