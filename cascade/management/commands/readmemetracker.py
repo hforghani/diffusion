@@ -128,8 +128,8 @@ class Command(BaseCommand):
                     self.create_relations(path, start_index=options['start_index'])
 
             # Set the meme count, first time, and last time attributes of memes.
-            #self.stdout.write('======== setting counts and publication times for the memes ...')
-            #self.calc_memes_values()
+            self.stdout.write('======== setting counts and publication times for the memes ...')
+            self.calc_memes_values()
 
             self.stdout.write('======== command done in %f min' % ((time.time() - start) / 60))
         except:
