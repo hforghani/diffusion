@@ -128,8 +128,8 @@ class Command(BaseCommand):
                     self.create_relations(path, start_index=options['start_index'])
 
             # Set the meme count, first time, and last time attributes of memes.
-            #self.stdout.write('======== setting counts and publication times for the memes ...')
-            #self.calc_memes_values()
+            self.stdout.write('======== setting counts and publication times for the memes ...')
+            self.calc_memes_values()
 
             self.stdout.write('======== command done in %f min' % ((time.time() - start) / 60))
         except:
@@ -338,10 +338,12 @@ class Command(BaseCommand):
                     cur_memes.update(meme_texts)
                     src_post.text = '. '.join(cur_memes)
                     src_post.save()
+                # reshares.append(
+                #     Reshare(post_id=post.id, reshared_post_id=src_post.id,
+                #             user_id=post.author_id, ref_user_id=src_post.author_id,
+                #             datetime=datetime, ref_datetime=src_post.datetime))
                 reshares.append(
-                    Reshare(post_id=post.id, reshared_post_id=src_post.id,
-                            user_id=post.author_id, ref_user_id=src_post.author_id,
-                            datetime=datetime, ref_datetime=src_post.datetime))
+                    Reshare(post_id=post.id, reshared_post_id=src_post.id, datetime=datetime))
 
             return post_memes, reshares
 
