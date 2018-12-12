@@ -314,7 +314,7 @@ class Command(BaseCommand):
         # Create the post.
         try:
             post = Post.objects.filter(url=trunc_url)[0]
-        except KeyError:
+        except IndexError:
             raise CommandError('post does not exist with url "{}". Run the command with -e argument first.'.format(trunc_url))
         post.datetime = datetime
         post.text = '. '.join(meme_texts)
