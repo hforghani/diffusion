@@ -12,7 +12,8 @@ import time
 import math
 import numpy as np
 from matplotlib import pyplot
-#from profilehooks import timecall, profile
+
+# from profilehooks import timecall, profile
 
 if not apps.ready and not settings.configured:
     django.setup()
@@ -258,7 +259,7 @@ class Command(BaseCommand):
         # Load training and test sets and cascade trees.
         project = model.project
         train_set, test_set = project.load_train_test()
-        trees = project.load_trees()
+        trees = project.load_trees(verbosity=self.verbosity - 1)
 
         all_node_ids = project.get_all_nodes()
         # all_node_ids = self.user_ids

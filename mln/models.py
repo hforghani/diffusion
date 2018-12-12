@@ -50,9 +50,16 @@ class MLN(object):
                 results_file_path = os.path.join(data_path, 'results-pracmln',
                                                  '%s-m%d-gibbs.results' % (self.project.project_name, meme_id))
             elif self.format == FileCreator.FORMAT_ALCHEMY2:
-                results_file_path = os.path.join(data_path, 'results-alchemy2',
-                                                 'results-%s-%s-m%d-activates.results' % (
-                                                     self.project.project_name, FileCreator.FORMAT_ALCHEMY2, meme_id))
+                if self.method == 'edge':
+                    results_file_path = os.path.join(data_path, 'results-alchemy2-activates',
+                                                     'results-%s-%s-m%d.results' % (
+                                                         self.project.project_name, FileCreator.FORMAT_ALCHEMY2, meme_id))
+                else:
+                    results_file_path = os.path.join(data_path, 'results-alchemy2',
+                                                     'results-%s-%s-m%d.results' % (
+                                                         self.project.project_name, FileCreator.FORMAT_ALCHEMY2,
+                                                         meme_id))
+
             else:
                 raise ValueError('invalid format "%s"' % self.format)
 

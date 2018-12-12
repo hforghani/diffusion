@@ -3,6 +3,8 @@ from optparse import make_option
 import re
 import traceback
 from datetime import timedelta
+
+from bulk_update.helper import bulk_update
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models.aggregates import Count, Min, Max
@@ -360,7 +362,6 @@ class Command(BaseCommand):
 
     def calc_memes_values(self):
         self.stdout.write('getting meme ids ...')
-        meme_ids = list(Meme.objects.values_list('id', flat=True))
         self.stdout.write('creating queries ...')
         meme_counts = PostMeme.objects.values('meme_id').annotate(count=Count('post'))
         first_times = PostMeme.objects.values('meme_id').annotate(first=Min('post__datetime'))
@@ -374,23 +375,20 @@ class Command(BaseCommand):
 
         self.stdout.write('saving ...')
         i = 0
-        for mid in meme_ids:
-            try:
-                count = meme_counts[mid]
-            except:
-                count = None
-            try:
-                f_time = first_times[mid]
-            except:
-                f_time = None
-            try:
-                l_time = last_times[mid]
-            except:
-                l_time = None
-            Meme.objects.filter(id=mid).update(count=count, first_time=f_time, last_time=l_time)
+        t0 = time.time()
+        memes = []
+        for meme in Meme.objects.iterator():
+            mid = meme.id
+            meme.count = meme_counts[mid] if mid in meme_counts else None
+            meme.first_time = first_times[mid] if mid in first_times else None
+            meme.last_time = last_times[mid] if mid in last_times else None
+            memes.append(meme)
             i += 1
             if i % 10000 == 0:
-                self.stdout.write('%d memes saved' % i)
+                bulk_update(memes)
+                memes = []
+                self.stdout.write('%d memes saved in %d s' % (i, time.time() - t0))
+                t0 = time.time()
 
     def get_username(self, url):
         """
