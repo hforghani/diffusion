@@ -387,6 +387,9 @@ class Command(BaseCommand):
             if i % 100000 == 0:
                 self.stdout.write('%d memes saved in %d s' % (i, time.time() - t0))
                 t0 = time.time()
+        else:
+            bulk_update(memes)
+            self.stdout.write('%d memes saved in %d s' % (i, time.time() - t0))
 
     def get_username(self, url):
         """
