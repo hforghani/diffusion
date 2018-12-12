@@ -359,7 +359,6 @@ class Command(BaseCommand):
         del memes
 
     def calc_memes_values(self):
-        self.stdout.write('getting meme ids ...')
         self.stdout.write('creating queries ...')
         meme_counts = PostMeme.objects.values('meme_id').annotate(count=Count('post'))
         first_times = PostMeme.objects.values('meme_id').annotate(first=Min('post__datetime'))
