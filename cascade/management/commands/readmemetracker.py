@@ -361,7 +361,6 @@ class Command(BaseCommand):
         del memes
 
     def calc_memes_values(self):
-        self.stdout.write('getting meme ids ...')
         self.stdout.write('creating queries ...')
         meme_counts = PostMeme.objects.values('meme_id').annotate(count=Count('post'))
         first_times = PostMeme.objects.values('meme_id').annotate(first=Min('post__datetime'))
@@ -384,7 +383,7 @@ class Command(BaseCommand):
             meme.last_time = last_times[mid] if mid in last_times else None
             memes.append(meme)
             i += 1
-            if i % 10000 == 0:
+            if i % 5000 == 0:
                 bulk_update(memes)
                 memes = []
                 self.stdout.write('%d memes saved in %d s' % (i, time.time() - t0))
