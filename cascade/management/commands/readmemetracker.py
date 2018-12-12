@@ -312,7 +312,10 @@ class Command(BaseCommand):
         trunc_url = self.truncate_url(post_url)
 
         # Create the post.
-        post = Post.objects.filter(url=trunc_url)[0]
+        try:
+            post = Post.objects.filter(url=trunc_url)[0]
+        except KeyError:
+            raise CommandError('post does not exist with url "{}". Run the command with -e argument first.'.format(trunc_url))
         post.datetime = datetime
         post.text = '. '.join(meme_texts)
         post.save()
@@ -345,7 +348,7 @@ class Command(BaseCommand):
                             user_id=post.author_id, ref_user_id=src_post.author_id,
                             datetime=datetime, ref_datetime=src_post.datetime))
 
-            return post_memes, reshares
+        return post_memes, reshares
 
     def load_memes(self):
         """
