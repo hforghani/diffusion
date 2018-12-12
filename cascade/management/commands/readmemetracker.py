@@ -381,7 +381,7 @@ class Command(BaseCommand):
             meme.last_time = last_times[mid] if mid in last_times else None
             memes.append(meme)
             i += 1
-            if i % 10000 == 0:
+            if i % 5000 == 0:
                 bulk_update(memes)
                 memes = []
                 self.stdout.write('%d memes saved in %d s' % (i, time.time() - t0))
