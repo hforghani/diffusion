@@ -6,6 +6,7 @@ import os
 import random
 import time
 
+from anytree import Node, RenderTree
 from django.conf import settings
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
@@ -73,6 +74,20 @@ class CascadeNode(object):
         for node in self.children:
             depth = max(depth, node.depth() + 1)
         return depth
+
+    def __create_anytree_node(self):
+        node = Node('{}({})'.format(self.user_id, self.post_id))
+        for child in self.children:
+            child_node = child.__create_anytree_node()
+            child_node.parent = node
+        return node
+
+    def render(self):
+        node = self.__create_anytree_node()
+        lines = []
+        for pre, fill, node in RenderTree(node):
+            lines.append('%s%s' % (pre, node.name))
+        return '\n'.join(lines)
 
 
 class CascadeTree(object):
@@ -232,6 +247,9 @@ class CascadeTree(object):
         for node in self.roots:
             depth = max(depth, node.depth())
         return depth
+
+    def render(self):
+        return '\n'.join([root.render() for root in self.roots])
 
 
 class ActSequence(object):
