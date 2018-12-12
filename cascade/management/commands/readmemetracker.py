@@ -253,14 +253,14 @@ class Command(BaseCommand):
                 # Count posts.
                 if char == 'P':
                     i += 1
-                    if (not ignoring or i == start_index) and i % 100 == 0:
+                    if (not ignoring or i == start_index) and i % 1000 == 0:
                         self.stdout.write('processing posts: %d' % i)
-                    elif i % 100000 == 0:
+                    elif ignoring and i % 100000 == 0:
                         self.stdout.write('ignoring posts: %d' % i)
 
                 # Handle if it is in ignoring state.
                 if ignoring:
-                    if i < start_index:
+                    if i <= start_index:
                         line = f.readline()
                         continue
                     else:
