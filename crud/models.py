@@ -87,12 +87,12 @@ class Reshare(models.Model):
     post = models.ForeignKey(Post, verbose_name=u'پست', related_name='parents', on_delete=models.CASCADE)
     reshared_post = models.ForeignKey(Post, verbose_name=u'پست مرجع', related_name='children', null=True,
                                       on_delete=models.CASCADE)
-    user = models.ForeignKey(UserAccount, verbose_name=u'کاربر', null=True, blank=True, related_name='parent_reshares',
-                             on_delete=models.CASCADE)
-    ref_user = models.ForeignKey(UserAccount, verbose_name=u'کاربر مرجع', null=True, blank=True,
-                                 related_name='children_reshares', on_delete=models.CASCADE)
+    # user = models.ForeignKey(UserAccount, verbose_name=u'کاربر', null=True, blank=True, related_name='parent_reshares',
+    #                          on_delete=models.CASCADE)
+    # ref_user = models.ForeignKey(UserAccount, verbose_name=u'کاربر مرجع', null=True, blank=True,
+    #                              related_name='children_reshares', on_delete=models.CASCADE)
     datetime = models.DateTimeField(u'زمان', null=True, blank=True, db_index=True)
-    ref_datetime = models.DateTimeField(u'زمان پست مرجع', null=True, blank=True)
+    # ref_datetime = models.DateTimeField(u'زمان پست مرجع', null=True, blank=True)
 
     class Meta:
         verbose_name, verbose_name_plural = u'بازنشر', u'بازنشرها'

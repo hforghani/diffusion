@@ -348,10 +348,12 @@ class Command(BaseCommand):
             not_existing = src_ids - {p.id for p in src_posts}
             raise CommandError('link post does not exist with id(s): {}'.format(', '.join(not_existing)))
         for src_post in src_posts:
+                # reshares.append(
+                #     Reshare(post_id=post.id, reshared_post_id=src_post.id,
+                #             user_id=post.author_id, ref_user_id=src_post.author_id,
+                #             datetime=datetime, ref_datetime=src_post.datetime))
             reshares.append(
-                Reshare(post_id=post.id, reshared_post_id=src_post.id,
-                        user_id=post.author_id, ref_user_id=src_post.author_id,
-                        datetime=datetime, ref_datetime=src_post.datetime))
+                    Reshare(post_id=post.id, reshared_post_id=src_post.id, datetime=datetime))
 
         return post_memes, reshares
 

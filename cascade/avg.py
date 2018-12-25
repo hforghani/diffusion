@@ -30,8 +30,8 @@ class LTAvg(AsLT):
 
     def calc_weights(self, reshares, posts):
         logger.info('counting reshares of users ...')
-        resh_counts = reshares.values('user_id', 'ref_user_id').annotate(count=Count('datetime'))
-        # resh_counts = reshares.values('post__author_id', 'reshared_post__author_id').annotate(count=Count('datetime'))
+        # resh_counts = reshares.values('user_id', 'ref_user_id').annotate(count=Count('datetime'))
+        resh_counts = reshares.values('post__author_id', 'reshared_post__author_id').annotate(count=Count('datetime'))
 
         logger.info('counting posts of users ...')
         post_counts = list(posts.values('author_id').annotate(count=Count('datetime')))
@@ -48,12 +48,12 @@ class LTAvg(AsLT):
         ij = np.zeros((2, resh_count))
         i = 0
         for resh in resh_counts:
-            values[i] = float(resh['count']) / post_counts[resh['ref_user_id']]
-            # values[i] = float(resh['count']) / post_counts[resh['reshared_post__author_id']]
-            sender_id = users_map[resh['ref_user_id']]
-            # sender_id = users_map[resh['reshared_post__author_id']]
-            receiver_id = users_map[resh['user_id']]
-            # receiver_id = users_map[resh['post__author_id']]
+            # values[i] = float(resh['count']) / post_counts[resh['ref_user_id']]
+            values[i] = float(resh['count']) / post_counts[resh['reshared_post__author_id']]
+            # sender_id = users_map[resh['ref_user_id']]
+            sender_id = users_map[resh['reshared_post__author_id']]
+            # receiver_id = users_map[resh['user_id']]
+            receiver_id = users_map[resh['post__author_id']]
             ij[:, i] = [sender_id, receiver_id]
             i += 1
             if i % 10000 == 0:
@@ -106,11 +106,11 @@ class LTAvg(AsLT):
                     logger.info('calculating diff. delays ...')
                     ignoring = False
             i += 1
-            delay = (resh.datetime - resh.ref_datetime).total_seconds() / (3600.0 * 24)  # in days
-            # delay = (resh.datetime - resh.reshared_post.datetime).total_seconds() / (3600.0 * 24)  # in days
+            # delay = (resh.datetime - resh.ref_datetime).total_seconds() / (3600.0 * 24)  # in days
+            delay = (resh.datetime - resh.reshared_post.datetime).total_seconds() / (3600.0 * 24)  # in days
             if delay > 0:
-                ind = user_map[resh.user_id]
-                # ind = user_map[resh.post.author_id]
+                # ind = user_map[resh.user_id]
+                ind = user_map[resh.post.author_id]
                 if not counts[ind] == 0:
                     r[ind] = delay
                 else:
