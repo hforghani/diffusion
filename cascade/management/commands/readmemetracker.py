@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-from optparse import make_option
+import os
 import re
 import traceback
-from datetime import timedelta
 
 from bulk_update.helper import bulk_update
 from django.core.exceptions import ObjectDoesNotExist
@@ -125,13 +124,16 @@ class Command(BaseCommand):
 
                 # Create instances of relation entities.
                 if options['relations'] or not options['entities']:
-                    self.load_memes()
-                    self.stdout.write('======== creating relations ...')
-                    self.create_relations(path, start_index=options['start_index'])
+                    temp_data_path = os.path.join(os.path.dirname(path), os.path.basename(path) + '.temp')
+                    if not os.path.exists(temp_data_path):
+                        self.create_temp(path, temp_data_path)
 
-            # Set the meme count, first time, and last time attributes of memes.
-            self.stdout.write('======== setting counts and publication times for the memes ...')
-            self.calc_memes_values()
+                    self.stdout.write('======== creating relations ...')
+                    self.create_relations(temp_data_path, start_index=options['start_index'])
+
+                    # Set the meme count, first time, and last time attributes of memes.
+                    self.stdout.write('======== setting counts and publication times for the memes ...')
+                    self.calc_memes_values()
 
             self.stdout.write('======== command done in %f min' % ((time.time() - start) / 60))
         except:
@@ -139,8 +141,8 @@ class Command(BaseCommand):
             raise
 
     def create_entities(self, path, net):
-        urls = []
-        memes = []
+        urls = {}
+        memes = set()
         i = 0
 
         self.stdout.write('reading urls and memes from dataset ...')
@@ -150,21 +152,26 @@ class Command(BaseCommand):
             while line:
                 char = line[0]
                 text = line[2:-1]
-                if char in 'PL':
-                    urls.append(self.truncate_url(text))
-                elif char == 'Q':
-                    memes.append(text)
                 if char == 'P':
+                    post_url = self.truncate_url(text)
                     i += 1
                     if i % 1000000 == 0:
-                        print('%d posts read' % i)
+                        self.stdout.write('%d posts read' % i)
+                elif char == 'T':  # time line
+                    urls[post_url] = str_to_datetime(text)
+                elif char == 'Q':
+                    memes.add(text)
+                elif char == 'L':
+                    link_url = self.truncate_url(text)
+                    if link_url not in urls:
+                        urls[link_url] = None
                 line = f.readline()
-        print('%d posts read' % i)
-        self.stdout.write('{} memes extracted from dataset'.format(len(set(memes))))
+        self.stdout.write('%d posts read' % i)
+        self.stdout.write('{} memes extracted from dataset'.format(len(memes)))
 
         self.stdout.write('loading existing memes ...')
         existing_memes = set(Meme.objects.values_list('text', flat=True))
-        memes = set(memes) - existing_memes
+        memes -= existing_memes
         del existing_memes
         self.stdout.write('creating %d new memes ...' % len(memes))
         meme_entities = []
@@ -183,7 +190,7 @@ class Command(BaseCommand):
 
         self.stdout.write('loading existing urls ...')
         existing_urls = set(Post.objects.values_list('url', flat=True))
-        urls = set(urls) - existing_urls
+        urls = {key: value for key, value in urls.items() if key not in existing_urls}
         del existing_urls
         self.stdout.write('loading existing usernames ...')
         existing_usernames = set(UserAccount.objects.values_list('username', flat=True))
@@ -213,26 +220,29 @@ class Command(BaseCommand):
         self.stdout.write('creating %d new posts ...' % len(urls))
         posts = []
         i = 0
-        for url in urls:
+        t0 = time.time()
+        for url, dt in urls.items():
             username = self.get_username(url)
             if username:
                 user_id = users_map[username]
-                posts.append(Post(url=url, text='', author_id=user_id))
+                posts.append(Post(url=url, text='', author_id=user_id, datetime=dt))
             i += 1
-            if i % 1000 == 0:
+            if i % 10000 == 0:
                 Post.objects.bulk_create(posts)
-                print('%d posts created' % i)
                 posts = []
+            if i % 10000 == 0:
+                self.stdout.write('%d posts created (%.1f s)' % (i, (time.time() - t0)))
+                t0 = time.time()
         Post.objects.bulk_create(posts)
-        print('%d posts created' % len(posts))
+        self.stdout.write('%d posts created (%.1f s)' % (i, (time.time() - t0)))
         del posts, urls, users_map
 
-    def create_relations(self, path, start_index):
-        source_urls = []
-        post_url = None
+    # @profile
+    def create_relations(self, temp_data_path, start_index):
+        source_ids = []
+        post_id = None
         datetime = None
         meme_ids = []
-        meme_texts = []
         post_memes = []
         reshares = []
         i = 0
@@ -243,7 +253,7 @@ class Command(BaseCommand):
         if start_index:
             ignoring = True
 
-        with open(path, encoding="utf8") as f:
+        with open(temp_data_path, encoding="utf8") as f:
             line = f.readline()
 
             while line:
@@ -268,8 +278,8 @@ class Command(BaseCommand):
                         t0 = time.time()
 
                 if char == 'P':  # post line
-                    if post_url is not None:
-                        pm, resh = self.get_post_rels(post_url, datetime, meme_ids, meme_texts, source_urls)
+                    if post_id is not None:
+                        pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
                         post_memes.extend(pm)
                         reshares.extend(resh)
                         if i % 10000 == 0:
@@ -282,84 +292,170 @@ class Command(BaseCommand):
                             self.stdout.write('time : {:.2f} m'.format((time.time() - t0) / 60))
                             t0 = time.time()
 
-                    post_url = text
-                    source_urls = []
+                    try:
+                        post_id = int(text)
+                    except ValueError:
+                        raise CommandError("invalid post id: '{}'".format(text))
+                    source_ids = []
                     meme_ids = []
-                    meme_texts = []
                 elif char == 'T':  # time line
                     datetime = str_to_datetime(text)
                 elif char == 'Q':  # meme line
-                    meme_id = self.memes_map[text]
+                    try:
+                        meme_id = int(text)
+                    except ValueError:
+                        self.stdout.write("meme '{}' ignored".format(text))
                     meme_ids.append(meme_id)
-                    meme_texts.append(text)
                 elif char == 'L':  # link line
-                    source_urls.append(text)
+                    try:
+                        source_ids.append(int(text))
+                    except ValueError:
+                        self.stdout.write("link '{}' ignored".format(text))
 
                 line = f.readline()
 
-        pm, resh = self.get_post_rels(post_url, datetime, meme_ids, meme_texts, source_urls)
+        # Add the relations of the last post.
+        pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
         post_memes.extend(pm)
         reshares.extend(resh)
+
+        # Save the remaining relations.
         self.stdout.write(
             'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
         PostMeme.objects.bulk_create(post_memes)
         Reshare.objects.bulk_create(reshares)
 
-    def get_post_rels(self, post_url, datetime, meme_ids, meme_texts, source_urls):
+    def get_post_rels(self, post_id, datetime, meme_ids, source_ids):
         """
         Create PostMeme and Reshare instances for the referenced links. Just create the instances not inserting in the db.
         """
-        trunc_url = self.truncate_url(post_url)
+        # trunc_url = self.truncate_url(post_id)
 
         # Create the post.
         try:
-            post = Post.objects.filter(url=trunc_url)[0]
-        except IndexError:
-            raise CommandError('post does not exist with url "{}". Run the command with -e argument first.'.format(trunc_url))
-        post.datetime = datetime
-        post.text = '. '.join(meme_texts)
-        post.save()
+            post = Post.objects.get(id=post_id)
+        except ObjectDoesNotExist:
+            raise CommandError('post does not exist with id {}'.format(post_id))
 
         # Assign the memes to the post.
-        post_memes = [PostMeme(post_id=post.id, meme_id=mid) for mid in meme_ids]
+        post_memes = [PostMeme(post_id=post_id, meme_id=mid) for mid in meme_ids]
 
         # Create reshares if the post is reshared.
         reshares = []
-        for src_url in set(source_urls) - {trunc_url}:
-            try:
-                src_post = Post.objects.filter(url=self.truncate_url(src_url))[0]
-            except IndexError:
-                src_post = None
-            if src_post:
-                # If the link does not have datetime means it is a line staring by 'L' for the first time.
-                # So assign the same memes as the post.
-                if not src_post.datetime:
-                    post_memes.extend([PostMeme(post=src_post, meme_id=mid) for mid in meme_ids])
-                    src_post.datetime = datetime - timedelta(days=1)
-                    if src_post.text is None or not src_post.text.strip():
-                        cur_memes = set()
-                    else:
-                        cur_memes = set(src_post.text.split('. '))
-                    cur_memes.update(meme_texts)
-                    src_post.text = '. '.join(cur_memes)
-                    src_post.save()
-                reshares.append(
-                    Reshare(post_id=post.id, reshared_post_id=src_post.id,
-                            user_id=post.author_id, ref_user_id=src_post.author_id,
-                            datetime=datetime, ref_datetime=src_post.datetime))
+        src_ids = set(source_ids) - {post_id}
+        src_posts = Post.objects.filter(id__in=src_ids)
+        if len(src_posts) != len(src_ids):  # Raise an error if some of link posts do not exist.
+            not_existing = src_ids - {p.id for p in src_posts}
+            raise CommandError('link post does not exist with id(s): {}'.format(', '.join(not_existing)))
+        for src_post in src_posts:
+            reshares.append(
+                Reshare(post_id=post.id, reshared_post_id=src_post.id,
+                        user_id=post.author_id, ref_user_id=src_post.author_id,
+                        datetime=datetime, ref_datetime=src_post.datetime))
 
         return post_memes, reshares
 
-    def load_memes(self):
+    def create_temp(self, path, temp_path):
+        # Replace meme texts with meme ids and create temporary data files.
+        from_path = path
+        memes_count = Meme.objects.count()
+        step = 5 * 10 ** 6
+        i = 0
+        for offset in range(0, memes_count, step):
+            to_path = '{}.memes{}'.format(temp_path, i)
+            if not os.path.exists(to_path):
+                end = min(offset + step, memes_count)
+                self.stdout.write('loading memes map from {} to {} ...'.format(offset, end))
+                memes_map = self.load_memes(offset, step)
+                self.stdout.write('replacing meme texts with meme ids from {} to {} ...'.format(offset, end))
+                self.replace(from_path, to_path, 'Q', memes_map)
+                del memes_map
+            i += 1
+            from_path = to_path
+
+        # Replace post urls with post ids and create temporary data files.
+        posts_count = Post.objects.count()
+        step = 5 * 10 ** 6
+        i = 0
+        for offset in range(0, posts_count, step):
+            to_path = '{}.posts{}'.format(temp_path, i)
+            if not os.path.exists(to_path):
+                end = min(offset + step, posts_count)
+                self.stdout.write('loading posts map from {} to {} ...'.format(offset, end))
+                posts_map = self.load_posts(offset, step)
+                self.stdout.write('replacing post urls with post ids from {} to {} ...'.format(offset, end))
+                self.replace(from_path, to_path, 'PL', posts_map)
+                del posts_map
+            i += 1
+            from_path = to_path
+
+        os.rename(from_path, temp_path)
+
+    def replace(self, in_path, out_path, characters, replace_map):
+        in_batch_size = 100
+        out_batch_size = 100
+
+        with open(in_path, encoding="utf8") as fin:
+            with open(out_path, 'w', encoding="utf8") as fout:
+                in_lines = []
+                out_lines = []
+
+                while True:
+                    if not in_lines:
+                        in_lines = fin.readlines(in_batch_size)
+                        if not in_lines:
+                            break
+                    line = in_lines.pop(0)
+                    ch = line[0]
+                    if ch in characters:
+                        text = line[2:-1]
+                        if ch in 'PL':
+                            text = self.truncate_url(text)
+                        if not re.match(r'\d+', text) and text in replace_map:
+                            out = '{}\t{}\n'.format(ch, replace_map[text])
+                        else:
+                            out = line
+                    else:
+                        out = line
+                    out_lines.append(out)
+
+                    if len(out_lines) >= out_batch_size:
+                        fout.writelines(out_lines)
+                        out_lines = []
+
+                fout.writelines(out_lines)
+
+    def load_memes(self, offset=0, limit=None):
         """
-        Create map of meme texts to meme id's and put it in 'memes_map' field.
+        Get map of meme texts to meme id's.
         :return:
         """
-        self.stdout.write('loading meme ids ...')
-        memes = Meme.objects.values('text', 'id')
+        memes_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
+        memes = Meme.objects.values('text', 'id').order_by('id')
+        if limit is not None or offset > 0:
+            if limit is not None:
+                memes = memes[offset: offset + limit]
+            else:
+                memes = memes[offset:]
         for meme in memes:
-            self.memes_map[meme['text']] = meme['id']
-        del memes
+            memes_map[meme['text']] = meme['id']
+        return memes_map
+
+    def load_posts(self, offset=0, limit=None):
+        """
+        Get map of post urls to post id's
+        :return:
+        """
+        posts_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
+        posts = Post.objects.values('url', 'id').order_by('id')
+        if limit is not None or offset > 0:
+            if limit is not None:
+                posts = posts[offset: offset + limit]
+            else:
+                posts = posts[offset:]
+        for post in posts:
+            posts_map[post['url']] = post['id']
+        return posts_map
 
     def calc_memes_values(self):
         self.stdout.write('creating queries ...')
@@ -398,10 +494,10 @@ class Command(BaseCommand):
         """
         Extract the username from the url. Consider the domain name as the username.
         :param url: url
-        :return:    domain name as the username
+        :return:    domain name as the username. Return None if the url is invalid.
         """
         try:
-            return re.match(r'https?://([^/?]+)', url.lower()).groups()[0][:100]
+            return re.match(r'https?://+([^/?]+\w+[^/?]+)', url.lower()).groups()[0][:100]
         except AttributeError:
             return None
 
