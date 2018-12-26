@@ -289,7 +289,7 @@ class Command(BaseCommand):
                             Reshare.objects.bulk_create(reshares)
                             post_memes = []
                             reshares = []
-                            self.stdout.write('time : {:.2f} m'.format((time.time() - t0) / 60))
+                            self.stdout.write('time : %d s' % (time.time() - t0))
                             t0 = time.time()
 
                     try:
@@ -349,7 +349,7 @@ class Command(BaseCommand):
             raise CommandError('link post does not exist with id(s): {}'.format(', '.join(not_existing)))
         for src_post in src_posts:
             reshares.append(
-                    Reshare(post_id=post.id, reshared_post_id=src_post.id, datetime=datetime))
+                Reshare(post_id=post.id, reshared_post_id=src_post.id, datetime=datetime))
 
         return post_memes, reshares
 
@@ -359,6 +359,7 @@ class Command(BaseCommand):
         memes_count = Meme.objects.count()
         step = 5 * 10 ** 6
         i = 0
+        t0 = time.time()
         for offset in range(0, memes_count, step):
             to_path = '{}.memes{}'.format(temp_path, i)
             if not os.path.exists(to_path):
@@ -370,11 +371,14 @@ class Command(BaseCommand):
                 del memes_map
             i += 1
             from_path = to_path
+            self.stdout.write('done in %.2f min' % ((time.time() - t0) / 60))
+            t0 = time.time()
 
         # Replace post urls with post ids and create temporary data files.
         posts_count = Post.objects.count()
         step = 5 * 10 ** 6
         i = 0
+        t0 = time.time()
         for offset in range(0, posts_count, step):
             to_path = '{}.posts{}'.format(temp_path, i)
             if not os.path.exists(to_path):
@@ -386,12 +390,14 @@ class Command(BaseCommand):
                 del posts_map
             i += 1
             from_path = to_path
+            self.stdout.write('done in %.2f min' % ((time.time() - t0) / 60))
+            t0 = time.time()
 
         os.rename(from_path, temp_path)
 
     def replace(self, in_path, out_path, characters, replace_map):
-        in_batch_size = 100
-        out_batch_size = 100
+        in_batch_size = 1000
+        out_batch_size = 1000
 
         with open(in_path, encoding="utf8") as fin:
             with open(out_path, 'w', encoding="utf8") as fout:
