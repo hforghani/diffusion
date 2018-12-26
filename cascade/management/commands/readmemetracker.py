@@ -226,6 +226,8 @@ class Command(BaseCommand):
             if username:
                 user_id = users_map[username]
                 posts.append(Post(url=url, text='', author_id=user_id, datetime=dt))
+            else:
+                self.stdout.write("post with url '{}' ignored".format(url))
             i += 1
             if i % 10000 == 0:
                 Post.objects.bulk_create(posts)
@@ -263,7 +265,7 @@ class Command(BaseCommand):
                 # Count posts.
                 if char == 'P':
                     i += 1
-                    if (not ignoring or i == start_index) and i % 1000 == 0:
+                    if (not ignoring or i == start_index) and i % 10000 == 0:
                         self.stdout.write('processing posts: %d' % i)
                     elif ignoring and i % 100000 == 0:
                         self.stdout.write('ignoring posts: %d' % i)
