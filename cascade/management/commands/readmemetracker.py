@@ -348,10 +348,6 @@ class Command(BaseCommand):
             not_existing = src_ids - {p.id for p in src_posts}
             raise CommandError('link post does not exist with id(s): {}'.format(', '.join(not_existing)))
         for src_post in src_posts:
-                # reshares.append(
-                #     Reshare(post_id=post.id, reshared_post_id=src_post.id,
-                #             user_id=post.author_id, ref_user_id=src_post.author_id,
-                #             datetime=datetime, ref_datetime=src_post.datetime))
             reshares.append(
                     Reshare(post_id=post.id, reshared_post_id=src_post.id, datetime=datetime))
 
@@ -413,7 +409,7 @@ class Command(BaseCommand):
                         text = line[2:-1]
                         if ch in 'PL':
                             text = self.truncate_url(text)
-                        if not re.match(r'\d+', text) and text in replace_map:
+                        if not re.match(r'\d+$', text) and text in replace_map:
                             out = '{}\t{}\n'.format(ch, replace_map[text])
                         else:
                             out = line
@@ -499,7 +495,7 @@ class Command(BaseCommand):
         :return:    domain name as the username. Return None if the url is invalid.
         """
         try:
-            return re.match(r'https?://+([^/?]+\w+[^/?]+)', url.lower()).groups()[0][:100]
+            return re.match(r'https?://+([^/?]*\w+[^/?]*)', url.lower()).groups()[0][:100]
         except AttributeError:
             return None
 
