@@ -433,12 +433,12 @@ class Command(BaseCommand):
         :return:
         """
         memes_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
-        memes = Meme.objects.values('text', 'id').order_by('id')
+        memes = Meme.objects.values('text', 'id')
         if limit is not None or offset > 0:
             if limit is not None:
-                memes = memes[offset: offset + limit]
+                memes = memes.order_by('id')[offset: offset + limit]
             else:
-                memes = memes[offset:]
+                memes = memes.order_by('id')[offset:]
         for meme in memes:
             memes_map[meme['text']] = meme['id']
         return memes_map
@@ -449,12 +449,12 @@ class Command(BaseCommand):
         :return:
         """
         posts_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
-        posts = Post.objects.values('url', 'id').order_by('id')
+        posts = Post.objects.values('url', 'id')
         if limit is not None or offset > 0:
             if limit is not None:
-                posts = posts[offset: offset + limit]
+                posts = posts.order_by('id')[offset: offset + limit]
             else:
-                posts = posts[offset:]
+                posts = posts.order_by('id')[offset:]
         for post in posts:
             posts_map[post['url']] = post['id']
         return posts_map
