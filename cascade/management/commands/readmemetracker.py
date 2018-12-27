@@ -260,7 +260,6 @@ class Command(BaseCommand):
 
             while line:
                 char = line[0]
-                text = line[2:-1]
 
                 # Count posts.
                 if char == 'P':
@@ -278,6 +277,8 @@ class Command(BaseCommand):
                     else:
                         ignoring = False
                         t0 = time.time()
+
+                text = line[2:-1]
 
                 if char == 'P':  # post line
                     if post_id is not None:
@@ -327,6 +328,7 @@ class Command(BaseCommand):
         PostMeme.objects.bulk_create(post_memes)
         Reshare.objects.bulk_create(reshares)
 
+    # @profile
     def get_post_rels(self, post_id, datetime, meme_ids, source_ids):
         """
         Create PostMeme and Reshare instances for the referenced links. Just create the instances not inserting in the db.
