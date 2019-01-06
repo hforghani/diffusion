@@ -4,7 +4,7 @@ import traceback
 from django.core.management.base import BaseCommand
 import time
 
-from cascade.models import Project
+from cascade.models import Project, CascadeTree
 
 
 class Command(BaseCommand):
@@ -12,14 +12,15 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            'project',
-            type=str,
-            help='project name',
-        )
-        parser.add_argument(
             'meme_id',
             type=int,
             help='meme id',
+        )
+        parser.add_argument(
+            '-p',
+            '--project',
+            type=str,
+            help='project name',
         )
 
     def __init__(self):
@@ -28,10 +29,14 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             start = time.time()
-            project = Project(options['project'])
-            trees = project.load_trees()
             meme_id = options['meme_id']
-            tree = trees[meme_id]
+            if options['project']:
+                project = Project(options['project'])
+                trees = project.load_trees()
+                tree = trees[meme_id]
+            else:
+                tree = CascadeTree().extract_cascade(meme_id)
+
             self.stdout.write('\n' + tree.render())
             self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
         except:

@@ -13,6 +13,15 @@ from crud.models import Meme
 class Command(BaseCommand):
     help = 'Calculate meme depths.'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '-n',
+            '--null',
+            action='store_true',
+            default=False,
+            help='Calculate depths of o',
+        )
+
     def handle(self, *args, **options):
         try:
             start = time.time()
@@ -24,18 +33,20 @@ class Command(BaseCommand):
                 self.stdout.write('NOTICE: Trees data not found. We calculate depths from scratch. It may tak too '
                                   'much time. You can also stop this command and execute "ectracttrees" command '
                                   'and then this command.')
-                self.calc_depths()
+                self.calc_depths(options['null'])
 
             self.stdout.write('command done in %.2f min' % ((time.time() - start) / 60.0))
         except:
             self.stdout.write(traceback.format_exc())
             raise
 
-    def calc_depths(self):
-        self.stdout.write('meme count = %d' % Meme.objects.count())
+    def calc_depths(self, just_null=False):
         i = 0
-        # for meme in Meme.objects.filter(depth__isnuall=True).iterator():
-        for meme in Meme.objects.iterator():
+        memes = Meme.objects
+        if just_null:
+            memes = memes.filter(depth__isnull=True)
+        self.stdout.write('number of memes to calculate depths = %d' % memes.count())
+        for meme in memes.iterator():
             tree = CascadeTree().extract_cascade(meme.id)
             meme.depth = tree.depth
             meme.save()
