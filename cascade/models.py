@@ -320,7 +320,7 @@ class AsLT(object):
             self.w = self.w.tocsr()
             self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
         except FileNotFoundError:
-            pass
+            raise Exception('each of parameters {} or {} does not exist. Run the command calcsaito or calcavg first.')
 
     def fit(self):
         pass
