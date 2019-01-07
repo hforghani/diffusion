@@ -237,21 +237,6 @@ class Command(BaseCommand):
                 t0 = time.time()
         Post.objects.bulk_create(posts)
         self.stdout.write('%d posts created (%.1f s)' % (i, (time.time() - t0)))
-
-
-        # TODO: remove these lines:
-        self.stdout.write('correcting posts datetimes ...')
-        i = 0
-        for post in Post.objects.filter(datetime__isnull=True).iterator():
-            if post.url in urls and urls[post.url] is not None:
-                post.datetime = urls[post.url]
-                post.save()
-            i += 1
-            if i % 10000:
-                self.stdout.write('%d posts done' % i)
-
-
-
         del posts, urls, users_map
 
     # @profile
