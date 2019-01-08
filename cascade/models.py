@@ -586,24 +586,33 @@ class Project(object):
         try:
             trees = self.load_param('trees', ParamTypes.JSON)
             trees = {int(key): value for key, value in trees.items()}
-        except:
-            trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
-            if os.path.exists(trees_path):
+            # Convert tree dictionaries to tree objects.
+            if verbosity:
+                logger.info('converting trees to objects ...')
+            trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
+        except FileNotFoundError:
+            try:
+                trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
                 logger.info('loading trees ...')
                 trees = json.load(open(trees_path, 'r'))
-            else:
-                raise Exception('Trees data not found. Run extracttrees command.')
 
-            # Keep just trees of the training and test set.
-            trees = {int(key): value for key, value in trees.items()}
-            trees = {meme_id: trees[meme_id] for meme_id in self.training + self.test}
-            # Save trees for the project.
-            self.save_param(trees, 'trees', ParamTypes.JSON)
-
-        # Convert tree dictionaries to tree objects.
-        if verbosity:
-            logger.info('converting trees to objects ...')
-        trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
+                # Keep just trees of the training and test set.
+                trees = {int(key): value for key, value in trees.items()}
+                trees = {meme_id: trees[meme_id] for meme_id in self.training + self.test}
+                # Save trees for the project.
+                self.save_param(trees, 'trees', ParamTypes.JSON)
+                # Convert tree dictionaries to tree objects.
+                if verbosity:
+                    logger.info('converting trees to objects ...')
+                trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
+            except FileNotFoundError:
+                trees = {}
+                for meme_id in self.training + self.test:
+                    tree = CascadeTree().extract_cascade(meme_id)
+                    trees[meme_id] = tree
+                    trees_dict = {meme_id: tree.get_dict() for meme_id, tree in trees.items()}
+                    # Save trees for the project.
+                    self.save_param(trees_dict, 'trees', ParamTypes.JSON)
 
         self.trees = trees
         return trees
