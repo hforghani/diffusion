@@ -5,7 +5,6 @@ from django.db.models import Q
 
 class SocialNet(models.Model):
     name = models.CharField(u'نام', max_length=50)
-    icon = models.CharField(u'نشان', max_length=200)
 
     class Meta:
         verbose_name, verbose_name_plural = u'شبکه اجتماعی', u'شبکه‌های اجتماعی'
@@ -17,18 +16,12 @@ class SocialNet(models.Model):
 class UserAccount(models.Model):
     social_net = models.ForeignKey(SocialNet, verbose_name=u'شبکه اجتماعی', on_delete=models.CASCADE)
     username = models.CharField(u'نام کاربری', max_length=100)
-    friends_count = models.IntegerField(u'تعداد دوستان', null=True, blank=True)
-    start_datetime = models.DateTimeField(u'زمان آغاز', null=True, blank=True)
-    exit_datetime = models.DateTimeField(u'زمان پایان', null=True, blank=True)
-    avatar = models.CharField(u'عکس آواتار', max_length=200, null=True, blank=True)
 
     class Meta:
         verbose_name, verbose_name_plural = u'حساب کاربری', u'حساب‌های کاربری'
 
     def __unicode__(self):
         res = self.username
-        if self.person:
-            res += ' (%s %s)' % (self.person.first_name, self.person.last_name)
         return res
 
     def get_friends(self):
@@ -39,7 +32,6 @@ class UserAccount(models.Model):
             'id': self.id,
             'social_net_id': self.social_net.id,
             'username': self.username,
-            'avatar': self.avatar,
         }
         return u
 
@@ -59,7 +51,6 @@ class Friendship(models.Model):
 class Post(models.Model):
     author = models.ForeignKey(UserAccount, verbose_name=u'نویسنده', on_delete=models.CASCADE)
     datetime = models.DateTimeField(u'زمان', null=True, blank=True, db_index=True)
-    text = models.TextField(u'متن', null=True, blank=True)
     url = models.CharField(u'آدرس', null=True, blank=True, max_length=100, db_index=True)
 
     class Meta:
@@ -87,12 +78,7 @@ class Reshare(models.Model):
     post = models.ForeignKey(Post, verbose_name=u'پست', related_name='parents', on_delete=models.CASCADE)
     reshared_post = models.ForeignKey(Post, verbose_name=u'پست مرجع', related_name='children', null=True,
                                       on_delete=models.CASCADE)
-    # user = models.ForeignKey(UserAccount, verbose_name=u'کاربر', null=True, blank=True, related_name='parent_reshares',
-    #                          on_delete=models.CASCADE)
-    # ref_user = models.ForeignKey(UserAccount, verbose_name=u'کاربر مرجع', null=True, blank=True,
-    #                              related_name='children_reshares', on_delete=models.CASCADE)
     datetime = models.DateTimeField(u'زمان', null=True, blank=True, db_index=True)
-    # ref_datetime = models.DateTimeField(u'زمان پست مرجع', null=True, blank=True)
 
     class Meta:
         verbose_name, verbose_name_plural = u'بازنشر', u'بازنشرها'
