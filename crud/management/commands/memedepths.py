@@ -69,9 +69,7 @@ class Command(BaseCommand):
                     json_str += ']}'
                     data = json.loads(json_str)
                     meme_id = int(list(data.keys())[0])
-                    # if meme_id in [229223, 4965313, 319945]:
                     tree = CascadeTree().from_dict(list(data.values())[0])
-                    # self.stdout.write('depth = %d' % tree.depth)
                     Meme.objects.filter(id=meme_id).update(depth=tree.depth)
                     i += 1
                     if i % 100 == 0:
