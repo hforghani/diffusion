@@ -1,10 +1,9 @@
 import time
-from networkx import DiGraph
 import numpy as np
 from scipy import sparse
 from sklearn.preprocessing import normalize
 from cascade.models import AsLT, logger, ParamTypes
-from crud.models import UserAccount, Meme, Post, Reshare
+from crud.models import UserAccount
 
 
 class Saito(AsLT):
@@ -14,7 +13,10 @@ class Saito(AsLT):
         self.w_param_name = 'w-saito'
         self.r_param_name = 'r-saito'
 
-        super(Saito, self).__init__(project)
+        try:
+            super(Saito, self).__init__(project)
+        except FileNotFoundError:
+            pass
 
     def calc_parameters(self, iterations=3):
         # Load dataset.

@@ -77,10 +77,13 @@ class FileCreator:
             f.write(contents)
 
     def create_evidence(self, target_set, multiple):
+        out_dir = os.path.join(self.project.project_path, 'evidence-%s' % self.format)
+        if not os.path.exists(out_dir):
+            os.mkdir(out_dir)
+
         if target_set is None or target_set == 'train':
             # Get and delete the content of evidence file.
-            out_file = os.path.join(self.project.project_path, 'evidence-%s' % self.format,
-                                    'ev-train-%s-%s.db' % (self.project.project_name, self.format))
+            out_file = os.path.join(out_dir, 'ev-train-%s-%s.db' % (self.project.project_name, self.format))
             open(out_file, 'w')
 
             logger.info('rules will be created for training set')
@@ -99,8 +102,7 @@ class FileCreator:
 
         if target_set is None or target_set == 'test':
             # Get and delete the content of evidence file.
-            out_file = os.path.join(self.project.project_path, 'evidence-%s' % self.format,
-                                    'ev-test-%s-%s.db' % (self.project.project_name, self.format))
+            out_file = os.path.join(out_dir, 'ev-test-%s-%s.db' % (self.project.project_name, self.format))
             open(out_file, 'w')
 
             logger.info('rules will be created for test set')
