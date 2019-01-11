@@ -78,52 +78,30 @@ class Command(BaseCommand):
             if not path:
                 raise CommandError('file argument not specified')
 
-            # Concatenate memes of each post and set it as the post text.
-            if options['post_texts']:
-                self.stdout.write('setting post texts ...')
-                posts = Post.objects.filter(text='', postmeme__isnull=False)
-                count = posts.count()
-                post_memes = posts.values('id', 'postmeme__meme__text').order_by('id')
-                if count:
-                    cur_post_id = post_memes[0]['id']
-                    i = 0
-                    memes = set()
-                    for post_meme in post_memes.iterator():
-                        if post_meme['id'] != cur_post_id:
-                            Post.objects.filter(id=cur_post_id).update(text='. '.join(memes))
-                            cur_post_id = post_meme['id']
-                            memes = set()
-                            i += 1
-                            if i % 100 == 0:
-                                self.stdout.write('%d / %d' % (i, count))
-                        memes.add(post_meme['postmeme__meme__text'])
-                    Post.objects.filter(id=cur_post_id).update(text='. '.join(memes))
-                return
+            # Delete all data.
+            if options['clear'] and not options['set_attributes']:
+                self.stdout.write('======== deleting data ...')
+                PostMeme.objects.all().delete()
+                Reshare.objects.all().delete()
+                Post.objects.all().delete()
+                Meme.objects.all().delete()
+                UserAccount.objects.all().delete()
+                SocialNet.objects.all().delete()
 
-            if not options['set_attributes']:
-                # Delete all data.
-                if options['clear']:
-                    self.stdout.write('======== deleting data ...')
-                    PostMeme.objects.all().delete()
-                    Reshare.objects.all().delete()
-                    Post.objects.all().delete()
-                    Meme.objects.all().delete()
-                    UserAccount.objects.all().delete()
-                    SocialNet.objects.all().delete()
+            # Get or create social net.
+            try:
+                net = SocialNet.objects.get(name='memetracker')
+            except ObjectDoesNotExist:
+                net = SocialNet.objects.create(name='memetracker', icon='/media/img/memetracker.gif')
 
-                # Get or create social net.
-                try:
-                    net = SocialNet.objects.get(name='memetracker')
-                except ObjectDoesNotExist:
-                    net = SocialNet.objects.create(name='memetracker', icon='/media/img/memetracker.gif')
+            # Create instances of non-relation entities.
+            if (options['entities'] or not options['relations']) and not options['set_attributes']:
+                self.stdout.write('======== creating entities ...')
+                self.create_entities(path, net)
 
-                # Create instances of non-relation entities.
-                if options['entities'] or not options['relations']:
-                    self.stdout.write('======== creating entities ...')
-                    self.create_entities(path, net)
-
-                # Create instances of relation entities.
-                if options['relations'] or not options['entities']:
+            # Create instances of relation entities.
+            if options['relations'] or not options['entities']:
+                if not options['set_attributes']:
                     temp_data_path = os.path.join(os.path.dirname(path), os.path.basename(path) + '.temp')
                     if not os.path.exists(temp_data_path):
                         self.create_temp(path, temp_data_path)
@@ -131,9 +109,9 @@ class Command(BaseCommand):
                     self.stdout.write('======== creating relations ...')
                     self.create_relations(temp_data_path, start_index=options['start_index'])
 
-                    # Set the meme count, first time, and last time attributes of memes.
-                    self.stdout.write('======== setting counts and publication times for the memes ...')
-                    self.calc_memes_values()
+                # Set the meme count, first time, and last time attributes of memes.
+                self.stdout.write('======== setting counts and publication times for the memes ...')
+                self.calc_memes_values()
 
             self.stdout.write('======== command done in %f min' % ((time.time() - start) / 60))
         except:
