@@ -37,10 +37,8 @@ class UserAccount(models.Model):
 
 
 class Friendship(models.Model):
-    user1 = models.ForeignKey(UserAccount, verbose_name=u'کاربر 1', related_name='+', db_index=True,
-                              on_delete=models.CASCADE)
-    user2 = models.ForeignKey(UserAccount, verbose_name=u'کاربر 2', related_name='+', db_index=True,
-                              on_delete=models.CASCADE)
+    user1 = models.ForeignKey(UserAccount, verbose_name=u'کاربر 1', related_name='+', on_delete=models.CASCADE)
+    user2 = models.ForeignKey(UserAccount, verbose_name=u'کاربر 2', related_name='+', on_delete=models.CASCADE)
     start_datetime = models.DateTimeField(u'زمان آغاز', null=True, blank=True)
     end_datetime = models.DateTimeField(u'زمان پایان', null=True, blank=True)
 
@@ -50,8 +48,8 @@ class Friendship(models.Model):
 
 class Post(models.Model):
     author = models.ForeignKey(UserAccount, verbose_name=u'نویسنده', on_delete=models.CASCADE)
-    datetime = models.DateTimeField(u'زمان', null=True, blank=True, db_index=True)
-    url = models.CharField(u'آدرس', null=True, blank=True, max_length=100, db_index=True)
+    datetime = models.DateTimeField(u'زمان', null=True, blank=True)
+    url = models.CharField(u'آدرس', null=True, blank=True, max_length=100)
 
     class Meta:
         verbose_name, verbose_name_plural = u'پست', u'پست‌ها'
@@ -78,7 +76,7 @@ class Reshare(models.Model):
     post = models.ForeignKey(Post, verbose_name=u'پست', related_name='parents', on_delete=models.CASCADE)
     reshared_post = models.ForeignKey(Post, verbose_name=u'پست مرجع', related_name='children', null=True,
                                       on_delete=models.CASCADE)
-    datetime = models.DateTimeField(u'زمان', null=True, blank=True, db_index=True)
+    datetime = models.DateTimeField(u'زمان', null=True, blank=True)
 
     class Meta:
         verbose_name, verbose_name_plural = u'بازنشر', u'بازنشرها'
@@ -96,5 +94,5 @@ class Meme(models.Model):
 
 
 class PostMeme(models.Model):
-    post = models.ForeignKey(Post, verbose_name=u'پست', db_index=True, on_delete=models.CASCADE)
-    meme = models.ForeignKey(Meme, verbose_name=u'محتوای جریان‌ساز', db_index=True, on_delete=models.CASCADE)
+    post = models.ForeignKey(Post, verbose_name=u'پست', on_delete=models.CASCADE)
+    meme = models.ForeignKey(Meme, verbose_name=u'محتوای جریان‌ساز', on_delete=models.CASCADE)
