@@ -14,7 +14,11 @@ class LTAvg(AsLT):
         self.project = project
         self.w_param_name = 'w-avg'
         self.r_param_name = 'r-avg'
-        super(LTAvg, self).__init__(project)
+
+        try:
+            super(LTAvg, self).__init__(project)
+        except FileNotFoundError:
+            pass
 
     def fit(self, calc_weights=True, calc_delays=True, continue_calc=False):
         train_set, test_set = self.project.load_train_test()
