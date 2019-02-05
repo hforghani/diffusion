@@ -203,7 +203,7 @@ class Command(BaseCommand):
             username = self.get_username(url)
             if username:
                 user_id = users_map[username]
-                posts.append(Post(url=url, text='', author_id=user_id, datetime=dt))
+                posts.append(Post(url=url, author_id=user_id, datetime=dt))
             else:
                 self.stdout.write("post with url '{}' ignored".format(url))
             i += 1
