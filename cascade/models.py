@@ -136,7 +136,8 @@ class CascadeTree(object):
             if not visited[parent_id]:  # It is a root
                 parent.post_id = reshare.reshared_post_id
                 # parent.datetime = reshare.ref_datetime.strftime(DT_FORMAT)
-                parent.datetime = reshare.reshared_post.datetime.strftime(DT_FORMAT)
+                parent.datetime = reshare.reshared_post.datetime.strftime(
+                    DT_FORMAT) if reshare.reshared_post.datetime else None
                 visited[parent_id] = True
                 self.roots.append(parent)
 
@@ -159,7 +160,7 @@ class CascadeTree(object):
         for uid, node in nodes.items():
             if not visited[uid]:
                 post = first_posts[uid]
-                node.datetime = post.datetime.strftime(DT_FORMAT)
+                node.datetime = post.datetime.strftime(DT_FORMAT) if post.datetime else None
                 node.post_id = post.id
                 self.roots.append(node)
         if log:
@@ -385,7 +386,7 @@ class AsLT(object):
                         continue
                     if v not in self.probabilities:
                         self.probabilities[v] = 0
-                    # self.probabilities[v] += w_u[v_i]
+                        # self.probabilities[v] += w_u[v_i]
                     self.probabilities[v] += w_u.data[i]
 
                     # Set the threshold or sample it randomly if None.
@@ -681,7 +682,7 @@ class Project(object):
             i = 0
             for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
                 sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
-                        3600.0 * 24)  # number of days
+                    3600.0 * 24)  # number of days
                 i += 1
                 if i % (len(meme_ids) / 10) == 0:
                     logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
@@ -741,7 +742,7 @@ class Project(object):
             i = 0
             for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
                 sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
-                        3600.0 * 24)  # number of days
+                    3600.0 * 24)  # number of days
                 i += 1
                 if i % (len(meme_ids) / 10) == 0:
                     logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))

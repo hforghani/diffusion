@@ -2,6 +2,7 @@
 import json
 import os
 import traceback
+from bulk_update.helper import bulk_update
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -30,8 +31,8 @@ class Command(BaseCommand):
             if os.path.exists(trees_path):
                 self.set_depths_by_trees_data(trees_path)
             else:
-                self.stdout.write('NOTICE: Trees data not found. We calculate depths from scratch. It may tak too '
-                                  'much time. You can also stop this command and execute "ectracttrees" command '
+                self.stdout.write('NOTICE: Trees data not found. We calculate depths from scratch. It may take too '
+                                  'much time. You can also stop this command and execute "exctracttrees" command '
                                   'and then this command.')
                 self.calc_depths(options['null'])
 
@@ -42,6 +43,7 @@ class Command(BaseCommand):
 
     def calc_depths(self, just_null=False):
         i = 0
+        t0 = time.time()
         memes = Meme.objects
         if just_null:
             memes = memes.filter(depth__isnull=True)
@@ -52,7 +54,7 @@ class Command(BaseCommand):
             meme.save()
             i += 1
             if i % 100 == 0:
-                self.stdout.write('%d memes done' % i)
+                self.stdout.write('%d memes done. mean time: %.2f s' % (i, (time.time() - t0) / i * 100))
 
     def set_depths_by_trees_data(self, trees_path):
         self.stdout.write('loading trees ...')
