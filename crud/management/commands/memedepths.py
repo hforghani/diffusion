@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import json
+import math
+import multiprocessing
 import os
 import traceback
 from bulk_update.helper import bulk_update
@@ -9,6 +11,18 @@ from django.core.management.base import BaseCommand
 import time
 from cascade.models import CascadeTree
 from crud.models import Meme
+
+
+def extract_cascade(meme_ids, process_num):
+    print('proces {} called'.format(process_num))
+    i = 0
+    t0 = time.time()
+    for meme_id in meme_ids:
+        tree = CascadeTree().extract_cascade(meme_id)
+        Meme.objects.filter(id=meme_id).update(depth=tree.depth)
+        i += 1
+        if i % 100 == 0:
+            print('[process {}] {} memes done. mean time: {:.2f} s'.format(process_num, i, (time.time() - t0) / i * 100))
 
 
 class Command(BaseCommand):
@@ -42,19 +56,37 @@ class Command(BaseCommand):
             raise
 
     def calc_depths(self, just_null=False):
-        i = 0
-        t0 = time.time()
         memes = Meme.objects
         if just_null:
             memes = memes.filter(depth__isnull=True)
-        self.stdout.write('number of memes to calculate depths = %d' % memes.count())
-        for meme in memes.iterator():
-            tree = CascadeTree().extract_cascade(meme.id)
-            meme.depth = tree.depth
-            meme.save()
-            i += 1
-            if i % 100 == 0:
-                self.stdout.write('%d memes done. mean time: %.2f s' % (i, (time.time() - t0) / i * 100))
+        meme_ids = memes.values_list('id', flat=True)
+        self.stdout.write('number of memes to calculate depths = %d' % len(meme_ids))
+
+        processes = 2
+        step = math.ceil(len(meme_ids) / processes)
+        pool = multiprocessing.Pool(processes=processes)
+        p_num = 0
+        for i in range(0, len(meme_ids), step):
+            sub_list = meme_ids[i: i + step]
+            p_num += 1
+            pool.apply(extract_cascade, (sub_list, p_num))
+
+        pool.close()
+        pool.join()
+
+        # i = 0
+        # t0 = time.time()
+        # memes = Meme.objects
+        # if just_null:
+        #     memes = memes.filter(depth__isnull=True)
+        # self.stdout.write('number of memes to calculate depths = %d' % memes.count())
+        # for meme in memes.iterator():
+        #     tree = CascadeTree().extract_cascade(meme.id)
+        #     meme.depth = tree.depth
+        #     meme.save()
+        #     i += 1
+        #     if i % 100 == 0:
+        #         self.stdout.write('%d memes done. mean time: %.2f s' % (i, (time.time() - t0) / i * 100))
 
     def set_depths_by_trees_data(self, trees_path):
         self.stdout.write('loading trees ...')
