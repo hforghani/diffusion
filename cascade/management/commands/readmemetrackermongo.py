@@ -2,19 +2,23 @@
 import os
 import re
 import traceback
+from bson import SON
+from bson.objectid import ObjectId
 
-from bulk_update.helper import bulk_update
-from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models.aggregates import Count, Min, Max
 import time
 import pygtrie
-from crud.models import UserAccount, SocialNet, Post, Reshare, Meme, PostMeme
+import pymongo
 from utils.time_utils import str_to_datetime
 
 
+client = pymongo.MongoClient("mongodb://localhost:27017/")
+db = client.memetracker
+
+
 class Command(BaseCommand):
-    help = 'Create database instances using memetracker dataset.'
+    help = 'Create database instances in MongoDB using memetracker dataset.'
+
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -66,6 +70,7 @@ class Command(BaseCommand):
             help="Set post texts according to their memes"
         )
 
+
     def handle(self, *args, **options):
         try:
             start = time.time()
@@ -77,18 +82,18 @@ class Command(BaseCommand):
             # Delete all data.
             if options['clear'] and not options['set_attributes']:
                 self.stdout.write('======== deleting data ...')
-                PostMeme.objects.all().delete()
-                Reshare.objects.all().delete()
-                Post.objects.all().delete()
-                Meme.objects.all().delete()
-                UserAccount.objects.all().delete()
-                SocialNet.objects.all().delete()
+                db.postmemes.delete_many()
+                db.reshares.delete_many()
+                db.posts.delete_many()
+                db.memes.delete_many()
+                db.users.delete_many()
+                db.social_nets.delete_many()
 
             # Get or create social net.
-            try:
-                net = SocialNet.objects.get(name='memetracker')
-            except ObjectDoesNotExist:
-                net = SocialNet.objects.create(name='memetracker')
+            net = db.social_nets.find_one({'name': 'memetracker'})
+            if net is None:
+                net_id = db.social_nets.insert_one({'name': 'memetracker'}).inserted_id
+                net = db.social_nets.find_one({'_id': net_id})
 
             # Create instances of non-relation entities.
             if (options['entities'] or not options['relations']) and not options['set_attributes']:
@@ -144,30 +149,32 @@ class Command(BaseCommand):
         self.stdout.write('{} memes extracted from dataset'.format(len(memes)))
 
         self.stdout.write('loading existing memes ...')
-        existing_memes = set(Meme.objects.values_list('text', flat=True))
+        existing_memes = {m['text'] for m in db.memes.find({}, {'_id': 0, 'text': 1})}
         memes -= existing_memes
         del existing_memes
         self.stdout.write('creating %d new memes ...' % len(memes))
         meme_entities = []
         i = 0
         for text in memes:
-            meme_entities.append(Meme(text=text))
+            meme_entities.append({'text': text})
             i += 1
             if i % 100000 == 0:
-                Meme.objects.bulk_create(meme_entities)
+                db.memes.insert_many(meme_entities)
                 self.stdout.write('%d memes created' % i)
                 meme_entities = []
-        Meme.objects.bulk_create(meme_entities)
+
+        if meme_entities:
+            db.memes.insert_many(meme_entities)
         self.stdout.write('%d memes created' % len(meme_entities))
         del memes
         del meme_entities
 
         self.stdout.write('loading existing urls ...')
-        existing_urls = set(Post.objects.values_list('url', flat=True))
+        existing_urls = {p['url'] for p in db.posts.find({}, {'_id': 0, 'url': 1})}
         urls = {key: value for key, value in urls.items() if key not in existing_urls}
         del existing_urls
         self.stdout.write('loading existing usernames ...')
-        existing_usernames = set(UserAccount.objects.values_list('username', flat=True))
+        existing_usernames = {u['username'] for u in db.users.find({}, {'_id': 0, 'username': 1})}
         usernames = set([self.get_username(url) for url in urls]) - existing_usernames - {None}
         del existing_usernames
 
@@ -175,19 +182,21 @@ class Command(BaseCommand):
         i = 0
         users = []
         for uname in usernames:
-            users.append(UserAccount(username=uname, social_net=net))
+            users.append({'username': uname, 'social_net': net['_id']})
             i += 1
             if i % 100000 == 0:
-                UserAccount.objects.bulk_create(users)
+                db.users.insert_many(users)
                 self.stdout.write('%d users created' % i)
                 users = []
-        UserAccount.objects.bulk_create(users)
+
+        if users:
+            db.users.insert_many(users)
         self.stdout.write('%d users created' % len(users))
         del usernames
         del users
         self.stdout.write('loading user ids ...')
-        users = UserAccount.objects.values('username', 'id')
-        users_map = {user['username']: user['id'] for user in users}
+        users = db.users.find()
+        users_map = {user['username']: user['_id'] for user in users}
         del users
 
         # Create all posts with empty texts. Texts are set later in create_relations.
@@ -199,17 +208,19 @@ class Command(BaseCommand):
             username = self.get_username(url)
             if username:
                 user_id = users_map[username]
-                posts.append(Post(url=url, author_id=user_id, datetime=dt))
+                posts.append({'url': url, 'author_id': user_id, 'datetime': dt})
             else:
                 self.stdout.write("post with url '{}' ignored".format(url))
             i += 1
             if i % 10000 == 0:
-                Post.objects.bulk_create(posts)
+                db.posts.insert_many(posts)
                 posts = []
             if i % 10000 == 0:
                 self.stdout.write('%d posts created (%.1f s)' % (i, (time.time() - t0)))
                 t0 = time.time()
-        Post.objects.bulk_create(posts)
+
+        if posts:
+            db.posts.insert_many(posts)
         self.stdout.write('%d posts created (%.1f s)' % (i, (time.time() - t0)))
         del posts, urls, users_map
 
@@ -262,32 +273,23 @@ class Command(BaseCommand):
                         if i % 10000 == 0:
                             self.stdout.write(
                                 'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-                            PostMeme.objects.bulk_create(post_memes)
-                            Reshare.objects.bulk_create(reshares)
+                            db.postmemes.insert_many(post_memes)
+                            db.reshares.insert_many(reshares)
                             post_memes = []
                             reshares = []
                             self.stdout.write('time : %d s' % (time.time() - t0))
                             t0 = time.time()
 
-                    try:
-                        post_id = int(text)
-                    except ValueError:
-                        raise CommandError("invalid post id: '{}'".format(text))
+                    post_id = ObjectId(text)
                     source_ids = []
                     meme_ids = []
                 elif char == 'T':  # time line
                     datetime = str_to_datetime(text)
                 elif char == 'Q':  # meme line
-                    try:
-                        meme_id = int(text)
-                    except ValueError:
-                        self.stdout.write("meme '{}' ignored".format(text))
+                    meme_id = ObjectId(text)
                     meme_ids.append(meme_id)
                 elif char == 'L':  # link line
-                    try:
-                        source_ids.append(int(text))
-                    except ValueError:
-                        self.stdout.write("link '{}' ignored".format(text))
+                    source_ids.append(ObjectId(text))
 
                 line = f.readline()
 
@@ -299,8 +301,8 @@ class Command(BaseCommand):
         # Save the remaining relations.
         self.stdout.write(
             'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-        PostMeme.objects.bulk_create(post_memes)
-        Reshare.objects.bulk_create(reshares)
+        db.postmemes.insert_many(post_memes)
+        db.reshares.insert_many(reshares)
 
     # @profile
     def get_post_rels(self, post_id, datetime, meme_ids, source_ids):
@@ -310,31 +312,30 @@ class Command(BaseCommand):
         # trunc_url = self.truncate_url(post_id)
 
         # Create the post.
-        try:
-            post = Post.objects.get(id=post_id)
-        except ObjectDoesNotExist:
+        post = db.posts.find_one({'_id': post_id})
+        if post is None:
             raise CommandError('post does not exist with id {}'.format(post_id))
 
         # Assign the memes to the post.
-        post_memes = [PostMeme(post_id=post_id, meme_id=mid) for mid in meme_ids]
+        post_memes = [{'post_id': ObjectId(post_id), 'meme_id': mid} for mid in meme_ids]
 
         # Create reshares if the post is reshared.
         reshares = []
         src_ids = set(source_ids) - {post_id}
-        src_posts = Post.objects.filter(id__in=src_ids)
-        if len(src_posts) != len(src_ids):  # Raise an error if some of link posts do not exist.
-            not_existing = src_ids - {p.id for p in src_posts}
-            raise CommandError('link post does not exist with id(s): {}'.format(', '.join(not_existing)))
-        for src_post in src_posts:
-            reshares.append(
-                Reshare(post_id=post.id, reshared_post_id=src_post.id, datetime=datetime))
+        if src_ids:
+            src_posts = db.posts.find({'_id': {'$in': list(src_ids)}})
+            if src_posts.count() != len(src_ids):  # Raise an error if some of link posts do not exist.
+                not_existing = src_ids - {p['_id'] for p in src_posts}
+                raise CommandError('link post does not exist with id(s): {}'.format(', '.join(not_existing)))
+            for src_post in src_posts:
+                reshares.append({'post_id': post['_id'], 'reshared_post_id': src_post['_id'], 'datetime': datetime})
 
         return post_memes, reshares
 
     def create_temp(self, path, temp_path):
         # Replace meme texts with meme ids and create temporary data files.
         from_path = path
-        memes_count = Meme.objects.count()
+        memes_count = db.memes.count()
         step = 5 * 10 ** 6
         i = 0
         t0 = time.time()
@@ -353,7 +354,7 @@ class Command(BaseCommand):
             t0 = time.time()
 
         # Replace post urls with post ids and create temporary data files.
-        posts_count = Post.objects.count()
+        posts_count = db.posts.count()
         step = 5 * 10 ** 6
         i = 0
         t0 = time.time()
@@ -396,7 +397,11 @@ class Command(BaseCommand):
                         if not re.match(r'\d+$', text) and text in replace_map:
                             out = '{}\t{}\n'.format(ch, replace_map[text])
                         else:
-                            out = line
+                            if ch == 'Q':
+                                self.stdout.write("meme with text '{}' ignored".format(text))
+                            else:
+                                self.stdout.write("post with url '{}' ignored".format(text))
+                            out = ''
                     else:
                         out = line
                     out_lines.append(out)
@@ -413,14 +418,15 @@ class Command(BaseCommand):
         :return:
         """
         memes_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
-        memes = Meme.objects.values('text', 'id')
+        pipelines = [{'$sort': SON([('_id', 1)])},
+                     {'$project': {'_id': '$_id', 'text': '$text'}}]
         if limit is not None or offset > 0:
+            pipelines.append({'$skip': offset})
             if limit is not None:
-                memes = memes.order_by('id')[offset: offset + limit]
-            else:
-                memes = memes.order_by('id')[offset:]
+                pipelines.append({'$limit': limit})
+        memes = db.memes.aggregate(pipelines)
         for meme in memes:
-            memes_map[meme['text']] = meme['id']
+            memes_map[meme['text']] = meme['_id']
         return memes_map
 
     def load_posts(self, offset=0, limit=None):
@@ -429,48 +435,50 @@ class Command(BaseCommand):
         :return:
         """
         posts_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
-        posts = Post.objects.values('url', 'id')
+        pipelines = [{'$sort': SON([('_id', 1)])},
+                     {'$project': {'_id': '$_id', 'url': '$url'}}]
         if limit is not None or offset > 0:
+            pipelines.append({'$skip': offset})
             if limit is not None:
-                posts = posts.order_by('id')[offset: offset + limit]
-            else:
-                posts = posts.order_by('id')[offset:]
+                pipelines.append({'$limit': limit})
+
+        posts = db.posts.aggregate(pipelines)
         for post in posts:
-            posts_map[post['url']] = post['id']
+            posts_map[post['url']] = post['_id']
         return posts_map
 
     def calc_memes_values(self):
         self.stdout.write('creating queries ...')
-        meme_counts = PostMeme.objects.values('meme_id').annotate(count=Count('post'))
-        first_times = PostMeme.objects.values('meme_id').annotate(first=Min('post__datetime'))
-        last_times = PostMeme.objects.values('meme_id').annotate(last=Max('post__datetime'))
+        meme_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}])
+        first_times = db.postmemes.aggregate([
+            {'$lookup': {'from': 'posts', 'localField': 'post_id', 'foreignField': '_id', 'as': 'post'}},
+            {'$group': {'_id': '$meme_id', 'first': {'$min': '$post.datetime'}}}
+        ])
+        last_times = db.postmemes.aggregate([
+            {'$lookup': {'from': 'posts', 'localField': 'post_id', 'foreignField': '_id', 'as': 'post'}},
+            {'$group': {'_id': '$meme_id', 'last': {'$max': '$post.datetime'}}}
+        ])
         self.stdout.write('calculating meme counts ...')
-        meme_counts = {obj['meme_id']: obj['count'] for obj in meme_counts}
+        meme_counts = {obj['_id']: obj['count'] for obj in meme_counts}
         self.stdout.write('calculating first pub. times of memes ...')
-        first_times = {obj['meme_id']: obj['first'] for obj in first_times}
+        first_times = {obj['_id']: obj['first'][0] for obj in first_times}
         self.stdout.write('calculating last pub. times of memes ...')
-        last_times = {obj['meme_id']: obj['last'] for obj in last_times}
+        last_times = {obj['_id']: obj['last'][0] for obj in last_times}
 
         self.stdout.write('saving ...')
         i = 0
         t0 = time.time()
-        memes = []
-        for meme in Meme.objects.iterator():
-            mid = meme.id
-            meme.count = meme_counts[mid] if mid in meme_counts else None
-            meme.first_time = first_times[mid] if mid in first_times else None
-            meme.last_time = last_times[mid] if mid in last_times else None
-            memes.append(meme)
+        for mid in [m['_id'] for m in db.memes.find({}, ['_id'])]:
+            db.memes.find_one_and_update({'_id': mid},
+                                         {'$set': {
+                                             'count': meme_counts[mid] if mid in meme_counts else None,
+                                             'first_time': first_times[mid] if mid in first_times else None,
+                                             'last_time': last_times[mid] if mid in last_times else None,
+                                         }})
             i += 1
-            if i % 1000 == 0:
-                bulk_update(memes)
-                memes = []
             if i % 100000 == 0:
                 self.stdout.write('%d memes saved in %d s' % (i, time.time() - t0))
                 t0 = time.time()
-        else:
-            bulk_update(memes)
-            self.stdout.write('%d memes saved in %d s' % (i, time.time() - t0))
 
     def get_username(self, url):
         """
