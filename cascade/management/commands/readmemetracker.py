@@ -97,15 +97,15 @@ class Command(BaseCommand):
 
             # Create instances of relation entities.
             if options['relations'] or not options['entities']:
-                if not options['set_attributes']:
-                    temp_data_path = os.path.join(os.path.dirname(path), os.path.basename(path) + '.temp')
-                    if not os.path.exists(temp_data_path):
-                        self.create_temp(path, temp_data_path)
+                temp_data_path = os.path.join(os.path.dirname(path), os.path.basename(path) + '.temp')
+                if not os.path.exists(temp_data_path):
+                    self.create_temp(path, temp_data_path)
 
-                    self.stdout.write('======== creating relations ...')
-                    self.create_relations(temp_data_path, start_index=options['start_index'])
+                self.stdout.write('======== creating relations ...')
+                self.create_relations(temp_data_path, start_index=options['start_index'])
 
-                # Set the meme count, first time, and last time attributes of memes.
+            # Set the meme count, first time, and last time attributes of memes.
+            if options['set_attributes']:
                 self.stdout.write('======== setting counts and publication times for the memes ...')
                 self.calc_memes_values()
 
@@ -280,9 +280,9 @@ class Command(BaseCommand):
                 elif char == 'Q':  # meme line
                     try:
                         meme_id = int(text)
+                        meme_ids.append(meme_id)
                     except ValueError:
                         self.stdout.write("meme '{}' ignored".format(text))
-                    meme_ids.append(meme_id)
                 elif char == 'L':  # link line
                     try:
                         source_ids.append(int(text))
@@ -307,8 +307,6 @@ class Command(BaseCommand):
         """
         Create PostMeme and Reshare instances for the referenced links. Just create the instances not inserting in the db.
         """
-        # trunc_url = self.truncate_url(post_id)
-
         # Create the post.
         try:
             post = Post.objects.get(id=post_id)
