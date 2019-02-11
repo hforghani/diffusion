@@ -8,12 +8,8 @@ from bson.objectid import ObjectId
 from django.core.management.base import BaseCommand, CommandError
 import time
 import pygtrie
-import pymongo
+from crud.mongo import mongodb
 from utils.time_utils import str_to_datetime
-
-
-client = pymongo.MongoClient("mongodb://localhost:27017/")
-db = client.memetracker
 
 
 class Command(BaseCommand):
@@ -82,18 +78,18 @@ class Command(BaseCommand):
             # Delete all data.
             if options['clear'] and not options['set_attributes']:
                 self.stdout.write('======== deleting data ...')
-                db.postmemes.delete_many()
-                db.reshares.delete_many()
-                db.posts.delete_many()
-                db.memes.delete_many()
-                db.users.delete_many()
-                db.social_nets.delete_many()
+                mongodb.postmemes.delete_many()
+                mongodb.reshares.delete_many()
+                mongodb.posts.delete_many()
+                mongodb.memes.delete_many()
+                mongodb.users.delete_many()
+                mongodb.social_nets.delete_many()
 
             # Get or create social net.
-            net = db.social_nets.find_one({'name': 'memetracker'})
+            net = mongodb.social_nets.find_one({'name': 'memetracker'})
             if net is None:
-                net_id = db.social_nets.insert_one({'name': 'memetracker'}).inserted_id
-                net = db.social_nets.find_one({'_id': net_id})
+                net_id = mongodb.social_nets.insert_one({'name': 'memetracker'}).inserted_id
+                net = mongodb.social_nets.find_one({'_id': net_id})
 
             # Create instances of non-relation entities.
             if (options['entities'] or not options['relations']) and not options['set_attributes']:
@@ -150,7 +146,7 @@ class Command(BaseCommand):
         self.stdout.write('{} memes extracted from dataset'.format(len(memes)))
 
         self.stdout.write('loading existing memes ...')
-        existing_memes = {m['text'] for m in db.memes.find({}, {'_id': 0, 'text': 1})}
+        existing_memes = {m['text'] for m in mongodb.memes.find({}, {'_id': 0, 'text': 1})}
         memes -= existing_memes
         del existing_memes
         self.stdout.write('creating %d new memes ...' % len(memes))
@@ -160,19 +156,19 @@ class Command(BaseCommand):
             meme_entities.append({'text': text})
             i += 1
             if i % 100000 == 0:
-                db.memes.insert_many(meme_entities)
+                mongodb.memes.insert_many(meme_entities)
                 self.stdout.write('%d memes created' % i)
                 meme_entities = []
 
         if meme_entities:
-            db.memes.insert_many(meme_entities)
+            mongodb.memes.insert_many(meme_entities)
         self.stdout.write('%d memes created' % len(meme_entities))
         del memes
         del meme_entities
 
         self.stdout.write('loading existing urls ...')
         t0 = time.time()
-        posts = db.posts.find({}, {'_id': 0, 'url': 1})
+        posts = mongodb.posts.find({}, {'_id': 0, 'url': 1})
         self.stdout.write('posts query done in {:.2f} m'.format((time.time() - t0) / 60))
         t0 = time.time()
         existing_urls = {p['url'] for p in posts}
@@ -182,7 +178,7 @@ class Command(BaseCommand):
         del existing_urls
         self.stdout.write('new urls extracted in {:.2f} m'.format((time.time() - t0) / 60))
         self.stdout.write('loading existing usernames ...')
-        existing_usernames = {u['username'] for u in db.users.find({}, {'_id': 0, 'username': 1})}
+        existing_usernames = {u['username'] for u in mongodb.users.find({}, {'_id': 0, 'username': 1})}
         usernames = set([self.get_username(url) for url in urls]) - existing_usernames - {None}
         del existing_usernames
 
@@ -193,17 +189,17 @@ class Command(BaseCommand):
             users.append({'username': uname, 'social_net': net['_id']})
             i += 1
             if i % 100000 == 0:
-                db.users.insert_many(users)
+                mongodb.users.insert_many(users)
                 self.stdout.write('%d users created' % i)
                 users = []
 
         if users:
-            db.users.insert_many(users)
+            mongodb.users.insert_many(users)
         self.stdout.write('%d users created' % len(users))
         del usernames
         del users
         self.stdout.write('loading user ids ...')
-        users = db.users.find()
+        users = mongodb.users.find()
         users_map = {user['username']: user['_id'] for user in users}
         del users
 
@@ -224,14 +220,14 @@ class Command(BaseCommand):
                     self.stdout.write("a post ignored having url with non-utf8 encoding")
             i += 1
             if i % 10000 == 0:
-                db.posts.insert_many(posts)
+                mongodb.posts.insert_many(posts)
                 posts = []
             if i % 100000 == 0:
                 self.stdout.write('%d posts created (%.1f s)' % (i, (time.time() - t0)))
                 t0 = time.time()
 
         if posts:
-            db.posts.insert_many(posts)
+            mongodb.posts.insert_many(posts)
         self.stdout.write('%d posts created (%.1f s)' % (i, (time.time() - t0)))
         del posts, urls, users_map
 
@@ -284,8 +280,8 @@ class Command(BaseCommand):
                         if i % 10000 == 0:
                             self.stdout.write(
                                 'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-                            db.postmemes.insert_many(post_memes)
-                            db.reshares.insert_many(reshares)
+                            mongodb.postmemes.insert_many(post_memes)
+                            mongodb.reshares.insert_many(reshares)
                             post_memes = []
                             reshares = []
                             self.stdout.write('time : %d s' % (time.time() - t0))
@@ -324,8 +320,8 @@ class Command(BaseCommand):
         # Save the remaining relations.
         self.stdout.write(
             'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-        db.postmemes.insert_many(post_memes)
-        db.reshares.insert_many(reshares)
+        mongodb.postmemes.insert_many(post_memes)
+        mongodb.reshares.insert_many(reshares)
 
     # @profile
     def get_post_rels(self, post_id, datetime, meme_ids, source_ids):
@@ -333,7 +329,7 @@ class Command(BaseCommand):
         Create PostMeme and Reshare instances for the referenced links. Just create the instances not inserting in the db.
         """
         # Create the post.
-        post = db.posts.find_one({'_id': post_id})
+        post = mongodb.posts.find_one({'_id': post_id})
         if post is None:
             raise CommandError('post does not exist with id {}'.format(post_id))
 
@@ -344,7 +340,7 @@ class Command(BaseCommand):
         reshares = []
         src_ids = set(source_ids) - {post_id}
         if src_ids:
-            src_posts = db.posts.find({'_id': {'$in': list(src_ids)}})
+            src_posts = mongodb.posts.find({'_id': {'$in': list(src_ids)}})
             if src_posts.count() != len(src_ids):  # Raise an error if some of link posts do not exist.
                 not_existing = src_ids - {p['_id'] for p in src_posts}
                 raise CommandError('link post does not exist with id(s): {}'.format(', '.join(not_existing)))
@@ -358,7 +354,7 @@ class Command(BaseCommand):
     def create_temp(self, path, temp_path):
         # Replace meme texts with meme ids and create temporary data files.
         from_path = path
-        memes_count = db.memes.count()
+        memes_count = mongodb.memes.count()
         step = 10 ** 7
         i = 0
         t0 = time.time()
@@ -377,7 +373,7 @@ class Command(BaseCommand):
             t0 = time.time()
 
         # Replace post urls with post ids and create temporary data files.
-        posts_count = db.posts.count()
+        posts_count = mongodb.posts.count()
         step = 10 ** 7
         i = 0
         t0 = time.time()
@@ -443,7 +439,7 @@ class Command(BaseCommand):
             pipelines.append({'$skip': offset})
             if limit is not None:
                 pipelines.append({'$limit': limit})
-        memes = db.memes.aggregate(pipelines)
+        memes = mongodb.memes.aggregate(pipelines)
         for meme in memes:
             memes_map[meme['text']] = meme['_id']
         return memes_map
@@ -461,22 +457,23 @@ class Command(BaseCommand):
             if limit is not None:
                 pipelines.append({'$limit': limit})
 
-        posts = db.posts.aggregate(pipelines)
+        posts = mongodb.posts.aggregate(pipelines)
         for post in posts:
             posts_map[post['url']] = post['_id']
         return posts_map
 
     def calc_memes_values(self):
         self.stdout.write('query of meme counts ...')
-        meme_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}], allowDiskUse=True)
+        meme_counts = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
+                                                  allowDiskUse=True)
 
         self.stdout.write('saving ...')
         for doc in meme_counts:
-            db.memes.find_one_and_update({'_id': doc['_id']}, {'$set': {'count': doc['count']}})
+            mongodb.memes.find_one_and_update({'_id': doc['_id']}, {'$set': {'count': doc['count']}})
         del meme_counts
 
         self.stdout.write('query of first times ...')
-        first_times = db.postmemes.aggregate([
+        first_times = mongodb.postmemes.aggregate([
             {'$lookup': {'from': 'posts', 'localField': 'post_id',
                          'foreignField': '_id', 'as': 'post'}},
             {'$group': {'_id': '$meme_id', 'first': {'$min': '$post.datetime'}}},
@@ -485,11 +482,11 @@ class Command(BaseCommand):
 
         self.stdout.write('saving ...')
         for doc in first_times:
-            db.memes.find_one_and_update({'_id': doc['_id']}, {'$set': {'first_time': doc['first']}})
+            mongodb.memes.find_one_and_update({'_id': doc['_id']}, {'$set': {'first_time': doc['first']}})
         del first_times
 
         self.stdout.write('query of last times ...')
-        last_times = db.postmemes.aggregate([
+        last_times = mongodb.postmemes.aggregate([
             {'$lookup': {'from': 'posts', 'localField': 'post_id',
                          'foreignField': '_id', 'as': 'post'}},
             {'$group': {'_id': '$meme_id', 'last': {'$max': '$post.datetime'}}}
@@ -497,7 +494,7 @@ class Command(BaseCommand):
 
         self.stdout.write('saving ...')
         for doc in last_times:
-            db.memes.find_one_and_update({'_id': doc['_id']}, {'$set': {'last_time': doc['last']}})
+            mongodb.memes.find_one_and_update({'_id': doc['_id']}, {'$set': {'last_time': doc['last']}})
         del last_times
 
     def get_username(self, url):
