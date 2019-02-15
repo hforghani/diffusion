@@ -95,12 +95,12 @@ class Command(BaseCommand):
                 t = time.time() - t0
                 avg = t / i
                 rem = avg * (count - i)
-                if rem > 60 * 48:
-                    rem_str = '{:.0f} days'.format(rem / (60 * 24))
-                elif rem > 60:
-                    rem_str = '{:.0f} hours'.format(rem / 60)
+                if rem > 60 * 60 * 48:
+                    rem_str = '{:.0f} days'.format(rem / (60 * 60 * 24))
+                elif rem > 60 * 60:
+                    rem_str = '{:.0f} hours'.format(rem / (60 * 60))
                 else:
-                    rem_str = '{:.0f} minutes'.format(rem)
+                    rem_str = '{:.0f} minutes'.format(rem / 60)
                 self.stdout.write(
                     '{} reshares done. mean time: {:.0f} s per {}. estimated remaining time: {}'
                     .format(i, avg * step, step, rem_str))
