@@ -12,6 +12,7 @@ from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
 
 from crud.models import UserAccount, Post, Reshare, Meme
+from crud.mongo import mongodb
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
@@ -102,11 +103,15 @@ class CascadeTree(object):
             self.depth = self.__calc_depth()
 
     def extract_cascade(self, meme_id, log=False):
-        # Fetch posts related to the meme and reshares.
         t1 = time.time()
-        posts = Post.objects.filter(postmeme__meme=meme_id).distinct().order_by('datetime')
-        user_ids = posts.values_list('author__id', flat=True).distinct()
-        reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
+
+        # Fetch posts related to the meme and reshares.
+        post_ids = [pm['post_id'] for pm in mongodb.postmemes.find({'meme_id': meme_id}, {'_id': 0, 'post_id': 1})]
+        posts = mongodb.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
+
+        user_ids = [p['author_id'] for p in posts]
+        reshares = mongodb.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
+            .sort('datetime')
         if log:
             logger.info('\tTREE: time 1 = %.2f' % (time.time() - t1))
 
@@ -114,8 +119,8 @@ class CascadeTree(object):
         t1 = time.time()
         nodes = {}
         visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
-        for user in UserAccount.objects.filter(id__in=user_ids):
-            nodes[user.id] = CascadeNode(user.id)
+        for user_id in user_ids:
+            nodes[user_id] = CascadeNode(user_id)
         if log:
             logger.info('\tTREE: time 2 = %.2f' % (time.time() - t1))
 
@@ -125,18 +130,15 @@ class CascadeTree(object):
             logger.info('\tTREE: reshares count = %d' % reshares.count())
         self.roots = []
         for reshare in reshares:
-            # child_id = reshare.user_id
-            # parent_id = reshare.ref_user_id
-            child_id = reshare.post.author_id
-            parent_id = reshare.reshared_post.author_id
+            child_id = reshare['user_id']
+            parent_id = reshare['ref_user_id']
             if child_id == parent_id:
                 continue  # Continue if the reshare is between same users.
             parent = nodes[parent_id]
 
             if not visited[parent_id]:  # It is a root
-                parent.post_id = reshare.reshared_post_id
-                # parent.datetime = reshare.ref_datetime.strftime(DT_FORMAT)
-                parent.datetime = reshare.reshared_post.datetime.strftime(DT_FORMAT)
+                parent.post_id = reshare['reshared_post_id']
+                parent.datetime = reshare['ref_datetime'].strftime(DT_FORMAT) if reshare['ref_datetime'] else None
                 visited[parent_id] = True
                 self.roots.append(parent)
 
@@ -144,8 +146,8 @@ class CascadeTree(object):
                 child = nodes[child_id]
                 parent.children.append(child)
                 child.parent_id = parent_id
-                child.post_id = reshare.post_id
-                child.datetime = reshare.datetime.strftime(DT_FORMAT)
+                child.post_id = reshare['post_id']
+                child.datetime = reshare['datetime'].strftime(DT_FORMAT)
                 visited[child_id] = True
         if log:
             logger.info('\tTREE: time 3 = %.2f' % (time.time() - t1))
@@ -153,14 +155,16 @@ class CascadeTree(object):
         # Add users with no diffusion edges as single nodes.
         t1 = time.time()
         first_posts = {}
+        posts.rewind()
+
         for post in posts:
-            if post.author_id not in first_posts:
-                first_posts[post.author_id] = post
+            if post['author_id'] not in first_posts:
+                first_posts[post['author_id']] = post
         for uid, node in nodes.items():
             if not visited[uid]:
                 post = first_posts[uid]
-                node.datetime = post.datetime.strftime(DT_FORMAT)
-                node.post_id = post.id
+                node.datetime = post['datetime'].strftime(DT_FORMAT) if post['datetime'] else None
+                node.post_id = post['_id']
                 self.roots.append(node)
         if log:
             logger.info('\tTREE: time 4 = %.2f' % (time.time() - t1))
@@ -385,7 +389,7 @@ class AsLT(object):
                         continue
                     if v not in self.probabilities:
                         self.probabilities[v] = 0
-                    # self.probabilities[v] += w_u[v_i]
+                        # self.probabilities[v] += w_u[v_i]
                     self.probabilities[v] += w_u.data[i]
 
                     # Set the threshold or sample it randomly if None.
@@ -681,7 +685,7 @@ class Project(object):
             i = 0
             for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
                 sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
-                        3600.0 * 24)  # number of days
+                    3600.0 * 24)  # number of days
                 i += 1
                 if i % (len(meme_ids) / 10) == 0:
                     logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
@@ -741,7 +745,7 @@ class Project(object):
             i = 0
             for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
                 sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
-                        3600.0 * 24)  # number of days
+                    3600.0 * 24)  # number of days
                 i += 1
                 if i % (len(meme_ids) / 10) == 0:
                     logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
