@@ -107,7 +107,7 @@ class CascadeTree(object):
 
         # Fetch posts related to the meme and reshares.
         post_ids = [pm['post_id'] for pm in mongodb.postmemes.find({'meme_id': meme_id}, {'_id': 0, 'post_id': 1})]
-        posts = mongodb.posts.find({'_id': {'$in': post_ids}}, {'url': 0})
+        posts = mongodb.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
 
         user_ids = [p['author_id'] for p in posts]
         reshares = mongodb.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
