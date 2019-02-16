@@ -1,12 +1,14 @@
 import logging
-from django.db.models import Count
 import numpy as np
 from scipy import sparse
 
+import settings
 from cascade.models import AsLT, ParamTypes
-from crud.models import UserAccount, Post, Reshare
+from mongo import mongodb
 
+logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('cascade.avg')
+logger.setLevel(settings.LOG_LEVEL)
 
 
 class LTAvg(AsLT):
@@ -24,25 +26,33 @@ class LTAvg(AsLT):
         train_set, test_set = self.project.load_train_test()
 
         logger.info('querying posts and reshares ...')
-        posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
-        reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct()
+        # posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
+        posts_ids = [pm['post_id'] for pm in
+                     mongodb.postmemes.find({'meme_id': {'$in': train_set}}, ['meme_id']).sort('datetime')]
+        # reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct()
+        # reshares = mongodb.reshares.find({'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}})
 
         if calc_weights or not calc_delays:
-            self.calc_weights(reshares, posts)
+            self.calc_weights(posts_ids)
         if calc_delays or not calc_weights:
             self.calc_delays(reshares, continue_calc)
 
-    def calc_weights(self, reshares, posts):
+    def calc_weights(self, posts_ids):
         logger.info('counting reshares of users ...')
-        # resh_counts = reshares.values('user_id', 'ref_user_id').annotate(count=Count('datetime'))
-        resh_counts = reshares.values('post__author_id', 'reshared_post__author_id').annotate(count=Count('datetime'))
+        # resh_counts = reshares.values('post__author_id', 'reshared_post__author_id').annotate(count=Count('datetime'))
+        resh_counts = mongodb.reshares.aggregate([
+            {'$match': {'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}}},
+            {'$group': {'_id': ['$user_id', '$ref_user_id'], 'count': {'$sum': 1}}}
+        ])
 
         logger.info('counting posts of users ...')
-        post_counts = list(posts.values('author_id').annotate(count=Count('datetime')))
-        post_counts = {obj['author_id']: obj['count'] for obj in post_counts}
+        # post_counts = list(posts.values('author_id').annotate(count=Count('datetime')))
+        post_counts = mongodb.posts.aggregate({'$group': {'_id': '$author_id', 'count': {'$sum': 1}}})
+        post_counts = {obj['_id']: obj['count'] for obj in post_counts}
 
         logger.info('getting user ids ...')
-        user_ids = UserAccount.objects.values_list('id', flat=True)
+        # user_ids = UserAccount.objects.values_list('id', flat=True)
+        user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id'])]
         users_count = len(user_ids)
         users_map = {user_ids[i]: i for i in range(users_count)}
 
@@ -53,11 +63,11 @@ class LTAvg(AsLT):
         i = 0
         for resh in resh_counts:
             # values[i] = float(resh['count']) / post_counts[resh['ref_user_id']]
-            values[i] = float(resh['count']) / post_counts[resh['reshared_post__author_id']]
+            values[i] = float(resh['count']) / post_counts[resh['_id'][1]]
             # sender_id = users_map[resh['ref_user_id']]
-            sender_id = users_map[resh['reshared_post__author_id']]
+            sender_id = users_map[resh['_id'][1]]
             # receiver_id = users_map[resh['user_id']]
-            receiver_id = users_map[resh['post__author_id']]
+            receiver_id = users_map[resh['_id'][0]]
             ij[:, i] = [sender_id, receiver_id]
             i += 1
             if i % 10000 == 0:

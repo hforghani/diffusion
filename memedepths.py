@@ -9,7 +9,7 @@ import settings
 from mongo import mongodb
 
 logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('crud.memedepths')
+logger = logging.getLogger('memedepths')
 logger.setLevel(settings.LOG_LEVEL)
 
 
@@ -34,8 +34,7 @@ class Command():
 
         reshares = mongodb.reshares.find({},
                                          {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1,
-                                          'ref_user_id': 1}).sort(
-            'datetime')
+                                          'ref_user_id': 1}).sort('datetime')
 
         count = reshares.count()
         logger.info('number of all reshares: {}'.format(count))

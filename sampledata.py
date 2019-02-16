@@ -1,16 +1,21 @@
 # -*- coding: utf-8 -*-
+import argparse
+import logging
 import traceback
 from random import shuffle
-from traceback import print_exc
-
-from django.core.management.base import BaseCommand
 import time
 import numpy as np
-from cascade.models import Project, CascadeTree
-from crud.models import UserAccount, Meme
+
+import settings
+from cascade.models import Project
+from mongo import mongodb
+
+logging.basicConfig(format=settings.LOG_FORMAT)
+logger = logging.getLogger('sampledata')
+logger.setLevel(settings.LOG_LEVEL)
 
 
-class Command(BaseCommand):
+class Command:
     help = 'Sample a subset of data and separate training and test sets and save them into the file'
 
     def add_arguments(self, parser):
@@ -44,57 +49,47 @@ class Command(BaseCommand):
             help="project name",
         )
 
-    def __init__(self):
-        super(Command, self).__init__()
-
-    def handle(self, *args, **options):
+    def handle(self, args):
         try:
             start = time.time()
 
             # Get project of raise exception.
-            project_name = options['project']
+            project_name = args.project
             if project_name is None:
                 raise Exception('project not specified')
 
             # Load meme and user id's.
             min_depth = 1
-            # memes = Meme.objects.filter(depth__gte=min_depth)
-            memes = Meme.objects
 
-            if options['sample_num']:
+            if args.sample_num:
                 meme_ids = []
                 # Repeat sampling if the sampled users do not have enough memes.
                 while not meme_ids:
                     # Sample user id's and get their memes. Sample memes from this set.
-                    self.stdout.write('sampling data ...')
-                    sample_num = options['sample_num']
-                    users_num = options['users_num'] if options['users_num'] else sample_num * 10
-                    user_ids = UserAccount.objects.values_list('id', flat=True)
-                    user_samples = list(np.random.choice(user_ids, users_num, replace=False))
-                    user_memes = memes.filter(postmeme__post__author__in=user_samples) \
-                        .distinct().values_list('id', flat=True)
-
-                    new_meme_ids = []
-                    i = 0
-                    self.stdout.write('iterating {} memes ...'.format(len(user_memes)))
-                    for meme_id in user_memes:
-                        tree = CascadeTree().extract_cascade(meme_id)
-                        i += 1
-                        if tree.depth >= min_depth:
-                            new_meme_ids.append(meme_id)
-                            self.stdout.write('{} memes found with min depth. {:.0f}% done'
-                                              .format(len(new_meme_ids), i / len(user_memes) * 100))
-                    user_memes = new_meme_ids
-
-                    meme_ids = list(np.random.choice(user_memes, sample_num, replace=False))
+                    logger.info('sampling data ...')
+                    sample_num = args.sample_num
+                    users_num = args.users_num if args.users_num else sample_num * 10
+                    user_samples = [u['_id'] for u in mongodb.aggregate([{'$sample': users_num},
+                                                                         {'$project': ['_id']}])]
+                    # user_ids = [u['_id'] for u in mongodb.find({}, ['_id'])]
+                    # user_samples = list(np.random.choice(user_ids, users_num, replace=False))
+                    post_ids = [p['_id'] for p in mongodb.posts.find({'author_id': {'$in': user_samples}}, ['_id'])]
+                    user_memes = [pm['meme_id'] for pm in
+                                  mongodb.memes.find({'post_id': {'$in': post_ids}}, {'_id': 0, 'meme_id': 1})]
+                    meme_ids = mongodb.memes.aggregate([
+                        {'$match': {'_id': {'$in': user_memes}}},
+                        {'$sample': sample_num},
+                        {'$project': ['_id']}
+                    ])
+                    # meme_ids = list(np.random.choice(user_memes, sample_num, replace=False))
             else:
                 # Get all memes.
-                self.stdout.write('sampling data ...')
-                meme_ids = memes.values_list('id', flat=True)
+                logger.info('sampling data ...')
+                meme_ids = [m['_id'] for m in mongodb.memes.find({'depth': {'$ge': min_depth}}, ['_id'])]
                 shuffle(meme_ids)
 
             # Separate training and test sets.
-            ratio = options['ratio']
+            ratio = args.ratio
             train_num = int(ratio * len(meme_ids))
             meme_ids = [int(m_id) for m_id in meme_ids]
             train_set = meme_ids[:train_num]
@@ -103,7 +98,15 @@ class Command(BaseCommand):
             project = Project(project_name)
             project.save_data(test_set, train_set)
 
-            self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
+            logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:
-            self.stdout.write(traceback.format_exc())
+            logger.info(traceback.format_exc())
             raise
+
+
+if __name__ == '__main__':
+    c = Command()
+    parser = argparse.ArgumentParser(c.help)
+    c.add_arguments(parser)
+    args = parser.parse_args()
+    c.handle(args)
