@@ -60,7 +60,7 @@ class Command(BaseCommand):
         i = 0
         t0 = time.time()
         step = 10 ** 5
-        save_step = 10 ** 6
+        save_step = 50 ** 6
 
         for resh in reshares:
             i += 1
