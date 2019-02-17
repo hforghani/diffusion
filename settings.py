@@ -9,4 +9,4 @@ LOG_LEVEL = logging.DEBUG
 
 VERBOSITY = 2
 
-BASEPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '')
+BASEPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '')

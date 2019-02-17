@@ -34,6 +34,14 @@ class Command:
             help="number of users which we want to sample their memes",
         )
         parser.add_argument(
+            "-d",
+            "--mindepth",
+            type=int,
+            dest="min_depth",
+            default=0,
+            help="minimum depth of cascade trees of memes",
+        )
+        parser.add_argument(
             "-r",
             "--ratio",
             type=float,
@@ -58,40 +66,44 @@ class Command:
             if project_name is None:
                 raise Exception('project not specified')
 
-            # Load meme and user id's.
-            min_depth = 1
-
             if args.sample_num:
                 meme_ids = []
                 # Repeat sampling if the sampled users do not have enough memes.
                 while not meme_ids:
                     # Sample user id's and get their memes. Sample memes from this set.
-                    logger.info('sampling data ...')
+                    logger.info('sampling users ...')
                     sample_num = args.sample_num
                     users_num = args.users_num if args.users_num else sample_num * 10
-                    user_samples = [u['_id'] for u in mongodb.aggregate([{'$sample': users_num},
-                                                                         {'$project': ['_id']}])]
-                    # user_ids = [u['_id'] for u in mongodb.find({}, ['_id'])]
+                    user_samples = [u['_id'] for u in mongodb.users.aggregate([{'$sample': {'size': users_num}},
+                                                                               {'$project': {'_id': 1}}])]
+                    logger.info('sampling memes ...')
+                    # user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id'])]
                     # user_samples = list(np.random.choice(user_ids, users_num, replace=False))
                     post_ids = [p['_id'] for p in mongodb.posts.find({'author_id': {'$in': user_samples}}, ['_id'])]
                     user_memes = [pm['meme_id'] for pm in
-                                  mongodb.memes.find({'post_id': {'$in': post_ids}}, {'_id': 0, 'meme_id': 1})]
-                    meme_ids = mongodb.memes.aggregate([
-                        {'$match': {'_id': {'$in': user_memes}}},
-                        {'$sample': sample_num},
-                        {'$project': ['_id']}
-                    ])
+                                  mongodb.postmemes.find({'post_id': {'$in': post_ids}}, {'_id': 0, 'meme_id': 1})]
+                    query = {'_id': {'$in': user_memes}}
+                    if args.min_depth:
+                        query['depth'] = {'$ge': args.min_depth}
+                    meme_ids = [m['_id'] for m in mongodb.memes.aggregate([
+                        {'$match': query},
+                        {'$sample': {'size': sample_num}},
+                        {'$project': {'_id': 1}}
+                    ])]
                     # meme_ids = list(np.random.choice(user_memes, sample_num, replace=False))
             else:
                 # Get all memes.
                 logger.info('sampling data ...')
-                meme_ids = [m['_id'] for m in mongodb.memes.find({'depth': {'$ge': min_depth}}, ['_id'])]
+                query = {}
+                if args.min_depth:
+                    query = {'depth': {'$ge': args.min_depth}}
+                meme_ids = [m['_id'] for m in mongodb.memes.find(query, ['_id'])]
                 shuffle(meme_ids)
 
             # Separate training and test sets.
             ratio = args.ratio
             train_num = int(ratio * len(meme_ids))
-            meme_ids = [int(m_id) for m_id in meme_ids]
+            meme_ids = [str(m_id) for m_id in meme_ids]
             train_set = meme_ids[:train_num]
             test_set = meme_ids[train_num:]
 

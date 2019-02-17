@@ -7,10 +7,10 @@ import random
 import time
 
 from anytree import Node, RenderTree
-from django.conf import settings
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
 
+import settings
 from mongo import mongodb
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT

@@ -59,9 +59,9 @@ class Command():
             lt_avg = LTAvg(project)
             lt_avg.fit(args.weight, args.delay, args.continu)
 
-            self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
+            logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:
-            self.stdout.write(traceback.format_exc())
+            logger.info(traceback.format_exc())
             raise
 
 
