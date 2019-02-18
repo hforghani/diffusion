@@ -723,22 +723,30 @@ class Project(object):
         except:  # If graph and sequence data does not exist.
             logger.info('\tquerying posts and reshares ...')
             t0 = time.time()
-            posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
-            reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
+            #posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
+            #reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
+            post_ids = [pm['post_id'] for pm in
+                        mongodb.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
+            reshares = mongodb.reshares.find(
+                {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
+                {'_id': 0, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
             resh_count = reshares.count()
-            post_count = posts.count()
+            reshares.rewind()
+            post_count = len(post_ids)
             logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
 
             # Create dictionary of first times of the memes.
             logger.info('\textracting first times ...')
-            first_times = Meme.objects.values('id', 'first_time')
-            first_times = {obj['id']: obj['first_time'] for obj in first_times}
+            #first_times = Meme.objects.values('id', 'first_time')
+            first_times = mongodb.memes.find({}, ['first_time'])
+            first_times = {obj['_id']: obj['first_time'] for obj in first_times}
 
             # Create graph and activation sequence.
             logger.info('\textracting cascades from %d posts and %d reshares ...' % (post_count, resh_count))
-            meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
+            #meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
+            meme_ids = [m['_id'] for m in mongodb.memes.find({}, ['_id']).sort('_id')]
             graph = self.__extract_graph(reshares, meme_ids)
-            sequences = self.__extract_act_seq(posts, first_times, meme_ids)
+            sequences = self.__extract_act_seq(post_ids, first_times, meme_ids)
 
             logger.info('\tsetting max times ...')
             i = 0
