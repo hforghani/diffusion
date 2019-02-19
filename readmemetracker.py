@@ -491,7 +491,8 @@ class Command:
         mongodb.memes.bulk_write(operations)
 
         logger.info('query of first times ...')
-        first_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}])
+        first_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}],
+                                                  allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
@@ -506,7 +507,8 @@ class Command:
         mongodb.memes.bulk_write(operations)
 
         logger.info('query of last times ...')
-        last_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}])
+        last_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}],
+                                                 allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []

@@ -7,6 +7,7 @@ import random
 import time
 
 from anytree import Node, RenderTree
+from bson.objectid import ObjectId
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
 
@@ -15,7 +16,9 @@ from mongo import mongodb
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
+logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('cascade.models')
+logger.setLevel(settings.LOG_LEVEL)
 
 
 class CascadeNode(object):
@@ -31,17 +34,6 @@ class CascadeNode(object):
         Get dictionary of the object.
         """
         return {'user_id': self.user_id,
-                'datetime': self.datetime,
-                'post_id': self.post_id,
-                'parent_id': self.parent_id,
-                'children': [node.get_dict() for node in self.children]}
-
-    def get_detailed_dict(self, user_map):
-        """
-        Get dictionary of the object. Replace user_id by user details dictionary.
-        param user_map: dictionary of user id's to users.
-        """
-        return {'user': user_map[self.user_id].get_dict(),
                 'datetime': self.datetime,
                 'post_id': self.post_id,
                 'parent_id': self.parent_id,
@@ -175,12 +167,6 @@ class CascadeTree(object):
 
     def get_dict(self):
         return [node.get_dict() for node in self.roots]
-
-    def get_detailed_dict(self):
-        user_ids = self.node_ids()
-        users = UserAccount.objects.filter(id__in=user_ids)
-        user_map = {user.id: user for user in users}
-        return [node.get_detailed_dict(user_map) for node in self.roots]
 
     def from_dict(self, tree_dict):
         self.roots = []
@@ -347,7 +333,8 @@ class AsLT(object):
         self.probabilities = {}
 
         if user_ids is None or users_map is None:
-            user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+            #user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+            user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             users_map = {user_ids[i]: i for i in range(len(user_ids))}
         self.user_ids = user_ids
         self.users_map = users_map
@@ -455,7 +442,8 @@ class IC(object):
         activated = tree.nodes()
         if self.user_map is None:
             if user_ids is None:
-                user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+                #user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+                user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             self.user_map = {user_ids[i]: i for i in range(len(user_ids))}
         if log:
             logger.info('time1 = %.2f' % (time.time() - t0))
@@ -569,13 +557,12 @@ class Project(object):
         if os.path.exists(sample_set_path):
             data = json.load(open(sample_set_path))
             train_memes, test_memes = data['training'], data['test']
+            self.training = [ObjectId(_id) for _id in train_memes]
+            self.test = [ObjectId(_id) for _id in test_memes]
         else:
             raise Exception('Data sample not found. Run sampledata command.')
 
-        self.training = train_memes
-        self.test = test_memes
-
-        return train_memes, test_memes
+        return self.training, self.test
 
     def load_trees(self, verbosity=settings.VERBOSITY):
         """
@@ -585,7 +572,7 @@ class Project(object):
         # Load trees from the json file.
         try:
             trees = self.load_param('trees', ParamTypes.JSON)
-            trees = {int(key): value for key, value in trees.items()}
+            trees = {ObjectId(key): value for key, value in trees.items()}
             # Convert tree dictionaries to tree objects.
             if verbosity:
                 logger.info('converting trees to objects ...')
@@ -597,7 +584,7 @@ class Project(object):
                 trees = json.load(open(trees_path, 'r'))
 
                 # Keep just trees of the training and test set.
-                trees = {int(key): value for key, value in trees.items()}
+                trees = {ObjectId(key): value for key, value in trees.items()}
                 trees = {meme_id: trees[meme_id] for meme_id in self.training + self.test}
                 # Save trees for the project.
                 self.save_param(trees, 'trees', ParamTypes.JSON)
@@ -610,7 +597,7 @@ class Project(object):
                 for meme_id in self.training + self.test:
                     tree = CascadeTree().extract_cascade(meme_id)
                     trees[meme_id] = tree
-                    trees_dict = {meme_id: tree.get_dict() for meme_id, tree in trees.items()}
+                    trees_dict = {str(meme_id): tree.get_dict() for meme_id, tree in trees.items()}
                     # Save trees for the project.
                     self.save_param(trees_dict, 'trees', ParamTypes.JSON)
 
@@ -629,21 +616,15 @@ class Project(object):
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
 
         except:  # If graph data does not exist.
-            logger.info('\tquerying posts and reshares ...')
+            logger.info('\tquerying posts ids ...')
             t0 = time.time()
-            posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
-            reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
-            resh_count = reshares.count()
-            post_count = posts.count()
+            post_ids = [pm['post_id'] for pm in
+                        mongodb.postmemes.find({'meme_id': {'$in': train_set}}, {'_id': 0, 'post_id': 1}).sort(
+                            'datetime')]
             logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
 
             # Create graph.
-            logger.info('\textracting graph from %d posts and %d reshares ...' % (post_count, resh_count))
-            meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
-            graph = self.__extract_graph(reshares, meme_ids)
-
-            logger.info('\tsaving data ...')
-            self.save_param(graph, graph_fname, ParamTypes.GRAPH)
+            graph = self.__extract_graph(post_ids, train_set, graph_fname)
 
         return graph
 
@@ -664,39 +645,14 @@ class Project(object):
                 sequences[int(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
 
         except:  # If graph data does not exist.
-            logger.info('\tquerying posts and reshares ...')
+            logger.info('\tquerying posts ids ...')
             t0 = time.time()
-            posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
-            post_count = posts.count()
+            post_ids = [pm['post_id'] for pm in
+                        mongodb.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id'])]
             logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
 
-            # Create dictionary of first times of the memes.
-            logger.info('\textracting first times ...')
-            first_times = Meme.objects.values('id', 'first_time')
-            first_times = {obj['id']: obj['first_time'] for obj in first_times}
-
             # Create graph and cascade data.
-            logger.info('\textracting act sequences from %d posts ...' % post_count)
-            meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
-            sequences = self.__extract_act_seq(posts, first_times, meme_ids)
-
-            logger.info('\tsetting max times ...')
-            i = 0
-            for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
-                sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
-                    3600.0 * 24)  # number of days
-                i += 1
-                if i % (len(meme_ids) / 10) == 0:
-                    logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
-
-            logger.info('\tsaving data ...')
-            seq_copy = {}
-            for m in sequences:
-                seq_copy[m] = {
-                    'cascade': [(sequences[m].users[i], sequences[m].times[i]) for i in range(len(sequences[m].users))],
-                    'max_t': sequences[m].max_t
-                }
-            self.save_param(seq_copy, seq_fname, ParamTypes.JSON)
+            sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
 
         return sequences
 
@@ -721,122 +677,126 @@ class Project(object):
                 sequences[int(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
 
         except:  # If graph and sequence data does not exist.
-            logger.info('\tquerying posts and reshares ...')
+            logger.info('\tquerying posts ids ...')
             t0 = time.time()
-            #posts = Post.objects.filter(postmeme__meme_id__in=train_set).distinct().order_by('datetime')
-            #reshares = Reshare.objects.filter(post__in=posts, reshared_post__in=posts).distinct().order_by('datetime')
             post_ids = [pm['post_id'] for pm in
-                        mongodb.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
-            reshares = mongodb.reshares.find(
-                {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
-                {'_id': 0, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
-            resh_count = reshares.count()
-            reshares.rewind()
-            post_count = len(post_ids)
+                        mongodb.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id'])]
             logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
 
-            # Create dictionary of first times of the memes.
-            logger.info('\textracting first times ...')
-            #first_times = Meme.objects.values('id', 'first_time')
-            first_times = mongodb.memes.find({}, ['first_time'])
-            first_times = {obj['_id']: obj['first_time'] for obj in first_times}
-
             # Create graph and activation sequence.
-            logger.info('\textracting cascades from %d posts and %d reshares ...' % (post_count, resh_count))
-            #meme_ids = Meme.objects.order_by('id').values_list('id', flat=True)
-            meme_ids = [m['_id'] for m in mongodb.memes.find({}, ['_id']).sort('_id')]
-            graph = self.__extract_graph(reshares, meme_ids)
-            sequences = self.__extract_act_seq(post_ids, first_times, meme_ids)
-
-            logger.info('\tsetting max times ...')
-            i = 0
-            for meme in Meme.objects.filter(id__in=sequences.keys()).iterator():
-                sequences[meme.id].max_t = (meme.last_time - meme.first_time).total_seconds() / (
-                    3600.0 * 24)  # number of days
-                i += 1
-                if i % (len(meme_ids) / 10) == 0:
-                    logger.info('\t\t%d%% done' % (i * 100 / len(meme_ids)))
-
-            logger.info('\tsaving data ...')
-            seq_copy = {}
-            for m in sequences:
-                seq_copy[m] = {
-                    'cascade': [(sequences[m].users[i], sequences[m].times[i]) for i in range(len(sequences[m].users))],
-                    'max_t': sequences[m].max_t
-                }
-            self.save_param(seq_copy, seq_fname, ParamTypes.JSON)
-            del seq_copy
-            self.save_param(graph, graph_fname, ParamTypes.GRAPH)
+            graph = self.__extract_graph(post_ids, train_set, graph_fname)
+            sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
 
         return graph, sequences
 
-    def __extract_graph(self, reshares, meme_ids):
+    def __extract_graph(self, post_ids, meme_ids, graph_fname):
         """
         Extract graph from given meme id's.
-        :param reshares:    queryset of reshares related to posts of given meme id's
-        :param meme_ids:    meme id's
+        :param post_ids:    list of posts id's related to memes
+        :param meme_ids:    list of memes id's
+        :param graph_fname: the file name to save graph data
         :return:            directed graph of all reshares
         """
+
         t0 = time.time()
+
+        logger.info('querying reshares ...')
+        reshares = mongodb.reshares.find(
+            {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
+            {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
+        resh_count = reshares.count()
+        reshares.rewind()
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+
+        logger.info('\textracting graph from %d posts and %s reshares ...' % (len(post_ids), resh_count))
         edges = []
         meme_ids = set(meme_ids)
-        resh_count = reshares.count()
         i = 0
 
         # Iterate on reshares to extract graph edges.
-        for resh in reshares.all():
-            # user_id = resh.user_id
-            user_id = resh.post.author_id
-            # ref_user_id = resh.ref_user_id
-            ref_user_id = resh.reshared_post.author_id
+        for resh in reshares:
+            user_id = resh['user_id']
+            ref_user_id = resh['ref_user_id']
             if user_id != ref_user_id:
-                common_memes = meme_ids & set(resh.reshared_post.postmeme_set.values_list('meme_id', flat=True)) & set(
-                    resh.post.postmeme_set.values_list('meme_id', flat=True))
+                src_meme_ids = {pm['meme_id'] for pm in
+                                mongodb.postmemes.find({'post_id': resh['reshared_post_id']}, {'_id': 0, 'meme_id': 1})}
+                dest_meme_ids = {pm['meme_id'] for pm in
+                                 mongodb.postmemes.find({'post_id': resh['post_id']}, {'_id': 0, 'meme_id': 1})}
+                common_memes = meme_ids & src_meme_ids & dest_meme_ids
                 if common_memes:
                     edges.append((ref_user_id, user_id))
             i += 1
             if i % (resh_count / 10) == 0:
-                logger.info('\t\t%d%% reshares done' % (i * 100 / resh_count))
+                logger.info('\t%d%% reshares done' % (i * 100 / resh_count))
 
         graph = DiGraph()
         graph.add_edges_from(edges)
 
-        logger.info('\t\tgraph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('\tsaving graph ...')
+        self.save_param(graph, graph_fname, ParamTypes.GRAPH)
+
+        logger.info('\tgraph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return graph
 
-    def __extract_act_seq(self, posts, first_times, meme_ids):
+    def __extract_act_seq(self, posts_ids, meme_ids, seq_fname):
         """
         Extract list of activation sequences from given meme id's.
-        :param posts:       queryset of posts
-        :param first_times: dictionary of meme id's to their first post time
+        :param posts_ids:   list of posts id's
         :param meme_ids:    meme id's
+        :param seq_fname:   the file name to save activation sequences data
         :return:            list of ActSequence's
         """
         t0 = time.time()
-        meme_ids = set(meme_ids)
-        post_count = posts.count()
+        logger.info('\textracting act. sequences from %d posts ...' % len(posts_ids))
+        post_count = len(posts_ids)
         users = {m: [] for m in meme_ids}
         times = {m: [] for m in meme_ids}
-        i = 0
+        posts = mongodb.posts.find({'_id': {'$in': posts_ids}}, ['author_id', 'datetime']).sort('datetime')
 
         # Iterate on posts to extract activation sequences.
-        for post in posts.all():
-            for m in post.postmeme_set.values_list('meme_id', flat=True):
-                if post.author_id not in users[m]:
-                    users[m].append(post.author_id)
-                    act_time = (post.datetime - first_times[m]).total_seconds() / (3600.0 * 24)  # number of days
-                    times[m].append(act_time)
+        i = 0
+        for post in posts:
+            for pm in mongodb.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': meme_ids}},
+                                             {'_id': 0, 'meme_id': 1}):
+                meme_id = pm['meme_id']
+                if post['author_id'] not in users[meme_id]:
+                    users[meme_id].append(post['author_id'])
+                    act_time = post['datetime']
+                    times[meme_id].append(act_time)
             i += 1
             if i % (post_count / 10) == 0:
-                logger.info('\t\t%d%% posts done' % (i * 100 / post_count))
+                logger.info('\t%d%% posts done' % (i * 100 / post_count))
 
-        del posts
-        data = {}
+        logger.info('\tsetting relative times and max times ...')
+        max_t = {}
+        i = 0
+        for meme in mongodb.memes.find({'_id': {'$in': meme_ids}}, ['last_time', 'first_time']):
+            mid = meme['_id']
+            times[mid] = [(t - meme['first_time']).total_seconds() / (3600.0 * 24) for t in
+                          times[mid]]  # number of days
+            max_t[mid] = (meme['last_time'] - meme['first_time']).total_seconds() / (3600.0 * 24)  # number of days
+            i += 1
+            if i % (len(meme_ids) / 10) == 0:
+                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
+
+        sequences = {}
         for m in meme_ids:
             if users[m]:
-                data[m] = ActSequence(users[m], times[m])
-        logger.info('\t\tact. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
-        return data
+                sequences[m] = ActSequence(users[m], times[m], max_t[m])
+
+        logger.info('\tsaving act. sequences ...')
+        seq_copy = {}
+        for m in sequences:
+            seq_copy[str(m)] = {
+                'cascade': [(str(sequences[m].users[i]), sequences[m].times[i]) for i in
+                            range(len(sequences[m].users))],
+                'max_t': sequences[m].max_t
+            }
+        self.save_param(seq_copy, seq_fname, ParamTypes.JSON)
+        del seq_copy
+
+        logger.info('\tact. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
+        return sequences
 
     def get_all_nodes(self):
         if self.trees is None:

@@ -1,22 +1,15 @@
 # -*- coding: utf-8 -*-
+import argparse
 import logging
 import multiprocessing
-from multiprocessing import Pool
+from multiprocessing.pool import Pool
 import traceback
-import django
-from django.apps import apps
-from django.conf import settings
-from django.core.management import CommandError
-from django.core.management.base import BaseCommand
 import time
 import math
 import numpy as np
 from matplotlib import pyplot
-
 # from profilehooks import timecall, profile
-
-if not apps.ready and not settings.configured:
-    django.setup()
+from mongo import mongodb
 
 from cascade.avg import LTAvg
 from cascade.validation import Validation
@@ -25,9 +18,11 @@ from cascade.models import Project
 from memm.models import MEMMModel
 from mln.models import MLN
 from mln.file_generators import FileCreator
-from crud.models import UserAccount
+import settings
 
-logger = logging.getLogger('cascade.management.commands.testpredict')
+logging.basicConfig(format=settings.LOG_FORMAT)
+logger = logging.getLogger('testpredict')
+logger.setLevel(settings.LOG_LEVEL)
 
 
 def evaluate(initial_tree, res_tree, tree, all_nodes, verbosity=settings.VERBOSITY):
@@ -100,7 +95,7 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
         raise
 
 
-class Command(BaseCommand):
+class Command:
     help = 'Test information diffusion prediction'
 
     def add_arguments(self, parser):
@@ -160,12 +155,12 @@ class Command(BaseCommand):
         # Get the method or raise exception.
         method = options['method']
         if method is None:
-            raise CommandError('method not specified')
+            raise Exception('method not specified')
 
         try:
             settings_thr = self.thresholds[method]
         except KeyError:
-            raise CommandError('invalid method "%s"' % method)
+            raise Exception('invalid method "%s"' % method)
 
         if options['all_thresholds']:
             step = settings_thr / self.THRESHOLDS_COUNT * 2
@@ -180,7 +175,8 @@ class Command(BaseCommand):
 
         if method in ['saito', 'avg']:
             # Create dictionary of user id's to their sorted index.
-            self.user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+            #self.user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
+            self.user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
 
         models = self.train(method, project_names)
@@ -351,3 +347,11 @@ class Command(BaseCommand):
         pyplot.title('ROC curve')
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.show()
+
+
+if __name__ == '__main__':
+    c = Command()
+    parser = argparse.ArgumentParser(c.help)
+    c.add_arguments(parser)
+    args = parser.parse_args()
+    c.handle(args)

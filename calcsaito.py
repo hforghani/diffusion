@@ -33,20 +33,16 @@ class Command:
         )
 
     def handle(self, args):
-        try:
-            # Get project or raise exception.
-            project_name = args.project
-            if project_name is None:
-                raise Exception('project not specified')
-            project = Project(project_name)
+        # Get project or raise exception.
+        project_name = args.project
+        if project_name is None:
+            raise Exception('project not specified')
+        project = Project(project_name)
 
-            # Calculate Saito parameters.
-            start = time.time()
-            Saito(project).calc_parameters(iterations=args.iterations)
-            logger.info('command done in %.2f min' % ((time.time() - start) / 60.0))
-        except:
-            logger.info(traceback.format_exc())
-            raise
+        # Calculate Saito parameters.
+        start = time.time()
+        Saito(project).calc_parameters(iterations=args.iterations)
+        logger.info('command done in %.2f min' % ((time.time() - start) / 60.0))
 
 
 if __name__ == '__main__':
