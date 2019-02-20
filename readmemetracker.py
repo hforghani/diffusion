@@ -4,19 +4,20 @@ import logging
 import os
 import re
 import traceback
+import time
+
 from bson import SON
 from bson.objectid import ObjectId
-
-import time
 import pygtrie
 from pymongo.operations import UpdateOne
+
 from mongo import mongodb
 import settings
 from utils.time_utils import str_to_datetime
 
 
 logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('calcavg')
+logger = logging.getLogger('readmemetracker')
 logger.setLevel(settings.LOG_LEVEL)
 
 
@@ -90,18 +91,11 @@ class Command:
                 mongodb.posts.delete_many()
                 mongodb.memes.delete_many()
                 mongodb.users.delete_many()
-                mongodb.social_nets.delete_many()
-
-            # Get or create social net.
-            net = mongodb.social_nets.find_one({'name': 'memetracker'})
-            if net is None:
-                net_id = mongodb.social_nets.insert_one({'name': 'memetracker'}).inserted_id
-                net = mongodb.social_nets.find_one({'_id': net_id})
 
             # Create instances of non-relation entities.
             if (args.entities or not args.relations) and not args.set_attributes:
                 logger.info('======== creating entities ...')
-                self.create_entities(path, net)
+                self.create_entities(path)
 
             # Create instances of relation entities.
             if (args.relations or not args.entities) and not args.set_attributes:
@@ -123,7 +117,7 @@ class Command:
             logger.info(traceback.format_exc())
             raise
 
-    def create_entities(self, path, net):
+    def create_entities(self, path):
         urls = {}
         memes = set()
         i = 0
@@ -193,7 +187,7 @@ class Command:
         i = 0
         users = []
         for uname in usernames:
-            users.append({'username': uname, 'social_net': net['_id']})
+            users.append({'username': uname})
             i += 1
             if i % 100000 == 0:
                 mongodb.users.insert_many(users)
@@ -348,7 +342,9 @@ class Command:
         src_ids = set(source_ids) - {post_id}
         if src_ids:
             src_posts = mongodb.posts.find({'_id': {'$in': list(src_ids)}})
-            if src_posts.count() != len(src_ids):  # Raise an error if some of link posts do not exist.
+            count = src_posts.count()
+            src_posts.rewind()
+            if count != len(src_ids):  # Raise an error if some of link posts do not exist.
                 not_existing = src_ids - {p['_id'] for p in src_posts}
                 raise Exception('link post does not exist with id(s): {}'.format(', '.join(not_existing)))
             for src_post in src_posts:
@@ -471,7 +467,6 @@ class Command:
 
     def calc_memes_values(self):
         count = mongodb.memes.count()
-        log_step = 10000
         save_step = 10 ** 6
 
         logger.info('query of meme counts ...')

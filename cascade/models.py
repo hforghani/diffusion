@@ -33,10 +33,10 @@ class CascadeNode(object):
         """
         Get dictionary of the object.
         """
-        return {'user_id': self.user_id,
+        return {'user_id': str(self.user_id),
                 'datetime': self.datetime,
-                'post_id': self.post_id,
-                'parent_id': self.parent_id,
+                'post_id': str(self.post_id),
+                'parent_id': str(self.parent_id) if self.parent_id is not None else None,
                 'children': [node.get_dict() for node in self.children]}
 
     def from_dict(self, node_dict):
@@ -46,10 +46,10 @@ class CascadeNode(object):
         parent_id: parent node id,
         users_map: dictionary of mapping from user id's to users.
         """
-        self.user_id = node_dict['user_id']
+        self.user_id = ObjectId(node_dict['user_id'])
         self.datetime = node_dict['datetime']
-        self.post_id = node_dict['post_id']
-        self.parent_id = node_dict['parent_id']
+        self.post_id = ObjectId(node_dict['post_id'])
+        self.parent_id = ObjectId(node_dict['parent_id']) if node_dict['parent_id'] is not None else None
         self.children = [CascadeNode().from_dict(node) for node in node_dict['children']]
         return self
 
@@ -700,7 +700,7 @@ class Project(object):
 
         t0 = time.time()
 
-        logger.info('querying reshares ...')
+        logger.info('\tquerying reshares ...')
         reshares = mongodb.reshares.find(
             {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
             {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
@@ -756,13 +756,13 @@ class Project(object):
         # Iterate on posts to extract activation sequences.
         i = 0
         for post in posts:
-            for pm in mongodb.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': meme_ids}},
-                                             {'_id': 0, 'meme_id': 1}):
-                meme_id = pm['meme_id']
-                if post['author_id'] not in users[meme_id]:
-                    users[meme_id].append(post['author_id'])
-                    act_time = post['datetime']
-                    times[meme_id].append(act_time)
+            if post['datetime'] is not None:
+                for pm in mongodb.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': meme_ids}},
+                                                 {'_id': 0, 'meme_id': 1}):
+                    meme_id = pm['meme_id']
+                    if post['author_id'] not in users[meme_id]:
+                        users[meme_id].append(post['author_id'])
+                        times[meme_id].append(post['datetime'])
             i += 1
             if i % (post_count / 10) == 0:
                 logger.info('\t%d%% posts done' % (i * 100 / post_count))

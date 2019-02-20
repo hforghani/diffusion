@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import argparse
 import logging
-import traceback
 import time
 from cascade.models import Project
 from cascade.saito import Saito

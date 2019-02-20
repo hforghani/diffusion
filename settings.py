@@ -1,8 +1,5 @@
-# Django settings for social project.
 import logging
 import os
-
-from predict_settings import *
 
 LOG_FORMAT = '[%(levelname)s] [%(asctime)s] [%(name)s] %(message)s'
 LOG_LEVEL = logging.DEBUG

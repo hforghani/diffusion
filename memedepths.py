@@ -13,7 +13,7 @@ logger = logging.getLogger('memedepths')
 logger.setLevel(settings.LOG_LEVEL)
 
 
-class Command():
+class Command:
     help = 'Calculate meme depths.'
 
     def add_arguments(self, parser):
@@ -33,8 +33,8 @@ class Command():
         tree_nodes = {}  # dictionary of meme id's to its tree nodes data. Each tree nodes data is a dictionary of user id's to its depth.
 
         reshares = mongodb.reshares.find({},
-                                         {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1,
-                                          'ref_user_id': 1}).sort('datetime')
+            {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1,
+             'ref_user_id': 1}).sort('datetime')
 
         count = reshares.count()
         logger.info('number of all reshares: {}'.format(count))
@@ -84,7 +84,7 @@ class Command():
                     rem_str = '{:.0f} minutes'.format(rem / 60)
                 logger.info(
                     '{} reshares done. mean time: {:.0f} s per {}. estimated remaining time: {}'
-                        .format(i, avg * step, step, rem_str))
+                    .format(i, avg * step, step, rem_str))
 
             if i % save_step == 0:
                 logger.info('saving temp data ...')

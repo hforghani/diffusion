@@ -3,10 +3,9 @@ import logging
 import os
 import re
 
-from django.conf import settings
-
 from cascade.models import CascadeNode
 from mln.file_generators import FileCreator
+import settings
 
 logger = logging.getLogger('mln.models')
 
@@ -53,7 +52,8 @@ class MLN(object):
                 if self.method == 'edge':
                     results_file_path = os.path.join(data_path, 'results-alchemy2-activates',
                                                      'results-%s-%s-m%d.results' % (
-                                                         self.project.project_name, FileCreator.FORMAT_ALCHEMY2, meme_id))
+                                                         self.project.project_name, FileCreator.FORMAT_ALCHEMY2,
+                                                         meme_id))
                 else:
                     results_file_path = os.path.join(data_path, 'results-alchemy2',
                                                      'results-%s-%s-m%d.results' % (

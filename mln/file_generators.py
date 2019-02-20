@@ -1,10 +1,8 @@
 import logging
 import os
 import numpy
-from django.db.models import Count
 from scipy import sparse
 
-from crud.models import UserAccount, Post, Reshare
 
 logger = logging.getLogger('mln.file_generators')
 

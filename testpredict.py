@@ -10,7 +10,6 @@ import numpy as np
 from matplotlib import pyplot
 # from profilehooks import timecall, profile
 from mongo import mongodb
-
 from cascade.avg import LTAvg
 from cascade.validation import Validation
 from cascade.saito import Saito
@@ -129,6 +128,14 @@ class Command:
             default=False,
             help="run tests on multiple processes",
         )
+        parser.add_argument(
+            "-v",
+            "--verbosity",
+            type=int,
+            dest="verbosity",
+            default=settings.VERBOSITY,
+            help="run tests on multiple processes",
+        )
 
     thresholds = {
         'mlnprac': settings.MLNPRAC_THRES,
@@ -146,14 +153,14 @@ class Command:
         self.user_ids = None
         self.users_map = None
 
-    def handle(self, *args, **options):
+    def handle(self, args):
         start = time.time()
-        project_names = options['project'].split(',')
-        self.verbosity = options['verbosity'] if options['verbosity'] is not None else settings.VERBOSITY
-        multi_processed = options['multi_processed']
+        project_names = args.project.split(',')
+        self.verbosity = args.verbosity
+        multi_processed = args.multi_processed
 
         # Get the method or raise exception.
-        method = options['method']
+        method = args.method
         if method is None:
             raise Exception('method not specified')
 
@@ -162,7 +169,7 @@ class Command:
         except KeyError:
             raise Exception('invalid method "%s"' % method)
 
-        if options['all_thresholds']:
+        if args.all_thresholds:
             step = settings_thr / self.THRESHOLDS_COUNT * 2
             thresholds = [step * i for i in range(self.THRESHOLDS_COUNT)]
         else:
@@ -182,7 +189,7 @@ class Command:
         models = self.train(method, project_names)
 
         for thr in thresholds:
-            if options['all_thresholds']:
+            if args.all_thresholds:
                 if self.verbosity:
                     logger.info('{0} THRESHOLD = {1} {0}'.format('=' * 20, thr))
             prec = []
@@ -217,7 +224,7 @@ class Command:
             final_f1.append(ff1)
             final_fpr.append(ffpr)
 
-        if options['all_thresholds']:
+        if args.all_thresholds:
             # Find the threshold with maximum F1.
             best_ind = int(np.argmax(np.array(final_f1)))
             best_f1, best_thres = final_f1[best_ind], thresholds[best_ind]

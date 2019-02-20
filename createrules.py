@@ -1,12 +1,19 @@
 # -*- coding: utf-8 -*-
+import argparse
+import logging
 import traceback
-from django.core.management.base import BaseCommand
 import time
 from cascade.models import Project
 from mln.file_generators import PracmlnCreator, Alchemy2Creator, FileCreator
+import settings
 
 
-class Command(BaseCommand):
+logging.basicConfig(format=settings.LOG_FORMAT)
+logger = logging.getLogger('createrules')
+logger.setLevel(settings.LOG_LEVEL)
+
+
+class Command:
     help = ''
 
     CREATORS = {
@@ -39,22 +46,30 @@ class Command(BaseCommand):
             ),
         )
 
-    def handle(self, *args, **options):
+    def handle(self, args):
         try:
             start = time.time()
 
             # Get project or raise exception.
-            project_name = options['project']
+            project_name = args.project
             if project_name is None:
                 raise Exception('project not specified')
             project = Project(project_name)
 
-            creator_clazz = self.CREATORS[options['format']]
+            creator_clazz = self.CREATORS[args.format]
             creator = creator_clazz(project)
-            creator.create_rules(options['out_file'])
+            creator.create_rules(args.out_file)
 
-            self.stdout.write('command done in %f min' % ((time.time() - start) / 60))
+            logger.info('command done in %f min' % ((time.time() - start) / 60))
 
         except:
-            self.stdout.write(traceback.format_exc())
+            logger.info(traceback.format_exc())
             raise
+
+
+if __name__ == '__main__':
+    c = Command()
+    parser = argparse.ArgumentParser(c.help)
+    c.add_arguments(parser)
+    args = parser.parse_args()
+    c.handle(args)

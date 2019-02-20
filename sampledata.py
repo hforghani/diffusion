@@ -4,7 +4,6 @@ import logging
 import traceback
 from random import shuffle
 import time
-import numpy as np
 
 import settings
 from cascade.models import Project
@@ -74,8 +73,6 @@ class Command:
                 user_samples = [u['_id'] for u in mongodb.users.aggregate([{'$sample': {'size': users_num}},
                                                                            {'$project': {'_id': 1}}])]
                 logger.info('sampling memes ...')
-                # user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id'])]
-                # user_samples = list(np.random.choice(user_ids, users_num, replace=False))
                 post_ids = [p['_id'] for p in mongodb.posts.find({'author_id': {'$in': user_samples}}, ['_id'])]
                 user_memes = [pm['meme_id'] for pm in
                               mongodb.postmemes.find({'post_id': {'$in': post_ids}}, {'_id': 0, 'meme_id': 1})]
@@ -87,7 +84,6 @@ class Command:
                     {'$sample': {'size': sample_num}},
                     {'$project': {'_id': 1}}
                 ])]
-                # meme_ids = list(np.random.choice(user_memes, sample_num, replace=False))
             else:
                 # Get all memes.
                 logger.info('sampling data ...')

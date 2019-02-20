@@ -1,6 +1,5 @@
 import logging
 import numpy as np
-import time
 import scipy
 
 logger = logging.getLogger('memm.memm')

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import _strptime  # Don't remove this line. It avoids import errors!
 from datetime import timedelta, datetime
-from django.utils.timezone import get_default_timezone_name
 import pytz
 
 DT_FORMAT = '%Y-%m-%d %H:%M:%S'
@@ -88,7 +86,7 @@ def timeline_data(datetimes, min_dt=None, max_dt=None):
 
 
 def localize(dt):
-    return pytz.timezone(get_default_timezone_name()).localize(dt)
+    return pytz.timezone('Asia/Tehran').localize(dt)
 
 
 def str_to_datetime(datetime_str, dt_format=None):
