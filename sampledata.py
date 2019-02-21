@@ -66,27 +66,37 @@ class Command:
                 raise Exception('project not specified')
 
             if args.sample_num:
-                # Sample user id's and get their memes. Sample memes from this set.
-                logger.info('sampling users ...')
-                sample_num = args.sample_num
-                users_num = args.users_num if args.users_num else sample_num * 10
-                user_samples = [u['_id'] for u in mongodb.users.aggregate([{'$sample': {'size': users_num}},
-                                                                           {'$project': {'_id': 1}}])]
-                logger.info('sampling memes ...')
-                post_ids = [p['_id'] for p in mongodb.posts.find({'author_id': {'$in': user_samples}}, ['_id'])]
-                user_memes = [pm['meme_id'] for pm in
-                              mongodb.postmemes.find({'post_id': {'$in': post_ids}}, {'_id': 0, 'meme_id': 1})]
-                query = {'_id': {'$in': user_memes}}
-                if args.min_depth:
-                    query['depth'] = {'$gte': args.min_depth}
-                meme_ids = [m['_id'] for m in mongodb.memes.aggregate([
-                    {'$match': query},
-                    {'$sample': {'size': sample_num}},
-                    {'$project': {'_id': 1}}
-                ])]
+                # Sample a limited number of user id's and get their memes. Then sample memes from this set.
+                if args.users_num:
+                    logger.info('sampling users ...')
+                    user_samples = [u['_id'] for u in mongodb.users.aggregate([{'$sample': {'size': args.users_num}},
+                                                                               {'$project': {'_id': 1}}])]
+                    logger.info('sampling memes ...')
+                    post_ids = [p['_id'] for p in mongodb.posts.find({'author_id': {'$in': user_samples}}, ['_id'])]
+                    user_memes = [pm['meme_id'] for pm in
+                                  mongodb.postmemes.find({'post_id': {'$in': post_ids}}, {'_id': 0, 'meme_id': 1})]
+                    query = {'_id': {'$in': user_memes}}
+                    if args.min_depth:
+                        query['depth'] = {'$gte': args.min_depth}
+                    meme_ids = [m['_id'] for m in mongodb.memes.aggregate([
+                        {'$match': query},
+                        {'$sample': {'size': args.sample_num}},
+                        {'$project': {'_id': 1}}
+                    ])]
+                else:
+                    # Sample sample_num memes with minimum depth if given.
+                    logger.info('sampling memes ...')
+                    query = {}
+                    if args.min_depth:
+                        query = {'depth': {'$gte': args.min_depth}}
+                    meme_ids = [m['_id'] for m in mongodb.memes.aggregate([
+                        {'$match': query},
+                        {'$sample': {'size': args.sample_num}},
+                        {'$project': {'_id': 1}}
+                    ])]
             else:
                 # Get all memes.
-                logger.info('sampling data ...')
+                logger.info('sampling memes ...')
                 query = {}
                 if args.min_depth:
                     query = {'depth': {'$gte': args.min_depth}}
