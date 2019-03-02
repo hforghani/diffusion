@@ -97,10 +97,10 @@ class CascadeTree(object):
         t1 = time.time()
 
         # Fetch posts related to the meme and reshares.
-        post_ids = [pm['post_id'] for pm in mongodb.postmemes.find({'meme_id': meme_id}, {'_id': 0, 'post_id': 1})]
+        post_ids = mongodb.postmemes.distinct('post_id', {'meme_id': meme_id})
         posts = mongodb.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
 
-        user_ids = [p['author_id'] for p in posts]
+        user_ids = list(set([p['author_id'] for p in posts]))
         reshares = mongodb.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
             .sort('datetime')
         if log:
@@ -594,12 +594,18 @@ class Project(object):
                 trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
             except FileNotFoundError:
                 trees = {}
-                for meme_id in self.training + self.test:
+                i = 0
+                all_memes = self.training + self.test
+                count = len(all_memes)
+                for meme_id in all_memes:
                     tree = CascadeTree().extract_cascade(meme_id)
                     trees[meme_id] = tree
                     trees_dict = {str(meme_id): tree.get_dict() for meme_id, tree in trees.items()}
                     # Save trees for the project.
                     self.save_param(trees_dict, 'trees', ParamTypes.JSON)
+                    i += 1
+                    if i % 10 == 0:
+                        logger.info('%d%% done', i * 100 / count)
 
         self.trees = trees
         return trees
