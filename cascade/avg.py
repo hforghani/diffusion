@@ -49,10 +49,6 @@ class LTAvg(AsLT):
         for ru in resh_users:
             users.extend([ru['user_id'], ru['ref_user_id']])
         users = list(set(users))
-        # query = {'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}}
-        # set1 = set(mongodb.reshares.distinct('user_id', query))
-        # set2 = set(mongodb.reshares.distinct('ref_user_id', query))
-        # users = list(set1 | set2)
 
         logger.info('counting posts of users ...')
         post_counts = mongodb.posts.aggregate([

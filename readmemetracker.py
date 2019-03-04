@@ -15,7 +15,6 @@ from mongo import mongodb
 import settings
 from utils.time_utils import str_to_datetime
 
-
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('readmemetracker')
 logger.setLevel(settings.LOG_LEVEL)
@@ -73,7 +72,6 @@ class Command:
             dest="post_texts",
             help="Set post texts according to their memes"
         )
-
 
     def handle(self, args):
         try:
@@ -146,10 +144,15 @@ class Command:
         logger.info('%d posts read' % i)
         logger.info('{} memes extracted from dataset'.format(len(memes)))
 
-        logger.info('loading existing memes ...')
-        existing_memes = {m['text'] for m in mongodb.memes.find({}, {'_id': 0, 'text': 1})}
-        memes -= existing_memes
+        logger.info('extracting new memes ...')
+        step = 10 ** 7
+        m_count = mongodb.memes.count()
+        for i in range(0, m_count, step):
+            existing_memes = {m['text'] for m in mongodb.memes.find({}, {'_id': 0, 'text': 1}).skip(i).limit(step)}
+            memes -= existing_memes
+            logger.info('{:.0f}% done'.format(min((i + step) / m_count * 100), 100))
         del existing_memes
+
         logger.info('creating %d new memes ...' % len(memes))
         meme_entities = []
         i = 0
@@ -167,17 +170,17 @@ class Command:
         del memes
         del meme_entities
 
-        logger.info('loading existing urls ...')
-        t0 = time.time()
-        posts = mongodb.posts.find({}, {'_id': 0, 'url': 1})
-        logger.info('posts query done in {:.2f} m'.format((time.time() - t0) / 60))
-        t0 = time.time()
-        existing_urls = {p['url'] for p in posts}
-        logger.info('urls flatted in {:.2f} m'.format((time.time() - t0) / 60))
-        t0 = time.time()
-        urls = {key: value for key, value in urls.items() if key not in existing_urls}
+        logger.info('extracting new urls ...')
+        step = 10 ** 7
+        p_count = mongodb.posts.count()
+        for i in range(0, p_count, step):
+            existing_urls = {p['url'] for p in mongodb.posts.find({}, {'_id': 0, 'url': 1}).skip(i).limit(step)}
+            for url in existing_urls:
+                urls.pop(url, None)
+            logger.info('{:.0f}% done'.format(min((i + step) / p_count * 100), 100))
         del existing_urls
-        logger.info('new urls extracted in {:.2f} m'.format((time.time() - t0) / 60))
+        logger.info('{} new urls extracted'.format(len(urls)))
+
         logger.info('loading existing usernames ...')
         existing_usernames = {u['username'] for u in mongodb.users.find({}, {'_id': 0, 'username': 1})}
         usernames = set([self.get_username(url) for url in urls]) - existing_usernames - {None}
@@ -191,7 +194,7 @@ class Command:
             i += 1
             if i % 100000 == 0:
                 mongodb.users.insert_many(users)
-                logger.info('%d users created' % i)
+                logger.info('{:.0f}% done'.format(i / len(usernames) * 100))
                 users = []
 
         if users:
@@ -224,12 +227,13 @@ class Command:
                 mongodb.posts.insert_many(posts)
                 posts = []
             if i % 100000 == 0:
-                logger.info('%d posts created (%.1f s)' % (i, (time.time() - t0)))
+                logger.info('{:.0f}% done ({:.1f} s)'.format(i / len(urls) * 100, (time.time() - t0)))
                 t0 = time.time()
 
         if posts:
             mongodb.posts.insert_many(posts)
-        logger.info('%d posts created (%.1f s)' % (i, (time.time() - t0)))
+        logger.info('100% done ({:.1f} s)'.format(time.time() - t0))
+
         del posts, urls, users_map
 
     # @profile
@@ -397,8 +401,8 @@ class Command:
         os.rename(from_path, temp_path)
 
     def replace(self, in_path, out_path, characters, replace_map):
-        in_batch_size = 1000
-        out_batch_size = 1000
+        in_batch_size = 10000
+        out_batch_size = 10000
 
         with open(in_path, encoding="utf8") as fin:
             with open(out_path, 'w', encoding="utf8") as fout:
