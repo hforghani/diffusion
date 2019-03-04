@@ -577,6 +577,8 @@ class Project(object):
             if verbosity:
                 logger.info('converting trees to objects ...')
             trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
+            if verbosity:
+                logger.info('done')
         except FileNotFoundError:
             try:
                 trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
@@ -592,6 +594,8 @@ class Project(object):
                 if verbosity:
                     logger.info('converting trees to objects ...')
                 trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
+                if verbosity:
+                    logger.info('done')
             except FileNotFoundError:
                 trees = {}
                 i = 0
@@ -675,12 +679,14 @@ class Project(object):
 
         try:
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
+            graph = relabel_nodes(graph, {n: ObjectId(n) for n in graph.nodes()})
+
             seq_copy = self.load_param(seq_fname, ParamTypes.JSON)
             sequences = {}
             for m in seq_copy:
-                users = [item[0] for item in seq_copy[m]['cascade']]
+                users = [ObjectId(item[0]) for item in seq_copy[m]['cascade']]
                 times = [item[1] for item in seq_copy[m]['cascade']]
-                sequences[int(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
+                sequences[ObjectId(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
 
         except:  # If graph and sequence data does not exist.
             logger.info('\tquerying posts ids ...')
@@ -694,55 +700,6 @@ class Project(object):
             sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
 
         return graph, sequences
-
-    def __extract_graph(self, post_ids, meme_ids, graph_fname):
-        """
-        Extract graph from given meme id's.
-        :param post_ids:    list of posts id's related to memes
-        :param meme_ids:    list of memes id's
-        :param graph_fname: the file name to save graph data
-        :return:            directed graph of all reshares
-        """
-
-        t0 = time.time()
-
-        logger.info('\tquerying reshares ...')
-        reshares = mongodb.reshares.find(
-            {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
-            {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
-        resh_count = reshares.count()
-        reshares.rewind()
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
-
-        logger.info('\textracting graph from %d posts and %s reshares ...' % (len(post_ids), resh_count))
-        edges = []
-        meme_ids = set(meme_ids)
-        i = 0
-
-        # Iterate on reshares to extract graph edges.
-        for resh in reshares:
-            user_id = resh['user_id']
-            ref_user_id = resh['ref_user_id']
-            if user_id != ref_user_id:
-                src_meme_ids = {pm['meme_id'] for pm in
-                                mongodb.postmemes.find({'post_id': resh['reshared_post_id']}, {'_id': 0, 'meme_id': 1})}
-                dest_meme_ids = {pm['meme_id'] for pm in
-                                 mongodb.postmemes.find({'post_id': resh['post_id']}, {'_id': 0, 'meme_id': 1})}
-                common_memes = meme_ids & src_meme_ids & dest_meme_ids
-                if common_memes:
-                    edges.append((ref_user_id, user_id))
-            i += 1
-            if i % (resh_count / 10) == 0:
-                logger.info('\t%d%% reshares done' % (i * 100 / resh_count))
-
-        graph = DiGraph()
-        graph.add_edges_from(edges)
-
-        logger.info('\tsaving graph ...')
-        self.save_param(graph, graph_fname, ParamTypes.GRAPH)
-
-        logger.info('\tgraph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
-        return graph
 
     def __extract_act_seq(self, posts_ids, meme_ids, seq_fname):
         """
@@ -804,6 +761,55 @@ class Project(object):
         logger.info('\tact. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return sequences
 
+    def __extract_graph(self, post_ids, meme_ids, graph_fname):
+        """
+        Extract graph from given meme id's.
+        :param post_ids:    list of posts id's related to memes
+        :param meme_ids:    list of memes id's
+        :param graph_fname: the file name to save graph data
+        :return:            directed graph of all reshares
+        """
+
+        t0 = time.time()
+
+        logger.info('\tquerying reshares ...')
+        reshares = mongodb.reshares.find(
+            {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
+            {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
+        resh_count = reshares.count()
+        reshares.rewind()
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+
+        logger.info('\textracting graph from %d posts and %s reshares ...' % (len(post_ids), resh_count))
+        edges = []
+        meme_ids = set(meme_ids)
+        i = 0
+
+        # Iterate on reshares to extract graph edges.
+        for resh in reshares:
+            user_id = resh['user_id']
+            ref_user_id = resh['ref_user_id']
+            if user_id != ref_user_id:
+                src_meme_ids = {pm['meme_id'] for pm in
+                                mongodb.postmemes.find({'post_id': resh['reshared_post_id']}, {'_id': 0, 'meme_id': 1})}
+                dest_meme_ids = {pm['meme_id'] for pm in
+                                 mongodb.postmemes.find({'post_id': resh['post_id']}, {'_id': 0, 'meme_id': 1})}
+                common_memes = meme_ids & src_meme_ids & dest_meme_ids
+                if common_memes:
+                    edges.append((ref_user_id, user_id))
+            i += 1
+            if i % (resh_count / 10) == 0:
+                logger.info('\t%d%% reshares done' % (i * 100 / resh_count))
+
+        graph = DiGraph()
+        graph.add_edges_from(edges)
+
+        logger.info('\tsaving graph ...')
+        self.save_param(graph, graph_fname, ParamTypes.GRAPH)
+
+        logger.info('\tgraph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
+        return graph
+
     def get_all_nodes(self):
         if self.trees is None:
             self.load_trees()
@@ -849,7 +855,6 @@ class Project(object):
         elif type == ParamTypes.GRAPH:
             graph = DiGraph()
             graph = read_adjlist(path, create_using=graph)
-            graph = relabel_nodes(graph, {n: int(n) for n in graph.nodes()})
             return graph
         else:
             raise Exception('invalid type "%s"' % type)

@@ -1,5 +1,6 @@
 import logging
 import time
+from bson import ObjectId
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm.memm import MEMM
 
@@ -38,6 +39,7 @@ class MEMMModel():
 
         try:
             sequences = self.project.load_param('seq-obs-state', ParamTypes.JSON)
+            sequences = {ObjectId(key): value for key, value in sequences.items()}
 
         except:
             sequences = {}  # sequences of (observation, state) for each user
@@ -74,7 +76,9 @@ class MEMMModel():
                     if log:
                         logger.info('%d memes done', count)
 
-            self.project.save_param(sequences, 'seq-obs-state', ParamTypes.JSON)
+            seq_to_save = {str(key): value for key, value in sequences.items()}
+            self.project.save_param(seq_to_save, 'seq-obs-state', ParamTypes.JSON)
+            del seq_to_save
 
         # Train a MEMM for each user.
         if log:
@@ -82,7 +86,6 @@ class MEMMModel():
         count = 0
         for uid, seq in sequences.items():
             count += 1
-            uid = int(uid)
             obs_dim = len(self.__parents[uid])
             if log:
                 logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
