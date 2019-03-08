@@ -148,7 +148,6 @@ class Command:
     THRESHOLDS_COUNT = 100
 
     def __init__(self):
-        super(Command, self).__init__()
         self.verbosity = settings.VERBOSITY
         self.user_ids = None
         self.users_map = None
@@ -301,7 +300,8 @@ class Command:
         """
         Create a process pool to distribute the prediction.
         """
-        process_count = multiprocessing.cpu_count()
+        #process_count = multiprocessing.cpu_count()
+        process_count = 4
         pool = Pool(processes=process_count)
         step = int(math.ceil(float(len(test_set)) / process_count))
         results = []

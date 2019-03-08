@@ -354,7 +354,7 @@ class Command:
             raise Exception('post does not exist with id {}'.format(post_id))
 
         # Assign the memes to the post.
-        post_memes = [{'post_id': ObjectId(post_id), 'meme_id': mid} for mid in meme_ids]
+        post_memes = [{'post_id': post_id, 'meme_id': mid} for mid in meme_ids]
 
         # Create reshares if the post is reshared.
         reshares = []
