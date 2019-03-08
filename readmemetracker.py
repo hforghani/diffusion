@@ -238,6 +238,20 @@ class Command:
 
     # @profile
     def create_relations(self, temp_data_path, start_index):
+        # Count the number of lines.
+        logger.info('counting main posts ...')
+        posts_count = 0
+        with open(temp_data_path, encoding="utf8") as f:
+            line = f.readline()
+            while line:
+                if line[0] == 'P':
+                    posts_count += 1
+                line = f.readline()
+                if not line:
+                    break
+
+        logger.info('processing {} main posts ...'.format(posts_count))
+
         source_ids = []
         post_id = None
         datetime = None
@@ -261,8 +275,19 @@ class Command:
                 # Count posts.
                 if char == 'P':
                     i += 1
+
                     if (not ignoring or i == start_index) and i % 10000 == 0:
-                        logger.info('processing posts: %d' % i)
+                        logger.info(
+                            'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
+                        if post_memes or reshares:
+                            mongodb.postmemes.insert_many(post_memes)
+                            mongodb.reshares.insert_many(reshares)
+                            post_memes = []
+                            reshares = []
+                            logger.info('time : %d s' % (time.time() - t0))
+                            t0 = time.time()
+                        logger.info('{:.0f}% done. processing from post number {} ...'.format(i / posts_count * 100, i))
+
                     elif ignoring and i % 100000 == 0:
                         logger.info('ignoring posts: %d' % i)
 
@@ -282,16 +307,6 @@ class Command:
                         pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
                         post_memes.extend(pm)
                         reshares.extend(resh)
-                        if i % 10000 == 0:
-                            logger.info(
-                                'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-                            mongodb.postmemes.insert_many(post_memes)
-                            mongodb.reshares.insert_many(reshares)
-                            post_memes = []
-                            reshares = []
-                            logger.info('time : %d s' % (time.time() - t0))
-                            t0 = time.time()
-
                     if '/' not in text:
                         post_id = ObjectId(text)
                     else:
@@ -374,9 +389,9 @@ class Command:
                 logger.info('replacing meme texts with meme ids from {} to {} ...'.format(offset, end))
                 self.replace(from_path, to_path, 'Q', memes_map)
                 del memes_map
+                logger.info('done in %.2f min' % ((time.time() - t0) / 60))
             i += 1
             from_path = to_path
-            logger.info('done in %.2f min' % ((time.time() - t0) / 60))
             t0 = time.time()
 
         # Replace post urls with post ids and create temporary data files.
@@ -393,9 +408,9 @@ class Command:
                 logger.info('replacing post urls with post ids from {} to {} ...'.format(offset, end))
                 self.replace(from_path, to_path, 'PL', posts_map)
                 del posts_map
+                logger.info('done in %.2f min' % ((time.time() - t0) / 60))
             i += 1
             from_path = to_path
-            logger.info('done in %.2f min' % ((time.time() - t0) / 60))
             t0 = time.time()
 
         os.rename(from_path, temp_path)
