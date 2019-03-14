@@ -150,7 +150,7 @@ class Command:
         for i in range(0, m_count, step):
             existing_memes = {m['text'] for m in mongodb.memes.find({}, {'_id': 0, 'text': 1}).skip(i).limit(step)}
             memes -= existing_memes
-            logger.info('{:.0f}% done'.format(min((i + step) / m_count * 100), 100))
+            logger.info('{:.0f}% done'.format(min((i + step) / m_count * 100, 100)))
         del existing_memes
 
         logger.info('creating %d new memes ...' % len(memes))
@@ -177,7 +177,7 @@ class Command:
             existing_urls = {p['url'] for p in mongodb.posts.find({}, {'_id': 0, 'url': 1}).skip(i).limit(step)}
             for url in existing_urls:
                 urls.pop(url, None)
-            logger.info('{:.0f}% done'.format(min((i + step) / p_count * 100), 100))
+            logger.info('{:.0f}% done'.format(min((i + step) / p_count * 100, 100)))
         del existing_urls
         logger.info('{} new urls extracted'.format(len(urls)))
 
@@ -354,7 +354,7 @@ class Command:
             raise Exception('post does not exist with id {}'.format(post_id))
 
         # Assign the memes to the post.
-        post_memes = [{'post_id': post_id, 'meme_id': mid} for mid in meme_ids]
+        post_memes = [{'post_id': post_id, 'meme_id': mid, 'datetime': datetime} for mid in meme_ids]
 
         # Create reshares if the post is reshared.
         reshares = []
