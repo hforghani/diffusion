@@ -10,7 +10,8 @@ for p in post_ids:
     if p['post_id'] in post_ids_done:
         continue
     dt = mongodb.posts.find_one({'_id': p['post_id']}, ['datetime'])['datetime']
-    mongodb.postmemes.update_many({'post_id': p['_id']}, {'$set': {'datetime': dt}})
+    mongodb.postmemes.update_many({'post_id': p['post_id']}, {'$set': {'datetime': dt}})
+    post_ids_done.add(p['post_id'])
     if i % 1000 == 0:
         print('{:.0f}% done. {} datetimes set'.format(i / count * 100, i))
 
