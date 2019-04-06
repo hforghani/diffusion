@@ -145,7 +145,7 @@ class Command:
         'avg': settings.LTAVG_THRES
     }
 
-    THRESHOLDS_COUNT = 100
+    THRESHOLDS_COUNT = 50
 
     def __init__(self):
         self.verbosity = settings.VERBOSITY
@@ -181,7 +181,6 @@ class Command:
 
         if method in ['saito', 'avg']:
             # Create dictionary of user id's to their sorted index.
-            #self.user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
             self.user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
 
