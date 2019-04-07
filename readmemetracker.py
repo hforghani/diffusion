@@ -153,7 +153,7 @@ class Command:
         #    logger.info('{:.0f}% done'.format(min((i + step) / m_count * 100, 100)))
         #del existing_memes
         i = 0
-        for m in mongodb.memes.find({}, {'_id': 0, 'text': 1}):
+        for m in mongodb.memes.find({}, {'_id': 0, 'text': 1}, no_cursor_timeout=True):
             i += 1
             memes.discard(m['text'])
             if i % step == 0:
@@ -180,7 +180,8 @@ class Command:
         step = 10 ** 7
         p_count = mongodb.posts.count()
         for i in range(0, p_count, step):
-            existing_urls = {p['url'] for p in mongodb.posts.find({}, {'_id': 0, 'url': 1}).skip(i).limit(step)}
+            existing_urls = {p['url'] for p in
+                             mongodb.posts.find({}, {'_id': 0, 'url': 1}, no_cursor_timeout=True).skip(i).limit(step)}
             for url in existing_urls:
                 urls.pop(url, None)
             logger.info('{:.0f}% done'.format(min((i + step) / p_count * 100, 100)))
