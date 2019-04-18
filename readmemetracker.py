@@ -147,11 +147,6 @@ class Command:
         logger.info('extracting new memes ...')
         step = 3 * 10 ** 6
         m_count = mongodb.memes.count()
-        #for i in range(0, m_count, step):
-        #    existing_memes = {m['text'] for m in mongodb.memes.find({}, {'_id': 0, 'text': 1}).skip(i).limit(step)}
-        #    memes -= existing_memes
-        #    logger.info('{:.0f}% done'.format(min((i + step) / m_count * 100, 100)))
-        #del existing_memes
         i = 0
         for m in mongodb.memes.find({}, {'_id': 0, 'text': 1}, no_cursor_timeout=True):
             i += 1

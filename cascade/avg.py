@@ -125,14 +125,15 @@ class LTAvg(AsLT):
                     logger.info('calculating diff. delays ...')
                     ignoring = False
             i += 1
-            delay = (resh['datetime'] - resh['ref_datetime']).total_seconds() / (3600.0 * 24)  # in days
-            if delay > 0:
+            if resh['ref_datetime'] is not None:
+                delay = (resh['datetime'] - resh['ref_datetime']).total_seconds() / (3600.0 * 24)  # in days
                 ind = user_map[resh['user_id']]
                 if not counts[ind] == 0:
                     r[ind] = delay
                 else:
                     r[ind] = (r[ind] * counts[ind] + delay) / (counts[ind] + 1)
                 counts[ind] += 1
+
             if i % 100000 == 0:
                 logger.info('\t%d reshares done' % i)
 
