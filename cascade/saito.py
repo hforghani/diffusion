@@ -196,7 +196,7 @@ class Saito(AsLT):
                         diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
                         w_col = w[:, uid_i].todense()
                         val = float(np.exp(-r[uid_i] * diff) * w_col[act_par_indexes] * r[uid_i])
-                        if np.float32(val) == 0:
+                        if np.float64(val) == 0:
                             logger.info('\tWARNING: h = 0')
 
                 if val:
@@ -207,7 +207,7 @@ class Saito(AsLT):
             if m_count >= 10 and i % (m_count / 10) == 0:
                 logger.info('\t%d%% done' % (i * 100 / m_count))
 
-        h = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
+        h = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float64)
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return h
 
