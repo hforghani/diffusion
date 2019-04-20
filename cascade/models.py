@@ -97,6 +97,8 @@ class CascadeTree(object):
         t1 = time.time()
 
         # Fetch posts related to the meme and reshares.
+        if isinstance(meme_id, str):
+            meme_id = ObjectId(meme_id)
         post_ids = mongodb.postmemes.distinct('post_id', {'meme_id': meme_id})
         posts = mongodb.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
 

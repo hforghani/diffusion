@@ -20,7 +20,7 @@ class Command:
     def add_arguments(self, parser):
         parser.add_argument(
             'meme_id',
-            type=int,
+            type=str,
             help='meme id',
         )
         parser.add_argument(
