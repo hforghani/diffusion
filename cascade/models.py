@@ -67,15 +67,18 @@ class CascadeNode(object):
             depth = max(depth, node.depth() + 1)
         return depth
 
-    def __create_anytree_node(self):
-        node = Node('{}({})'.format(self.user_id, self.post_id))
+    def __create_anytree_node(self, digest=False):
+        if not digest:
+            node = Node('{}({})'.format(self.user_id, self.post_id))
+        else:
+            node = Node(str(self.user_id))
         for child in self.children:
-            child_node = child.__create_anytree_node()
+            child_node = child.__create_anytree_node(digest)
             child_node.parent = node
         return node
 
-    def render(self):
-        node = self.__create_anytree_node()
+    def render(self, digest=False):
+        node = self.__create_anytree_node(digest)
         lines = []
         for pre, fill, node in RenderTree(node):
             lines.append('%s%s' % (pre, node.name))
@@ -239,8 +242,8 @@ class CascadeTree(object):
             depth = max(depth, node.depth())
         return depth
 
-    def render(self):
-        return '\n'.join([root.render() for root in self.roots])
+    def render(self, digest=False):
+        return '\n'.join([root.render(digest) for root in self.roots])
 
 
 class ActSequence(object):

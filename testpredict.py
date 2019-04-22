@@ -19,8 +19,12 @@ from mln.models import MLN
 from mln.file_generators import FileCreator
 import settings
 
+#logging.basicConfig(format=settings.LOG_FORMAT)
 logging.basicConfig(format=settings.LOG_FORMAT)
+file_handler = logging.FileHandler('testpredict.log', 'w', 'utf-8')
+file_handler.setFormatter(logging.Formatter(settings.LOG_FORMAT))
 logger = logging.getLogger('testpredict')
+logger.addHandler(file_handler)
 logger.setLevel(settings.LOG_LEVEL)
 
 
@@ -34,9 +38,19 @@ def evaluate(initial_tree, res_tree, tree, all_nodes, verbosity=settings.VERBOSI
 
     # Evaluate the result.
     meas = Validation(res_output, true_output, all_nodes)
-    prec = meas.precision()
-    rec = meas.recall()
-    return meas, prec, rec, res_output, true_output
+    return meas, res_output, true_output
+
+
+def log_trees(tree, res_tree):
+    tree_render = tree.render(digest=True).split('\n')
+    res_tree_render = res_tree.render(digest=True).split('\n')
+    max_len = max([len(line) for line in tree_render])
+    max_lines = max(len(tree_render), len(res_tree_render))
+    formatted_line = '{:' + str(max_len + 5) + '}{}'
+    logger.info(formatted_line.format('true tree:', 'output tree:'))
+    for i in range(max_lines):
+        logger.info(formatted_line.format(tree_render[i] if i < len(tree_render) else '',
+                                          res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
 def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids, users_map,
@@ -44,8 +58,10 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
     try:
         prp1_list = []
         prp2_list = []
-        all_res_nodes = []
-        all_true_nodes = []
+        precisions = []
+        recalls = []
+        fprs = []
+        f1s = []
 
         for meme_id in meme_ids:
             tree = trees[meme_id]
@@ -65,7 +81,7 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
                 res_tree = model.predict(initial_tree, threshold=threshold, log=verbosity > 2)
 
             # Evaluate the results.
-            meas, prec, rec, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids)
+            meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids)
 
             if method in ['saito', 'avg']:
                 prp = meas.prp(model.probabilities)
@@ -74,20 +90,25 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
                 prp1_list.append(prp1)
                 prp2_list.append(prp2)
 
-            # Put meme id str at the beginning of user id to make it unique.
-            all_res_nodes.extend({'{}-{}'.format(meme_id, node) for node in res_output})
-            all_true_nodes.extend({'{}-{}'.format(meme_id, node) for node in true_output})
+            prec = meas.precision()
+            rec = meas.recall()
+            fpr = meas.fpr()
+            f1 = meas.f1()
+            precisions.append(prec)
+            recalls.append(rec)
+            fprs.append(fpr)
+            f1s.append(f1)
 
-            if verbosity > 2:
-                log = 'meme %d: %d outputs, %d true, precision = %.3f, recall = %.3f' % (
-                    meme_id, len(res_output), len(true_output), prec, rec)
+            if verbosity > 1:
+                log = 'meme %s: %d outputs, %d true, precision = %.3f, recall = %.3f, , f1 = %.3f' % (
+                    meme_id, len(res_output), len(true_output), prec, rec, f1)
                 if method in ['saito', 'avg']:
                     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                 logger.info(log)
-                # logger.info('output: %s', res_output)
-                # logger.info('true: %s', true_output)
+            if verbosity > 2:
+                log_trees(tree, res_tree)
 
-        return all_res_nodes, all_true_nodes, prp1_list, prp2_list
+        return precisions, recalls, f1s, fprs, prp1_list, prp2_list
 
     except:
         print(traceback.format_exc())
@@ -134,7 +155,7 @@ class Command:
             type=int,
             dest="verbosity",
             default=settings.VERBOSITY,
-            help="run tests on multiple processes",
+            help="verbosity level",
         )
 
     thresholds = {
@@ -189,7 +210,7 @@ class Command:
         for thr in thresholds:
             if args.all_thresholds:
                 if self.verbosity:
-                    logger.info('{0} THRESHOLD = {1} {0}'.format('=' * 20, thr))
+                    logger.info('{0} THRESHOLD = {1:.3f} {0}'.format('=' * 20, thr))
             prec = []
             recall = []
             f1 = []
@@ -197,11 +218,12 @@ class Command:
 
             for p_name in project_names:
                 model = models[p_name]
-                measure = self.test(model, method, thr, multi_processed)
-                prec.append(measure.precision())
-                recall.append(measure.recall())
-                f1.append(measure.f1())
-                fpr.append(measure.fpr())
+                #measure = self.test(model, method, thr, multi_processed)
+                mprec, mrec, mf1, mfpr = self.test(model, method, thr, multi_processed)
+                prec.append(mprec)
+                recall.append(mrec)
+                f1.append(mf1)
+                fpr.append(mfpr)
 
             if len(project_names) > 1:
                 fprec = np.mean(np.array(prec))
@@ -222,6 +244,9 @@ class Command:
             final_f1.append(ff1)
             final_fpr.append(ffpr)
 
+        if self.verbosity:
+            logger.info('command done in %.2f min' % ((time.time() - start) / 60))
+
         if args.all_thresholds:
             # Find the threshold with maximum F1.
             best_ind = int(np.argmax(np.array(final_f1)))
@@ -231,9 +256,6 @@ class Command:
 
             self.__display_charts(best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
                                   thresholds)
-
-        if self.verbosity:
-            logger.info('command done in %.2f min' % ((time.time() - start) / 60))
 
     def train(self, method, project_names):
         models = {}
@@ -269,31 +291,29 @@ class Command:
             logger.info('test set size = %d' % len(test_set))
 
         if multi_processed:
-            all_res_nodes, all_true_nodes, prp1_list, prp2_list = self.__test_multi_processed(test_set, method, model,
-                                                                                              threshold, trees,
-                                                                                              all_node_ids)
+            precisions, recalls, f1s, fprs, prp1_list, prp2_list = self.__test_multi_processed(test_set, method, model,
+                                                                                               threshold, trees,
+                                                                                               all_node_ids)
         else:
-            all_res_nodes, all_true_nodes, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees,
-                                                                            all_node_ids, self.user_ids, self.users_map,
-                                                                            self.verbosity)
+            precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees,
+                                                                             all_node_ids, self.user_ids,
+                                                                             self.users_map, self.verbosity)
 
-        # Gather all "meme_id-node_id" pairs as reference set.
-        all_nodes = []
-        for meme_id in set(test_set).union(set(train_set)):
-            all_nodes.extend({'{}-{}'.format(meme_id, node) for node in trees[meme_id].node_ids()})
+        mean_prec = np.array(precisions).mean()
+        mean_rec = np.array(recalls).mean()
+        mean_fpr = np.array(fprs).mean()
+        mean_f1 = np.array(f1s).mean()
 
-        # Evaluate total results.
-        meas = Validation(all_res_nodes, all_true_nodes, all_nodes)
-        prec, rec, f1 = meas.precision(), meas.recall(), meas.f1()
         if self.verbosity > 1:
-            logger.info('project %s: %d outputs, %d true, precision = %.3f, recall = %.3f, f1 = %.3f' % (
-                project.project_name, len(all_res_nodes), len(all_true_nodes), prec, rec, f1))
+            logger.info('project %s: mean precision = %.3f, mean recall = %.3f, f1 = %.3f' % (
+                project.project_name, mean_prec, mean_rec, mean_f1))
 
         if method in ['saito', 'avg'] and self.verbosity > 1:
             logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
             logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
 
-        return meas
+        #return meas
+        return mean_prec, mean_rec, mean_f1, mean_fpr
 
     def __test_multi_processed(self, test_set, method, model, threshold, trees, all_node_ids):
         """
@@ -316,18 +336,22 @@ class Command:
 
         prp1_list = []
         prp2_list = []
-        all_res_nodes = []
-        all_true_nodes = []
+        precisions = []
+        recalls = []
+        fprs = []
+        f1s = []
 
         # Collect results of the processes.
         for res in results:
-            r1, r2, r3, r4 = res.get()
-            all_res_nodes.extend(r1)
-            all_true_nodes.extend(r2)
-            prp1_list.extend(r3)
-            prp2_list.extend(r4)
+            r1, r2, r3, r4, r5, r6 = res.get()
+            precisions.extend(r1)
+            recalls.extend(r2)
+            fprs.extend(r3)
+            recalls.extend(r4)
+            prp1_list.extend(r5)
+            prp2_list.extend(r6)
 
-        return all_res_nodes, all_true_nodes, prp1_list, prp2_list
+        return precisions, recalls, f1s, fprs, prp1_list, prp2_list
 
     def __display_charts(self, best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
                          thresholds):
