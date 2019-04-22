@@ -74,7 +74,7 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
             # Predict remaining nodes.
             if method in ['mlnprac', 'mlnalch']:
                 res_tree = model.predict(meme_id, initial_tree, threshold=threshold, log=verbosity > 2)
-            elif method in ['saito', 'avg']:
+            elif method in ['aslt', 'avg']:
                 res_tree = model.predict(initial_tree, threshold=threshold, user_ids=user_ids, users_map=users_map,
                                          log=verbosity > 2)
             else:
@@ -83,7 +83,7 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
             # Evaluate the results.
             meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids)
 
-            if method in ['saito', 'avg']:
+            if method in ['aslt', 'avg']:
                 prp = meas.prp(model.probabilities)
                 prp1 = prp[0] if prp else 0
                 prp2 = prp[1] if len(prp) > 1 else 0
@@ -102,7 +102,7 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
             if verbosity > 1:
                 log = 'meme %s: %d outputs, %d true, precision = %.3f, recall = %.3f, , f1 = %.3f' % (
                     meme_id, len(res_output), len(true_output), prec, rec, f1)
-                if method in ['saito', 'avg']:
+                if method in ['aslt', 'avg']:
                     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                 logger.info(log)
             if verbosity > 2:
@@ -131,7 +131,15 @@ class Command:
             "--method",
             type=str,
             dest="method",
-            help="the method by which we want to test. values: saito, avg, mlnalch, mlnprac, memm",
+            choices=['mlnprac', 'mlnalch', 'memm', 'aslt', 'avg'],
+            help="the method by which we want to test",
+        )
+        parser.add_argument(
+            "-t",
+            "--threshold",
+            type=float,
+            dest="threshold",
+            help="the threshold to apply on the method",
         )
         parser.add_argument(
             "-a",
@@ -158,14 +166,6 @@ class Command:
             help="verbosity level",
         )
 
-    thresholds = {
-        'mlnprac': settings.MLNPRAC_THRES,
-        'mlnalch': settings.MLNALCH_THRES,
-        'memm': settings.MEMM_THRES,
-        'saito': settings.ASLT_THRES,
-        'avg': settings.LTAVG_THRES
-    }
-
     THRESHOLDS_COUNT = 50
 
     def __init__(self):
@@ -182,25 +182,23 @@ class Command:
         # Get the method or raise exception.
         method = args.method
         if method is None:
-            raise Exception('method not specified')
-
-        try:
-            settings_thr = self.thresholds[method]
-        except KeyError:
-            raise Exception('invalid method "%s"' % method)
+            raise Exception('--method argument required')
 
         if args.all_thresholds:
-            step = settings_thr / self.THRESHOLDS_COUNT * 2
-            thresholds = [step * i for i in range(self.THRESHOLDS_COUNT)]
+            thres_min, thres_max = settings.THRESHOLDS[method]
+            step = (thres_max - thres_min) / (self.THRESHOLDS_COUNT - 1)
+            thresholds = [step * i + thres_min for i in range(self.THRESHOLDS_COUNT)]
+        elif args.threshold is None:
+            raise Exception('either --all or --threshold arguments must be given')
         else:
-            thresholds = [settings_thr]
+            thresholds = [args.threshold]
 
         final_prec = []
         final_recall = []
         final_f1 = []
         final_fpr = []
 
-        if method in ['saito', 'avg']:
+        if method in ['aslt', 'avg']:
             # Create dictionary of user id's to their sorted index.
             self.user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
@@ -218,7 +216,6 @@ class Command:
 
             for p_name in project_names:
                 model = models[p_name]
-                #measure = self.test(model, method, thr, multi_processed)
                 mprec, mrec, mf1, mfpr = self.test(model, method, thr, multi_processed)
                 prec.append(mprec)
                 recall.append(mrec)
@@ -269,7 +266,7 @@ class Command:
             elif method == 'memm':
                 train_set, _ = project.load_train_test()
                 model = MEMMModel(project).fit(train_set, log=self.verbosity > 2)
-            elif method == 'saito':
+            elif method == 'aslt':
                 model = Saito(project)
             elif method == 'avg':
                 model = LTAvg(project)
@@ -308,7 +305,7 @@ class Command:
             logger.info('project %s: mean precision = %.3f, mean recall = %.3f, f1 = %.3f' % (
                 project.project_name, mean_prec, mean_rec, mean_f1))
 
-        if method in ['saito', 'avg'] and self.verbosity > 1:
+        if method in ['aslt', 'avg'] and self.verbosity > 1:
             logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
             logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
 
