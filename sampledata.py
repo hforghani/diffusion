@@ -103,6 +103,11 @@ class Command:
                 meme_ids = [m['_id'] for m in mongodb.memes.find(query, ['_id'])]
                 shuffle(meme_ids)
 
+            if not meme_ids:
+                raise Exception('no memes sampled; change the command arguments')
+            elif args.sample_num and len(meme_ids) < args.sample_num:
+                logger.warn('number of sampled memes is less than "number" argument')
+
             # Separate training and test sets.
             ratio = args.ratio
             train_num = int(ratio * len(meme_ids))
