@@ -58,6 +58,8 @@ class Command:
         return i, depths, tree_nodes
 
     def save_data(self, i, depths, tree_nodes):
+        if not os.path.exists('data/memedepths'):
+            os.mkdir('data/memedepths')
         with open('data/memedepths/i.json', 'w') as f:
             json.dump({'i': i}, f)
         with open('data/memedepths/depths.json', 'w') as f:

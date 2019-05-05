@@ -14,11 +14,11 @@ do
 
     echo "=============== running inference on meme " $meme "..."
     ~/social/alchemy-2/bin/infer -i ../data/$project/weights-$project-alchemy2.mln \
-                                 -e ../data/$project/evidence-alchemy2/ev-test-$project-alchemy2-m$meme.db \
-                                 -r ../data/$project/results-alchemy2/results-$project-alchemy2-m$meme.results \
+                                 -e ../data/$project/evidence-alchemy2/ev-test-$project-alchemy2-$meme.db \
+                                 -r ../data/$project/results-alchemy2/results-$project-alchemy2-$meme.results \
                                  -q isActivated \
                                  -maxSteps 1000
-                                 2>&1 | tee log/infer-alchemy2-m$meme.log
+                                 2>&1 | tee log/infer-alchemy2-$meme.log
     shift
 
 done

@@ -112,7 +112,7 @@ class FileCreator:
                 logger.info('>>> writing "isActivated" rules ...')
                 for meme_id in self.test_memes:
                     meme_out_file = os.path.join(self.project.project_path, 'evidence-%s' % self.format,
-                                                 'ev-test-%s-%s-m%d.db' % (
+                                                 'ev-test-%s-%s-%s.db' % (
                                                      self.project.project_name, self.format, meme_id))
                     self.__write_isactivated(self.trees, [meme_id], meme_out_file, initials=True)
 
