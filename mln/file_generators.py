@@ -3,7 +3,6 @@ import os
 import numpy
 from scipy import sparse
 
-
 logger = logging.getLogger('mln.file_generators')
 
 
@@ -33,7 +32,7 @@ class FileCreator:
         contents = ''
         logger.info('training set size = %d' % len(self.train_memes))
         if self.put_declarations:
-            print('>>> writing declarations ...')
+            logger.info('>>> writing declarations ...')
             contents += '// predicate declarations\n' \
                         'activates(user,user,meme)\n' \
                         'isActivated(user,meme)\n\n'
@@ -44,7 +43,7 @@ class FileCreator:
             if self.format == self.FORMAT_PRACMLN:
                 pass  # TODO
             elif self.format == self.FORMAT_ALCHEMY2:
-                print('>>> writing hard formulas ...')
+                logger.info('>>> writing hard formulas ...')
                 contents += '!activates({0}1, {0}1, {1}).\n' \
                             'activates({0}1, {0}2, {1}) => isActivated({0}2, {1}).\n' \
                             '!(activates({0}1, {0}3, {1}) ^ activates({0}2, {0}3, {1}) ^ ({0}1 != {0}2)).\n\n'.format(
@@ -52,6 +51,7 @@ class FileCreator:
             else:
                 raise ValueError('invalid format %s' % self.format)
 
+        # Extract edges of all training memes. Put indexes instead of node id's.
         edges = set()
         for meme_id in self.train_memes:
             edges.update(self.trees[meme_id].edges())
@@ -60,8 +60,8 @@ class FileCreator:
         for sender, receiver in edges:
             if self.put_zero_weights:
                 contents += '0     '
-            contents += 'isActivated({0}{1}, {3}) => activates({0}{1}, {0}{2}, {3})\n'.format(self.user_prefix, sender,
-                                                                                              receiver,
+            contents += 'isActivated({0}{1}, {3}) => activates({0}{1}, {0}{2}, {3})\n'.format(self.user_prefix,
+                                                                                              sender, receiver,
                                                                                               self.meme_var_name)
 
         # Get the path of rules file.
@@ -82,7 +82,6 @@ class FileCreator:
         if target_set is None or target_set == 'train':
             # Get and delete the content of evidence file.
             out_file = os.path.join(out_dir, 'ev-train-%s-%s.db' % (self.project.project_name, self.format))
-            open(out_file, 'w')
 
             logger.info('rules will be created for training set')
             logger.info('training set size = %d' % len(self.train_memes))
@@ -101,7 +100,6 @@ class FileCreator:
         if target_set is None or target_set == 'test':
             # Get and delete the content of evidence file.
             out_file = os.path.join(out_dir, 'ev-test-%s-%s.db' % (self.project.project_name, self.format))
-            open(out_file, 'w')
 
             logger.info('rules will be created for test set')
             logger.info('test set size = %d' % len(self.test_memes))
@@ -162,8 +160,8 @@ class FileCreator:
             for meme_id in meme_ids:
                 edges = trees[meme_id].edges()
                 for edge in edges:
-                    f.write('activates({0}{2}, {0}{3}, {1}{4})\n'.format(self.user_prefix, self.meme_prefix, edge[0],
-                                                                         edge[1], meme_id))
+                    f.write('activates({0}{2}, {0}{3}, {1}{4})\n'.format(self.user_prefix, self.meme_prefix,
+                                                                         edge[0], edge[1], meme_id))
             f.write('\n')
 
 
