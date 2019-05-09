@@ -82,6 +82,7 @@ class FileCreator:
         if target_set is None or target_set == 'train':
             # Get and delete the content of evidence file.
             out_file = os.path.join(out_dir, 'ev-train-%s-%s.db' % (self.project.project_name, self.format))
+            open(out_file, 'w').close()
 
             logger.info('rules will be created for training set')
             logger.info('training set size = %d' % len(self.train_memes))
@@ -100,6 +101,7 @@ class FileCreator:
         if target_set is None or target_set == 'test':
             # Get and delete the content of evidence file.
             out_file = os.path.join(out_dir, 'ev-test-%s-%s.db' % (self.project.project_name, self.format))
+            open(out_file, 'w').close()
 
             logger.info('rules will be created for test set')
             logger.info('test set size = %d' % len(self.test_memes))
@@ -112,6 +114,7 @@ class FileCreator:
                     meme_out_file = os.path.join(self.project.project_path, 'evidence-%s' % self.format,
                                                  'ev-test-%s-%s-%s.db' % (
                                                      self.project.project_name, self.format, meme_id))
+                    open(out_file, 'w').close()
                     self.__write_isactivated(self.trees, [meme_id], meme_out_file, initials=True)
 
     def __write_follows(self, user_ids, user_indexes, train_memes, out_file):
