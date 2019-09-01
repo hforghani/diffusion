@@ -11,3 +11,5 @@ beautifulsoup4
 nltk
 pygtrie
 anytree
+bson
+matplotlib
