@@ -1,0 +1,457 @@
+# -*- coding: utf-8 -*-
+import argparse
+import logging
+import os
+import re
+import traceback
+import time
+
+from bson import SON
+from bson.objectid import ObjectId
+import pygtrie
+from pymongo.operations import UpdateOne
+
+from mongo import mongodb
+import settings
+from utils.time_utils import str_to_datetime
+
+logging.basicConfig(format=settings.LOG_FORMAT)
+logger = logging.getLogger('readweibo')
+logger.setLevel(settings.LOG_LEVEL)
+
+
+class Command:
+    help = 'Create database instances in MongoDB using weibo dataset.'
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "root_content_file", type=str, required=True,
+            help="path of Root_Content.txt file in Weibo dataset"
+        )
+        parser.add_argument(
+            "retweet_content_file", type=str, required=True,
+            help="path of Retweet_Content.txt file in Weibo dataset"
+        )
+        parser.add_argument(
+            "-s", "--start", type=int, dest="start_index",
+            help="determine which index of post in the dataset file to start from"
+        )
+        parser.add_argument(
+            "-a", "--attributes", action="store_true", dest="set_attributes",
+            help="just set attributes and ignore creating data"
+        )
+        parser.add_argument(
+            "-c", "--clear", action="store_true", dest="clear",
+            help="clear existing data and continue"
+        )
+        parser.add_argument(
+            "-r", "--roots", action="store_true", dest="roots",
+            help="just create memes and their root posts"
+        )
+        parser.add_argument(
+            "-t", "--retweets", action="store_true", dest="retweets",
+            help="just create retweet data and complete root post fields"
+        )
+
+    def handle(self, args):
+        try:
+            start = time.time()
+
+            # Delete all data.
+            if args.clear and not args.set_attributes:
+                logger.info('======== deleting data ...')
+                mongodb.postmemes.delete_many()
+                mongodb.reshares.delete_many()
+                mongodb.posts.delete_many()
+                mongodb.memes.delete_many()
+                mongodb.users.delete_many()
+
+            # Create memes and their root posts.
+            if (args.entities or not args.relations) and not args.set_attributes:
+                self.create_roots(args.root_content_file)
+                logger.info('======== creating memes ...')
+
+            # Create retweet data and complete original posts fields.
+            if (args.relations or not args.entities) and not args.set_attributes:
+                logger.info('======== creating retweets ...')
+                self.create_retweets(args.retweet_content_file, start_index=args.start_index)
+
+            # Set the meme count, first time, and last time attributes of memes.
+            if args.set_attributes:
+                logger.info('======== setting counts and publication times for the memes ...')
+                self.calc_memes_values()
+
+            logger.info('======== command done in %f min' % ((time.time() - start) / 60))
+        except:
+            logger.info(traceback.format_exc())
+            raise
+
+
+    def create_roots(self, path):
+        """
+        Create memes and their root posts reading the file Root_Content.txt .
+        :param path: path of the file Root_Content.txt
+        """
+        posts = []
+        post_memes = []
+        i = 0
+
+        logger.info('reading urls and memes from dataset ...')
+        with open(path, encoding="utf8") as f:
+            line = f.readline()[:-1]
+            post_id = None
+
+            while line:
+                if post_id is None:
+                    if line[0] != '@' and line[:4] != 'link':
+                        post_id = line
+                else:
+                    content = [int(index) for index in ' '.split(line)]
+                    posts.append({'_id': ObjectId(post_id)})
+                    meme_id = mongodb.memes.insert_one({'text': content}).inserted_id
+                    post_memes.append({'post_id': ObjectId(post_id), 'meme_id': meme_id})
+                    i += 1
+                    if i % 10000 == 0:
+                        logger.info('%d posts read' % i)
+                    if i % 100000 == 0:
+                        mongodb.posts.insert_many(posts)
+                        mongodb.postmemes.insert_many(post_memes)
+                        logger.info('%d memes and their original posts created' % i)
+                        posts = []
+                        post_memes = []
+
+                line = f.readline()[:-1]
+
+        if posts:
+            mongodb.posts.insert_many(posts)
+            mongodb.postmemes.insert_many(post_memes)
+            logger.info('%d memes and their original posts created' % i)
+
+
+    # @profile
+    def create_retweets(self, path, start_index):
+        # Count the number of lines.
+        logger.info('counting main posts ...')
+        posts_count = 0
+        with open(temp_data_path, encoding="utf8") as f:
+            line = f.readline()
+            while line:
+                if line[0] == 'P':
+                    posts_count += 1
+                line = f.readline()
+                if not line:
+                    break
+
+        logger.info('processing {} main posts ...'.format(posts_count))
+
+        source_ids = []
+        post_id = None
+        datetime = None
+        meme_ids = []
+        post_memes = []
+        reshares = []
+        i = 0
+        t0 = time.time()
+
+        # if 'start_index' is specified, ignore lower indexes.
+        ignoring = False
+        if start_index:
+            ignoring = True
+
+        with open(temp_data_path, encoding="utf8") as f:
+            line = f.readline()
+
+            while line:
+                char = line[0]
+
+                # Count posts.
+                if char == 'P':
+                    i += 1
+
+                    if (not ignoring or i == start_index) and i % 10000 == 0:
+                        logger.info(
+                            'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
+                        if post_memes or reshares:
+                            mongodb.postmemes.insert_many(post_memes)
+                            mongodb.reshares.insert_many(reshares)
+                            post_memes = []
+                            reshares = []
+                            logger.info('time : %d s' % (time.time() - t0))
+                            t0 = time.time()
+                        logger.info('{:.0f}% done. processing from post number {} ...'.format(i / posts_count * 100, i))
+
+                    elif ignoring and i % 100000 == 0:
+                        logger.info('ignoring posts: %d' % i)
+
+                # Handle if it is in ignoring state.
+                if ignoring:
+                    if i <= start_index:
+                        line = f.readline()
+                        continue
+                    else:
+                        ignoring = False
+                        t0 = time.time()
+
+                text = line[2:-1]
+
+                if char == 'P':  # post line
+                    if post_id is not None:
+                        pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
+                        post_memes.extend(pm)
+                        reshares.extend(resh)
+                    if '/' not in text:
+                        post_id = ObjectId(text)
+                    else:
+                        raise Exception("invalid post id: '{}'".format(text))
+                    source_ids = []
+                    meme_ids = []
+                elif char == 'T':  # time line
+                    datetime = str_to_datetime(text)
+                elif char == 'Q':  # meme line
+                    if ' ' not in text:
+                        meme_id = ObjectId(text)
+                        meme_ids.append(meme_id)
+                    else:
+                        logger.info("meme '{}' ignored".format(text))
+                elif char == 'L':  # link line
+                    if '/' not in text:
+                        source_ids.append(ObjectId(text))
+                    else:
+                        try:
+                            logger.info("link '{}' ignored".format(text))
+                        except UnicodeEncodeError:
+                            logger.info("a link with non-utf8 url ignored")
+
+                line = f.readline()
+
+        # Add the relations of the last post.
+        pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
+        post_memes.extend(pm)
+        reshares.extend(resh)
+
+        # Save the remaining relations.
+        logger.info(
+            'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
+        mongodb.postmemes.insert_many(post_memes)
+        mongodb.reshares.insert_many(reshares)
+
+    # @profile
+    def get_post_rels(self, post_id, datetime, meme_ids, source_ids):
+        """
+        Create PostMeme and Reshare instances for the referenced links. Just create the instances not inserting in the db.
+        """
+        # Create the post.
+        post = mongodb.posts.find_one({'_id': post_id})
+        if post is None:
+            raise Exception('post does not exist with id {}'.format(post_id))
+
+        # Assign the memes to the post.
+        post_memes = [{'post_id': post_id, 'meme_id': mid, 'datetime': datetime} for mid in meme_ids]
+
+        # Create reshares if the post is reshared.
+        reshares = []
+        src_ids = set(source_ids) - {post_id}
+        if src_ids:
+            src_posts = mongodb.posts.find({'_id': {'$in': list(src_ids)}})
+            count = src_posts.count()
+            src_posts.rewind()
+            if count != len(src_ids):  # Raise an error if some of link posts do not exist.
+                not_existing = src_ids - {p['_id'] for p in src_posts}
+                raise Exception('link post does not exist with id(s): {}'.format(', '.join(not_existing)))
+            for src_post in src_posts:
+                reshares.append({'post_id': post['_id'], 'reshared_post_id': src_post['_id'], 'datetime': datetime,
+                                 'user_id': post['author_id'], 'ref_user_id': src_post['author_id'],
+                                 'ref_datetime': src_post['datetime']})
+
+        return post_memes, reshares
+
+    def create_temp(self, path, temp_path):
+        # Replace meme texts with meme ids and create temporary data files.
+        from_path = path
+        memes_count = mongodb.memes.count()
+        step = 10 ** 7
+        i = 0
+        t0 = time.time()
+        for offset in range(0, memes_count, step):
+            to_path = '{}.memes{}'.format(temp_path, i)
+            if not os.path.exists(to_path):
+                end = min(offset + step, memes_count)
+                logger.info('loading memes map from {} to {} ...'.format(offset, end))
+                memes_map = self.load_memes(offset, step)
+                logger.info('replacing meme texts with meme ids from {} to {} ...'.format(offset, end))
+                self.replace(from_path, to_path, 'Q', memes_map)
+                del memes_map
+                logger.info('done in %.2f min' % ((time.time() - t0) / 60))
+            i += 1
+            from_path = to_path
+            t0 = time.time()
+
+        # Replace post urls with post ids and create temporary data files.
+        posts_count = mongodb.posts.count()
+        step = 10 ** 7
+        i = 0
+        t0 = time.time()
+        for offset in range(0, posts_count, step):
+            to_path = '{}.posts{}'.format(temp_path, i)
+            if not os.path.exists(to_path):
+                end = min(offset + step, posts_count)
+                logger.info('loading posts map from {} to {} ...'.format(offset, end))
+                posts_map = self.load_posts(offset, step)
+                logger.info('replacing post urls with post ids from {} to {} ...'.format(offset, end))
+                self.replace(from_path, to_path, 'PL', posts_map)
+                del posts_map
+                logger.info('done in %.2f min' % ((time.time() - t0) / 60))
+            i += 1
+            from_path = to_path
+            t0 = time.time()
+
+        os.rename(from_path, temp_path)
+
+    def replace(self, in_path, out_path, characters, replace_map):
+        in_batch_size = 10000
+        out_batch_size = 10000
+
+        with open(in_path, encoding="utf8") as fin:
+            with open(out_path, 'w', encoding="utf8") as fout:
+                in_lines = []
+                out_lines = []
+
+                while True:
+                    if not in_lines:
+                        in_lines = fin.readlines(in_batch_size)
+                        if not in_lines:
+                            break
+                    line = in_lines.pop(0)
+                    ch = line[0]
+                    if ch in characters:
+                        text = line[2:-1]
+                        if ch in 'PL':
+                            text = self.truncate_url(text)
+                        if not re.match(r'\d+$', text) and text in replace_map:
+                            out = '{}\t{}\n'.format(ch, replace_map[text])
+                        else:
+                            out = line
+                    else:
+                        out = line
+                    out_lines.append(out)
+
+                    if len(out_lines) >= out_batch_size:
+                        fout.writelines(out_lines)
+                        out_lines = []
+
+                fout.writelines(out_lines)
+
+    def load_memes(self, offset=0, limit=None):
+        """
+        Get map of meme texts to meme id's.
+        :return:
+        """
+        memes_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
+        pipelines = [{'$sort': SON([('_id', 1)])},
+                     {'$project': {'_id': 1, 'text': 1}}]
+        if limit is not None or offset > 0:
+            pipelines.append({'$skip': offset})
+            if limit is not None:
+                pipelines.append({'$limit': limit})
+        memes = mongodb.memes.aggregate(pipelines)
+        for meme in memes:
+            memes_map[meme['text']] = meme['_id']
+        return memes_map
+
+    def load_posts(self, offset=0, limit=None):
+        """
+        Get map of post urls to post id's
+        :return:
+        """
+        posts_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
+        pipelines = [{'$sort': SON([('_id', 1)])},
+                     {'$project': {'_id': 1, 'url': 1}}]
+        if limit is not None or offset > 0:
+            pipelines.append({'$skip': offset})
+            if limit is not None:
+                pipelines.append({'$limit': limit})
+
+        posts = mongodb.posts.aggregate(pipelines)
+        for post in posts:
+            posts_map[post['url']] = post['_id']
+        return posts_map
+
+    def calc_memes_values(self):
+        count = mongodb.memes.count()
+        save_step = 10 ** 6
+
+        logger.info('query of meme counts ...')
+        meme_counts = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
+                                                  allowDiskUse=True)
+
+        logger.info('saving ...')
+        operations = []
+        i = 0
+        for doc in meme_counts:
+            operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'count': doc['count']}}))
+            i += 1
+            if i % save_step == 0:
+                mongodb.memes.bulk_write(operations)
+                operations = []
+                logger.info('%d%% done', i * 100 / count)
+        mongodb.memes.bulk_write(operations)
+
+        logger.info('query of first times ...')
+        first_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}],
+                                                  allowDiskUse=True)
+
+        logger.info('saving ...')
+        operations = []
+        i = 0
+        for doc in first_times:
+            operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'first_time': doc['first']}}))
+            i += 1
+            if i % save_step == 0:
+                mongodb.memes.bulk_write(operations)
+                operations = []
+                logger.info('%d%% done', i * 100 / count)
+        mongodb.memes.bulk_write(operations)
+
+        logger.info('query of last times ...')
+        last_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}],
+                                                 allowDiskUse=True)
+
+        logger.info('saving ...')
+        operations = []
+        i = 0
+        for doc in last_times:
+            operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'last_time': doc['last']}}))
+            i += 1
+            if i % save_step == 0:
+                mongodb.memes.bulk_write(operations)
+                operations = []
+                logger.info('%d%% done', i * 100 / count)
+        mongodb.memes.bulk_write(operations)
+
+    def get_username(self, url):
+        """
+        Extract the username from the url. Consider the domain name as the username.
+        :param url: url
+        :return:    domain name as the username. Return None if the url is invalid.
+        """
+        try:
+            return re.match(r'https?://+([^/?]*\w+[^/?]*)', url.lower()).groups()[0][:100]
+        except AttributeError:
+            return None
+
+    def truncate_url(self, url):
+        """
+        Truncate the url to maximum 100 characters to save in DB.
+        if the length is greater than 100, concatenate the first 50 and the last 50 characters.
+        :param url: original url
+        :return:    truncated url
+        """
+        return (url[:50] + url[-50:]) if len(url) > 100 else url
+
+
+if __name__ == '__main__':
+    c = Command()
+    parser = argparse.ArgumentParser(c.help)
+    c.add_arguments(parser)
+    args = parser.parse_args()
+    c.handle(args)
