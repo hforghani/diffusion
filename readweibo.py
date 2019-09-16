@@ -25,16 +25,16 @@ class Command:
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "root_content_file", type=str, required=True,
+            "-r", "--roots", type=str, dest="roots_file",
             help="path of Root_Content.txt file in Weibo dataset"
         )
         parser.add_argument(
-            "retweet_content_file", type=str, required=True,
+            "-t", "--retweets", type=str, dest="retweets_file",
             help="path of Retweet_Content.txt file in Weibo dataset"
         )
         parser.add_argument(
             "-s", "--start", type=int, dest="start_index",
-            help="determine which index of post in the dataset file to start from"
+            help="determine which index of retweet data in the file Retweet_Content.txt to start from"
         )
         parser.add_argument(
             "-a", "--attributes", action="store_true", dest="set_attributes",
@@ -44,14 +44,6 @@ class Command:
             "-c", "--clear", action="store_true", dest="clear",
             help="clear existing data and continue"
         )
-        parser.add_argument(
-            "-r", "--roots", action="store_true", dest="roots",
-            help="just create memes and their root posts"
-        )
-        parser.add_argument(
-            "-t", "--retweets", action="store_true", dest="retweets",
-            help="just create retweet data and complete root post fields"
-        )
 
     def handle(self, args):
         try:
@@ -60,21 +52,21 @@ class Command:
             # Delete all data.
             if args.clear and not args.set_attributes:
                 logger.info('======== deleting data ...')
-                mongodb.postmemes.delete_many()
-                mongodb.reshares.delete_many()
-                mongodb.posts.delete_many()
-                mongodb.memes.delete_many()
-                mongodb.users.delete_many()
+                mongodb.postmemes.delete_many({})
+                mongodb.reshares.delete_many({})
+                mongodb.posts.delete_many({})
+                mongodb.memes.delete_many({})
+                mongodb.users.delete_many({})
 
             # Create memes and their root posts.
-            if (args.entities or not args.relations) and not args.set_attributes:
-                self.create_roots(args.root_content_file)
-                logger.info('======== creating memes ...')
+            if args.roots_file and not args.set_attributes:
+                logger.info('======== creating memes and roots ...')
+                self.create_roots(args.roots_file)
 
             # Create retweet data and complete original posts fields.
-            if (args.relations or not args.entities) and not args.set_attributes:
+            if args.retweets_file and not args.set_attributes:
                 logger.info('======== creating retweets ...')
-                self.create_retweets(args.retweet_content_file, start_index=args.start_index)
+                self.create_retweets(args.retweets_file, start_index=args.start_index)
 
             # Set the meme count, first time, and last time attributes of memes.
             if args.set_attributes:
@@ -96,20 +88,23 @@ class Command:
         post_memes = []
         i = 0
 
-        logger.info('reading urls and memes from dataset ...')
-        with open(path, encoding="utf8") as f:
-            line = f.readline()[:-1]
+        with open(path, encoding='utf-8', errors='ignore') as f:
+            line = f.readline()
             post_id = None
 
             while line:
+                line = line.strip()
+
                 if post_id is None:
-                    if line[0] != '@' and line[:4] != 'link':
-                        post_id = line
+                    if line and line[0] != '@' and line[:4] != 'link':
+                        post_id = '{:024d}'.format(int(line))
                 else:
-                    content = [int(index) for index in ' '.split(line)]
+                    content = [int(index) for index in line.split(' ') if index]
                     posts.append({'_id': ObjectId(post_id)})
                     meme_id = mongodb.memes.insert_one({'text': content}).inserted_id
                     post_memes.append({'post_id': ObjectId(post_id), 'meme_id': meme_id})
+                    post_id = None
+
                     i += 1
                     if i % 10000 == 0:
                         logger.info('%d posts read' % i)
@@ -120,7 +115,7 @@ class Command:
                         posts = []
                         post_memes = []
 
-                line = f.readline()[:-1]
+                line = f.readline()
 
         if posts:
             mongodb.posts.insert_many(posts)
