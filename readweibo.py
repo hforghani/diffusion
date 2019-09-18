@@ -25,6 +25,10 @@ class Command:
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "-u", "--users", type=str, dest="users_files", nargs='+',
+            help="paths of user_profile(1 or 2).txt files in Weibo dataset"
+        )
+        parser.add_argument(
             "-r", "--roots", type=str, dest="roots_file",
             help="path of Root_Content.txt file in Weibo dataset"
         )
@@ -61,6 +65,7 @@ class Command:
             # Create memes and their root posts.
             if args.roots_file and not args.set_attributes:
                 logger.info('======== creating memes and roots ...')
+                users_map = self.create_users(args.users_files)
                 self.create_roots(args.roots_file)
 
             # Create retweet data and complete original posts fields.
@@ -123,112 +128,180 @@ class Command:
             logger.info('%d memes and their original posts created' % i)
 
 
+    def create_users(self, paths):
+        """
+        Create users reading the files user_profile1.txt and user_profile2.txt .
+        :param paths: list of path of the files
+        :returns map of usernames to user ids
+        """
+        users = []
+        users_map = {}
+        i = 0
+
+        for path in paths:
+
+            with open(path, encoding='utf-8', errors='ignore') as f:
+
+                while True:
+                    try:
+                        line = f.readline().strip()
+                        user_id = ObjectId(line)
+                        for _ in range(7):
+                            f.readline()
+                        username = f.readline().strip()
+                        users.append({'_id': user_id, 'username': username})
+                        users_map[username] = user_id
+
+                        i += 1
+                        if i % 10000 == 0:
+                            logger.info('%d users read' % i)
+                        if i % 100000 == 0:
+                            mongodb.users.insert_many(users)
+                            logger.info('%d users created' % i)
+                            users = []
+                    except:
+                        logger.info(traceback.format_exc())
+                        break
+
+            if users:
+                mongodb.users.insert_many(users)
+                logger.info('%d users created' % i)
+
+        return users_map
+
+
     # @profile
     def create_retweets(self, path, start_index):
-        # Count the number of lines.
-        logger.info('counting main posts ...')
-        posts_count = 0
-        with open(temp_data_path, encoding="utf8") as f:
-            line = f.readline()
-            while line:
-                if line[0] == 'P':
-                    posts_count += 1
-                line = f.readline()
-                if not line:
-                    break
-
-        logger.info('processing {} main posts ...'.format(posts_count))
-
-        source_ids = []
-        post_id = None
-        datetime = None
-        meme_ids = []
-        post_memes = []
-        reshares = []
         i = 0
         t0 = time.time()
+        memes_count = mongodb.memes.count()
 
         # if 'start_index' is specified, ignore lower indexes.
         ignoring = False
         if start_index:
             ignoring = True
 
-        with open(temp_data_path, encoding="utf8") as f:
-            line = f.readline()
+        with open(path, encoding='utf-8', errors='ignore') as f:
 
-            while line:
-                char = line[0]
+            while True:
+                i += 1
+                self.read_retweet_data(f)
 
-                # Count posts.
-                if char == 'P':
-                    i += 1
+                if (not ignoring or i == start_index) and i % 10000 == 0:
+                    logger.info(
+                        'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
+                    if post_memes or reshares:
+                        mongodb.postmemes.insert_many(post_memes)
+                        mongodb.reshares.insert_many(reshares)
+                        post_memes = []
+                        reshares = []
+                        logger.info('time : %d s' % (time.time() - t0))
+                        t0 = time.time()
+                    logger.info('{:.0f}% done. processing from post number {} ...'.format(i / memes_count * 100, i))
 
-                    if (not ignoring or i == start_index) and i % 10000 == 0:
-                        logger.info(
-                            'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-                        if post_memes or reshares:
-                            mongodb.postmemes.insert_many(post_memes)
-                            mongodb.reshares.insert_many(reshares)
-                            post_memes = []
-                            reshares = []
-                            logger.info('time : %d s' % (time.time() - t0))
-                            t0 = time.time()
-                        logger.info('{:.0f}% done. processing from post number {} ...'.format(i / posts_count * 100, i))
-
-                    elif ignoring and i % 100000 == 0:
-                        logger.info('ignoring posts: %d' % i)
+                elif ignoring and i % 100000 == 0:
+                    logger.info('ignoring posts: %d' % i)
 
                 # Handle if it is in ignoring state.
                 if ignoring:
                     if i <= start_index:
-                        line = f.readline()
                         continue
                     else:
                         ignoring = False
                         t0 = time.time()
-
-                text = line[2:-1]
-
-                if char == 'P':  # post line
-                    if post_id is not None:
-                        pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
-                        post_memes.extend(pm)
-                        reshares.extend(resh)
-                    if '/' not in text:
-                        post_id = ObjectId(text)
-                    else:
-                        raise Exception("invalid post id: '{}'".format(text))
-                    source_ids = []
-                    meme_ids = []
-                elif char == 'T':  # time line
-                    datetime = str_to_datetime(text)
-                elif char == 'Q':  # meme line
-                    if ' ' not in text:
-                        meme_id = ObjectId(text)
-                        meme_ids.append(meme_id)
-                    else:
-                        logger.info("meme '{}' ignored".format(text))
-                elif char == 'L':  # link line
-                    if '/' not in text:
-                        source_ids.append(ObjectId(text))
-                    else:
-                        try:
-                            logger.info("link '{}' ignored".format(text))
-                        except UnicodeEncodeError:
-                            logger.info("a link with non-utf8 url ignored")
-
-                line = f.readline()
-
-        # Add the relations of the last post.
-        pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
-        post_memes.extend(pm)
-        reshares.extend(resh)
 
         # Save the remaining relations.
         logger.info(
             'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
         mongodb.postmemes.insert_many(post_memes)
         mongodb.reshares.insert_many(reshares)
+
+    def read_retweet_data(self, f):
+        # Read root post data.
+        line = f.readline()
+        if line:
+            line = line.strip()
+        else:
+            return None
+
+        original_pid, original_uid, original_time, _ = line.split()
+        original_pid = ObjectId(original_pid)
+        original_uid = ObjectId(original_uid)
+        original_time = str_to_datetime(original_time, '%Y-%m-%d %H:%M:%S')
+
+        # Read retweets number.
+        line = f.readline()
+        if line:
+            line = line.strip()
+        else:
+            return None
+        retweet_num = int(line)
+
+        for i in range(retweet_num):
+            self.read_one_retweet(f)
+
+        if post_id is not None:
+            pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
+            post_memes.extend(pm)
+            reshares.extend(resh)
+        if '/' not in text:
+            post_id = ObjectId(text)
+        else:
+            raise Exception("invalid post id: '{}'".format(text))
+        source_ids = []
+        meme_ids = []
+
+        if True:
+            pass
+        elif char == 'T':  # time line
+            datetime = str_to_datetime(text)
+        elif char == 'Q':  # meme line
+            if ' ' not in text:
+                meme_id = ObjectId(text)
+                meme_ids.append(meme_id)
+            else:
+                logger.info("meme '{}' ignored".format(text))
+
+
+        elif char == 'L':  # link line
+            if '/' not in text:
+                source_ids.append(ObjectId(text))
+            else:
+                try:
+                    logger.info("link '{}' ignored".format(text))
+                except UnicodeEncodeError:
+                    logger.info("a link with non-utf8 url ignored")
+
+    def read_one_retweet(self, f, original_pid, original_uid, original_time):
+        # Read retweet data.
+        line = f.readline().strip()
+        retweet_uid, retweet_time, retweet_pid = line.split()
+        retweet_pid = ObjectId(retweet_pid)
+        retweet_uid = ObjectId(retweet_uid)
+        retweet_time = str_to_datetime(retweet_time, '%Y-%m-%d %H:%M:%S')
+
+        # Skip retweet content.
+        f.readline()
+
+        # Skip mention line if exist.
+        last_pos = f.tell()
+        line = f.readline().strip()
+        if line[0] == '@':
+            last_pos = f.tell()
+            line = f.readline().strip()
+
+        # Read retweet list if exists.
+        if line[:7] == 'retweet':
+            ancestors = line.split()
+
+        else:
+            f.seek(last_pos)
+
+        reshare = {'post_id': retweet_pid, 'reshared_post_id': parent_pid, 'datetime': retweet_time,
+                   'user_id': retweet_uid, 'ref_user_id': parent_uid, 'ref_datetime': original_time}
+
+        return reshare
+
 
     # @profile
     def get_post_rels(self, post_id, datetime, meme_ids, source_ids):
