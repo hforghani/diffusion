@@ -9,6 +9,7 @@ import time
 from bson import SON
 from bson.objectid import ObjectId
 import pygtrie
+from pymongo.errors import BulkWriteError
 from pymongo.operations import UpdateOne
 
 from mongo import mongodb
@@ -62,16 +63,27 @@ class Command:
                 mongodb.memes.delete_many({})
                 mongodb.users.delete_many({})
 
-            # Create memes and their root posts.
-            if args.roots_file and not args.set_attributes:
-                logger.info('======== creating memes and roots ...')
-                users_map = self.create_users(args.users_files)
-                self.create_roots(args.roots_file)
+            if not args.set_attributes:
+                # Create users.
+                if args.users_files:
+                    logger.info('======== creating users ...')
+                    users_map = self.create_users(args.users_files)
+                else:
+                    users = mongodb.users.find({}, ['_id', 'username'])
+                    users_map = {u['username']: u['_id'] for u in users}
 
-            # Create retweet data and complete original posts fields.
-            if args.retweets_file and not args.set_attributes:
-                logger.info('======== creating retweets ...')
-                self.create_retweets(args.retweets_file, start_index=args.start_index)
+                # Create memes and their root posts.
+                if args.roots_file:
+                    logger.info('======== creating memes and roots ...')
+                    memes_map = self.create_roots(args.roots_file)
+                else:
+                    postmemes = mongodb.postmemes.find({}, ['post_id', 'meme_id'])
+                    memes_map = {str(pm['post_id']): pm['meme_id'] for pm in postmemes}
+
+                # Create retweet data and complete original posts fields.
+                if args.retweets_file:
+                    logger.info('======== creating retweets ...')
+                    self.create_retweets(args.retweets_file, args.start_index, users_map, memes_map)
 
             # Set the meme count, first time, and last time attributes of memes.
             if args.set_attributes:
@@ -91,6 +103,7 @@ class Command:
         """
         posts = []
         post_memes = []
+        memes_map = {}
         i = 0
 
         with open(path, encoding='utf-8', errors='ignore') as f:
@@ -102,12 +115,14 @@ class Command:
 
                 if post_id is None:
                     if line and line[0] != '@' and line[:4] != 'link':
-                        post_id = '{:024d}'.format(int(line))
+                        post_id = line
                 else:
                     content = [int(index) for index in line.split(' ') if index]
-                    posts.append({'_id': ObjectId(post_id)})
+                    post_id_obj = ObjectId('{:024d}'.format(int(post_id)))
+                    posts.append({'_id': post_id_obj})
                     meme_id = mongodb.memes.insert_one({'text': content}).inserted_id
-                    post_memes.append({'post_id': ObjectId(post_id), 'meme_id': meme_id})
+                    post_memes.append({'post_id': post_id_obj, 'meme_id': meme_id})
+                    memes_map[post_id] = meme_id
                     post_id = None
 
                     i += 1
@@ -127,6 +142,8 @@ class Command:
             mongodb.postmemes.insert_many(post_memes)
             logger.info('%d memes and their original posts created' % i)
 
+        return memes_map
+
 
     def create_users(self, paths):
         """
@@ -135,43 +152,64 @@ class Command:
         :returns map of usernames to user ids
         """
         users = []
-        users_map = {}
+        user_ids = {str(u['_id']) for u in mongodb.users.find({}, ['_id'])}
+        users_map = {u['username']: u['_id'] for u in mongodb.users.find({}, ['_id', 'username'])}
         i = 0
 
         for path in paths:
 
-            with open(path, encoding='utf-8', errors='ignore') as f:
+            with open(path, encoding='GB18030', errors='replace') as f:
+                # Skip first 15 lines due to the comments.
+                for _ in range(15):
+                    line = f.readline()
 
                 while True:
                     try:
-                        line = f.readline().strip()
-                        user_id = ObjectId(line)
-                        for _ in range(7):
-                            f.readline()
-                        username = f.readline().strip()
-                        users.append({'_id': user_id, 'username': username})
-                        users_map[username] = user_id
+                        line = f.readline()
+                        if not line:
+                            break
+                        line = line.strip()
+                        if not line:
+                            continue
 
-                        i += 1
-                        if i % 10000 == 0:
-                            logger.info('%d users read' % i)
-                        if i % 100000 == 0:
-                            mongodb.users.insert_many(users)
-                            logger.info('%d users created' % i)
-                            users = []
-                    except:
-                        logger.info(traceback.format_exc())
-                        break
+                        user_id = ObjectId('{:024d}'.format(int(line)))
+                        for _ in range(7):
+                            line = f.readline()
+                        username = f.readline().strip()
+
+                        if str(user_id) == '000000000000001477169412':
+                            pass
+
+                        if str(user_id) not in user_ids:
+                            users.append({'_id': user_id, 'username': username})
+                            users_map[username] = user_id
+                            user_ids.add(str(user_id))
+
+                            i += 1
+                            if i % 10000 == 0:
+                                logger.info('%d users read' % i)
+                            if i % 100000 == 0:
+                                mongodb.users.insert_many(users)
+                                logger.info('%d users created' % i)
+                                users = []
+
+                        for _ in range(6):
+                            line = f.readline()
+
+                    except BulkWriteError as e:
+                        print(e.details)
+                        raise
 
             if users:
                 mongodb.users.insert_many(users)
                 logger.info('%d users created' % i)
+                users = []
 
         return users_map
 
 
     # @profile
-    def create_retweets(self, path, start_index):
+    def create_retweets(self, path, start_index, users_map, memes_map):
         i = 0
         t0 = time.time()
         memes_count = mongodb.memes.count()
@@ -181,11 +219,11 @@ class Command:
         if start_index:
             ignoring = True
 
-        with open(path, encoding='utf-8', errors='ignore') as f:
+        with open(path, encoding='GB18030', errors='replace') as f:
 
             while True:
                 i += 1
-                self.read_retweet_data(f)
+                reshares = self.read_one_meme_reshares(f, users_map, memes_map)
 
                 if (not ignoring or i == start_index) and i % 10000 == 0:
                     logger.info(
@@ -216,7 +254,7 @@ class Command:
         mongodb.postmemes.insert_many(post_memes)
         mongodb.reshares.insert_many(reshares)
 
-    def read_retweet_data(self, f):
+    def read_one_meme_reshares(self, f, users_map, memes_map):
         # Read root post data.
         line = f.readline()
         if line:
@@ -225,60 +263,47 @@ class Command:
             return None
 
         original_pid, original_uid, original_time, _ = line.split()
-        original_pid = ObjectId(original_pid)
-        original_uid = ObjectId(original_uid)
-        original_time = str_to_datetime(original_time, '%Y-%m-%d %H:%M:%S')
+        original_pid = ObjectId('{:024d}'.format(int(original_pid)))
+        original_uid = ObjectId('{:024d}'.format(int(original_uid)))
+        original_time = str_to_datetime(original_time, '%Y-%m-%d-%H:%M:%S')
+
+        mongodb.posts.update_one({'_id': original_pid},
+                                 {'$set': {'datetime': original_time, 'author_id': original_uid}})
+        meme_id = memes_map[str(original_pid)]
+        uname_data = mongodb.users.find_one({'_id': original_uid}, {'_id': False, 'username': True})
+        original_uname = uname_data['username'] if uname_data else str(original_uid)
+        print('\nreading meme {}'.format(str(meme_id)))
 
         # Read retweets number.
-        line = f.readline()
-        if line:
-            line = line.strip()
-        else:
-            return None
+        line = f.readline().strip()
         retweet_num = int(line)
 
+        reshares = []
+        ret_lists = []
+
         for i in range(retweet_num):
-            self.read_one_retweet(f)
+            ret_list, ret_time = self.read_one_reshare(f, meme_id, users_map, original_uname)
+            ret_lists.append((ret_list, ret_time))
+            #reshares.append(reshare)
 
-        if post_id is not None:
-            pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
-            post_memes.extend(pm)
-            reshares.extend(resh)
-        if '/' not in text:
-            post_id = ObjectId(text)
-        else:
-            raise Exception("invalid post id: '{}'".format(text))
-        source_ids = []
-        meme_ids = []
+        ret_lists = sorted(ret_lists, key=lambda x: x[1])
+        for item in ret_lists:
+            print(str(item[1]) + ' : ' + ' -> '.join(item[0]))
 
-        if True:
-            pass
-        elif char == 'T':  # time line
-            datetime = str_to_datetime(text)
-        elif char == 'Q':  # meme line
-            if ' ' not in text:
-                meme_id = ObjectId(text)
-                meme_ids.append(meme_id)
-            else:
-                logger.info("meme '{}' ignored".format(text))
+        return reshares
 
 
-        elif char == 'L':  # link line
-            if '/' not in text:
-                source_ids.append(ObjectId(text))
-            else:
-                try:
-                    logger.info("link '{}' ignored".format(text))
-                except UnicodeEncodeError:
-                    logger.info("a link with non-utf8 url ignored")
-
-    def read_one_retweet(self, f, original_pid, original_uid, original_time):
+    def read_one_reshare(self, f, meme_id, users_map, original_uname):
         # Read retweet data.
-        line = f.readline().strip()
+        line = f.readline()
+        if not line:
+            return None
+        line = line.strip()
+
         retweet_uid, retweet_time, retweet_pid = line.split()
-        retweet_pid = ObjectId(retweet_pid)
-        retweet_uid = ObjectId(retweet_uid)
-        retweet_time = str_to_datetime(retweet_time, '%Y-%m-%d %H:%M:%S')
+        retweet_pid = ObjectId('{:024d}'.format(int(retweet_pid)))
+        retweet_uid = ObjectId('{:024d}'.format(int(retweet_uid)))
+        retweet_time = str_to_datetime(retweet_time, '%Y-%m-%d-%H:%M:%S')
 
         # Skip retweet content.
         f.readline()
@@ -290,17 +315,26 @@ class Command:
             last_pos = f.tell()
             line = f.readline().strip()
 
+        uname_data = mongodb.users.find_one({'_id': retweet_uid}, {'_id': False, 'username': True})
+        uname = uname_data['username'] if uname_data else str(retweet_uid)
+
         # Read retweet list if exists.
         if line[:7] == 'retweet':
-            ancestors = line.split()
-
+            ret_list = [original_uname] + line[8:].split() + [uname]
+            #anc_ids = [users_map[uname] for uname in ancestors]
+            last_pos = f.tell()
+            line = f.readline().strip()
         else:
+            ret_list = [original_uname, uname]
+
+        if line[:4] != 'link':
             f.seek(last_pos)
 
-        reshare = {'post_id': retweet_pid, 'reshared_post_id': parent_pid, 'datetime': retweet_time,
-                   'user_id': retweet_uid, 'ref_user_id': parent_uid, 'ref_datetime': original_time}
+        #reshare = {'post_id': retweet_pid, 'reshared_post_id': parent_pid, 'datetime': retweet_time,
+        #           'user_id': retweet_uid, 'ref_user_id': parent_uid, 'ref_datetime': original_time}
+        reshare = {}
 
-        return reshare
+        return ret_list, retweet_time
 
 
     # @profile
