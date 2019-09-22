@@ -262,11 +262,11 @@ class Command:
 
     def read_one_meme_reshares(self, f, users_map, memes_map, ignoring=False):
         # Read root post data.
-        line = f.readline()
-        if line:
-            line = line.strip()
-        else:
-            return None, None
+        line = None
+        while line is None or line == '\n':
+            line = f.readline()
+            if not line:
+                return None, None
 
         original_pid, original_uid, original_time, _ = line.split()
         original_pid = ObjectId('{:024d}'.format(int(original_pid)))
