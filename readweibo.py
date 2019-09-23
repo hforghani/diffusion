@@ -276,6 +276,7 @@ class Command:
         if not ignoring:
             mongodb.posts.update_one({'_id': original_pid},
                                      {'$set': {'datetime': original_time, 'author_id': original_uid}})
+            mongodb.postmemes.update_one({'post_id': original_pid}, {'$set': {'datetime': original_time}})
         meme_id = memes_map[str(original_pid)]
 
         # Read retweets number.
@@ -367,7 +368,7 @@ class Command:
                 resh = {'post_id': post_id, 'reshared_post_id': resh_post_id, 'datetime': resh_dt,
                         'user_id': dst, 'ref_user_id': src, 'ref_datetime': resh_post['datetime']}
                 reshares.append(resh)
-                post_memes.append({'post_id': post_id, 'meme_id': meme_id})
+                post_memes.append({'post_id': post_id, 'meme_id': meme_id, 'datetime': resh_dt})
                 posts_map[str(dst)] = {'_id': post_id, 'datetime': resh_dt}
                 #resh_pairs.add((str(src), str(dst)))
 
