@@ -69,12 +69,12 @@ class Command:
                        tree_nodes.items()}, f, indent=4)
 
     def calc_depths(self, do_continue=False):
+        count = mongodb.reshares.count()
+        logger.info('number of all reshares: {}'.format(count))
+
         reshares = mongodb.reshares.find({},
             {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1},
             no_cursor_timeout=True).sort('datetime')
-
-        count = reshares.count()
-        logger.info('number of all reshares: {}'.format(count))
 
         # If do_continue argument is true, continue from the last save point.
 
@@ -132,6 +132,7 @@ class Command:
             if i % save_step == 0:
                 logger.info('saving temp data ...')
                 self.save_data(i, depths, tree_nodes)
+                logger.info('temp data saved')
 
         logger.info('saving non-zero depths ...')
         for meme_id, depth in depths.items():

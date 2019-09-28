@@ -6,8 +6,9 @@ import time
 
 from bson.objectid import ObjectId
 from datetime import timedelta
+import pymongo
 from pymongo.errors import BulkWriteError
-from pymongo.operations import UpdateOne
+from pymongo.operations import UpdateOne, IndexModel
 
 from mongo import mongodb
 import settings
@@ -43,6 +44,9 @@ class Command:
             help="just set attributes and ignore creating data"
         )
         parser.add_argument(
+            "-i", "--index", action="store_true", help="create the indexes"
+        )
+        parser.add_argument(
             "-c", "--clear", action="store_true", dest="clear",
             help="clear existing data and continue"
         )
@@ -65,7 +69,8 @@ class Command:
                 if args.users_files:
                     logger.info('======== creating users ...')
                     users_map = self.create_users(args.users_files)
-                else:
+                elif args.retweets_file:
+                    logger.info('collecting users map ...')
                     users = mongodb.users.find({}, ['_id', 'username'])
                     users_map = {u['username']: u['_id'] for u in users}
                     if '' in users_map:
@@ -75,7 +80,8 @@ class Command:
                 if args.roots_file:
                     logger.info('======== creating memes and roots ...')
                     memes_map = self.create_roots(args.roots_file)
-                else:
+                elif args.retweets_file:
+                    logger.info('collecting posts map ...')
                     postmemes = mongodb.postmemes.find({}, ['post_id', 'meme_id'])
                     memes_map = {str(pm['post_id']): pm['meme_id'] for pm in postmemes}
 
@@ -83,6 +89,11 @@ class Command:
                 if args.retweets_file:
                     logger.info('======== creating retweets ...')
                     self.create_retweets(args.retweets_file, args.start_index, users_map, memes_map)
+
+            # Create the indexes.
+            if args.index:
+                logger.info('======== creating indexes ...')
+                self.create_indexes()
 
             # Set the meme count, first time, and last time attributes of memes.
             if args.set_attributes:
@@ -175,9 +186,6 @@ class Command:
                         for _ in range(7):
                             line = f.readline()
                         username = f.readline().strip()
-
-                        if str(user_id) == '000000000000001477169412':
-                            pass
 
                         if str(user_id) not in user_ids:
                             users.append({'_id': user_id, 'username': username})
@@ -426,6 +434,18 @@ class Command:
                 operations = []
                 logger.info('%d%% done', i * 100 / count)
         mongodb.memes.bulk_write(operations)
+
+    def create_indexes(self):
+        logger.info('creating an index for memes ...')
+        mongodb.memes.create_index('depth')
+        logger.info('creating indexes for postmemes ...')
+        mongodb.postmemes.create_indexes([IndexModel('meme_id'), IndexModel('post_id'), IndexModel('datetime')])
+        logger.info('creating indexes for posts ...')
+        mongodb.posts.create_indexes([IndexModel('author_id'), IndexModel('datetime')])
+        logger.info('creating indexes for reshares ...')
+        mongodb.reshares.create_indexes([IndexModel('post_id'), IndexModel('reshared_post_id'), IndexModel('datetime'),
+                                         IndexModel(
+                                             [('user_id', pymongo.ASCENDING), ('ref_user_id', pymongo.ASCENDING)])])
 
 
 if __name__ == '__main__':
