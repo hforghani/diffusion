@@ -719,7 +719,8 @@ class Project(object):
         post_count = len(posts_ids)
         users = {m: [] for m in meme_ids}
         times = {m: [] for m in meme_ids}
-        posts = mongodb.posts.find({'_id': {'$in': posts_ids}}, ['author_id', 'datetime']).sort('datetime')
+        posts = mongodb.posts.find({'_id': {'$in': posts_ids}}, ['author_id', 'datetime'], no_cursor_timeout=True) \
+            .sort('datetime')
 
         # Iterate on posts to extract activation sequences.
         i = 0
