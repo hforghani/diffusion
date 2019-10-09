@@ -35,8 +35,8 @@ class Saito(AsLT):
         logger.info('creating user and meme id maps ...')
         #user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
         user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
-        user_map = {user_ids[i]: i for i in range(len(user_ids))}
-        meme_map = {meme_ids[i]: i for i in range(len(meme_ids))}
+        user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
+        meme_map = {str(meme_ids[i]): i for i in range(len(meme_ids))}
 
         # Set initial values of w and r.
         try:
@@ -152,7 +152,7 @@ class Saito(AsLT):
             if v in nodes:
                 parents = list(graph.predecessors(v))
                 parents.append(v)
-                par_indexes = [user_map[uid] for uid in parents]
+                par_indexes = [user_map[str(uid)] for uid in parents]
                 values.extend([1.0 / len(parents)] * len(parents))
                 rows.extend(par_indexes)
                 cols.extend([v_i] * len(parents))
@@ -179,17 +179,17 @@ class Saito(AsLT):
 
         i = 0
         for mid in meme_ids:
-            mid_i = meme_map[mid]
+            mid_i = meme_map[str(mid)]
             cascade = data[mid]
             for uid in cascade.users:
-                uid_i = user_map[uid]
+                uid_i = user_map[str(uid)]
                 val = 0
                 if cascade.user_times[uid] == cascade.times[0]:
                     val = 1
                 else:
                     active_parents = cascade.get_active_parents(uid, graph)
                     if active_parents:
-                        act_par_indexes = [user_map[id] for id in active_parents]
+                        act_par_indexes = [user_map[str(id)] for id in active_parents]
                         act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
                         user_time = np.repeat(np.matrix([cascade.user_times[uid]]), len(active_parents))
                         diff = user_time - act_par_times
@@ -221,16 +221,16 @@ class Saito(AsLT):
         i = 0
 
         for mid in meme_ids:
-            mid_i = meme_map[mid]
+            mid_i = meme_map[str(mid)]
             cascade = data[mid]
             rond_set = cascade.get_rond_set(graph)
 
             for uid in rond_set:
                 uid_i = user_map[uid]
                 active_parents = cascade.get_active_parents(uid, graph)
-                act_par_indexes = [user_map[id] for id in active_parents]
+                act_par_indexes = [user_map[str(id)] for id in active_parents]
                 inactive_parents = set(graph.predecessors(uid)) - set(active_parents)
-                inact_par_indexes = [user_map[id] for id in inactive_parents]
+                inact_par_indexes = [user_map[str(id)] for id in inactive_parents]
 
                 w_col = w[:, uid_i].todense()
                 inact_par_sum = w_col[inact_par_indexes].sum()
@@ -261,7 +261,7 @@ class Saito(AsLT):
         i = 0
 
         for mid in meme_ids:
-            mid_i = meme_map[mid]
+            mid_i = meme_map[str(mid)]
             cascade = data[mid]
             values = []
             rows = []
@@ -272,7 +272,7 @@ class Saito(AsLT):
                 active_parents = cascade.get_active_parents(v, graph)
                 if not active_parents:
                     continue
-                act_par_indexes = [user_map[id] for id in active_parents]
+                act_par_indexes = [user_map[str(id)] for id in active_parents]
                 act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
                 user_time = np.repeat(np.matrix([cascade.user_times[v]]), len(active_parents))
                 diff = user_time - act_par_times
@@ -306,7 +306,7 @@ class Saito(AsLT):
         i = 0
 
         for mid in meme_ids:
-            mid_i = meme_map[mid]
+            mid_i = meme_map[str(mid)]
             cascade = data[mid]
             values = []
             rows = []
@@ -317,7 +317,7 @@ class Saito(AsLT):
                 u_set = {v} | (set(graph.predecessors(v)) - set(cascade.get_active_parents(v, graph)))
                 if not u_set:
                     continue
-                u_indexes = [user_map[id] for id in u_set]
+                u_indexes = [user_map[str(id)] for id in u_set]
                 w_col = w[:, v_i].todense()
                 val = w_col[u_indexes] / g[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
@@ -347,16 +347,16 @@ class Saito(AsLT):
         i = 0
 
         for mid in meme_ids:
-            mid_i = meme_map[mid]
+            mid_i = meme_map[str(mid)]
             cascade = data[mid]
             values = []
             rows = []
             cols = []
 
             for v in cascade.get_rond_set(graph):
-                v_i = user_map[v]
+                v_i = user_map[str(v)]
                 active_parents = cascade.get_active_parents(v, graph)
-                act_par_indexes = [user_map[id] for id in active_parents]
+                act_par_indexes = [user_map[str(id)] for id in active_parents]
                 act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
                 max_time = np.repeat(np.matrix([cascade.max_t]), len(active_parents))
                 diff = max_time - act_par_times
@@ -399,18 +399,18 @@ class Saito(AsLT):
         logger.info('\tcalculating values ...')
         i = 0
         for v in user_ids:
-            v_i = user_map[v]
+            v_i = user_map[str(v)]
 
             phi_sum = 0
             phi_time_sum = 0
             psi_time_sum = 0
             for m in set(m_set1[v]) | set(m_set2[v]):
-                m_i = meme_map[m]
+                m_i = meme_map[str(m)]
                 cascade = data[m]
                 active_parents = cascade.get_active_parents(v, graph)
                 if not active_parents:
                     continue
-                act_par_indexes = [user_map[id] for id in active_parents]
+                act_par_indexes = [user_map[str(id)] for id in active_parents]
                 act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
 
                 if m in m_set1[v]:
@@ -473,17 +473,17 @@ class Saito(AsLT):
         val_count = len(graph.edges()) + len(graph.nodes())
         i = 0
         for (u, v) in graph.edges():
-            u_i = user_map[u]
-            v_i = user_map[v]
+            u_i = user_map[str(u)]
+            v_i = user_map[str(v)]
             phi_h_sum = 0
             phi_g_sum = 0
             psi_sum = 0
             if muv_set1[(u, v)]:
-                phi_h_sum = np.array([phi_h[meme_map[m]][u_i, v_i] for m in muv_set1[(u, v)]]).sum()
+                phi_h_sum = np.array([phi_h[meme_map[str(m)]][u_i, v_i] for m in muv_set1[(u, v)]]).sum()
             if muv_set2[(u, v)]:
-                phi_g_sum = np.array([phi_g[meme_map[m]][u_i, v_i] for m in muv_set2[(u, v)]]).sum()
+                phi_g_sum = np.array([phi_g[meme_map[str(m)]][u_i, v_i] for m in muv_set2[(u, v)]]).sum()
             if muv_set3[(u, v)]:
-                psi_sum = np.array([psi[meme_map[m]][u_i, v_i] for m in muv_set3[(u, v)]]).sum()
+                psi_sum = np.array([psi[meme_map[str(m)]][u_i, v_i] for m in muv_set3[(u, v)]]).sum()
             val = phi_h_sum + phi_g_sum + psi_sum
             if val:
                 values.append(val)
@@ -498,9 +498,9 @@ class Saito(AsLT):
                 logger.info('\t%d%% done' % (i * 100 / val_count))
 
         for v in graph.nodes():
-            v_i = user_map[v]
+            v_i = user_map[str(v)]
             if mv_set2[v]:
-                phi_g_sum = np.array([phi_g[meme_map[m]][v_i, v_i] for m in mv_set2[v]]).sum()
+                phi_g_sum = np.array([phi_g[meme_map[str(m)]][v_i, v_i] for m in mv_set2[v]]).sum()
                 if phi_g_sum:
                     values.append(phi_g_sum)
                     rows.append(v_i)
