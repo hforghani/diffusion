@@ -68,13 +68,15 @@ class Command:
                 # Create users.
                 if args.users_files:
                     logger.info('======== creating users ...')
-                    users_map = self.create_users(args.users_files)
+                    users_map, user_ids = self.create_users(args.users_files)
                 elif args.retweets_file:
                     logger.info('collecting users map ...')
                     users = mongodb.users.find({}, ['_id', 'username'])
-                    users_map = {u['username']: u['_id'] for u in users}
-                    if '' in users_map:
-                        del users_map['']
+                    users_map = {u['username']: u['_id'] for u in users if
+                                 u['username'] is not None and u['username'] != ''}
+                    users.rewind()
+                    user_ids = {u['_id'] for u in users}
+
 
                 # Create memes and their root posts.
                 if args.roots_file:
@@ -88,7 +90,7 @@ class Command:
                 # Create retweet data and complete original posts fields.
                 if args.retweets_file:
                     logger.info('======== creating retweets ...')
-                    self.create_retweets(args.retweets_file, args.start_index, users_map, memes_map)
+                    self.create_retweets(args.retweets_file, args.start_index, users_map, user_ids, memes_map)
 
             # Create the indexes.
             if args.index:
@@ -162,7 +164,7 @@ class Command:
         :returns map of usernames to user ids
         """
         users = []
-        user_ids = {str(u['_id']) for u in mongodb.users.find({}, ['_id'])}
+        user_ids = {u['_id'] for u in mongodb.users.find({}, ['_id'])}
         users_map = {u['username']: u['_id'] for u in mongodb.users.find({}, ['_id', 'username'])}
         i = 0
 
@@ -187,11 +189,11 @@ class Command:
                             line = f.readline()
                         username = f.readline().strip()
 
-                        if str(user_id) not in user_ids:
+                        if user_id not in user_ids:
                             users.append({'_id': user_id, 'username': username})
                             if username:
                                 users_map[username] = user_id
-                            user_ids.add(str(user_id))
+                            user_ids.add(user_id)
 
                             i += 1
                             if i % 10000 == 0:
@@ -213,11 +215,11 @@ class Command:
                 logger.info('%d users created' % i)
                 users = []
 
-        return users_map
+        return users_map, user_ids
 
 
     # @profile
-    def create_retweets(self, path, start_index, users_map, memes_map):
+    def create_retweets(self, path, start_index, users_map, user_ids, memes_map):
         i = 0
         t0 = time.time()
         memes_count = mongodb.memes.count()
@@ -233,7 +235,7 @@ class Command:
 
             while True:
                 i += 1
-                resh_list, pm_list = self.read_one_meme_reshares(f, users_map, memes_map, ignoring)
+                resh_list, pm_list = self.read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring)
                 if resh_list is None and pm_list is None:
                     break
                 reshares.extend(resh_list)
@@ -268,7 +270,7 @@ class Command:
         mongodb.postmemes.insert_many(post_memes)
         mongodb.reshares.insert_many(reshares)
 
-    def read_one_meme_reshares(self, f, users_map, memes_map, ignoring=False):
+    def read_one_meme_reshares(self, f, users_map, user_ids, memes_map, ignoring=False):
         # Read root post data.
         line = None
         while line is None or line == '\n':
@@ -280,6 +282,10 @@ class Command:
         original_pid = ObjectId('{:024d}'.format(int(original_pid)))
         original_uid = ObjectId('{:024d}'.format(int(original_uid)))
         original_time = str_to_datetime(original_time, '%Y-%m-%d-%H:%M:%S')
+
+        if original_uid not in user_ids:
+            mongodb.users.insert_one({'_id': original_uid, 'username': None})
+            user_ids.append(original_uid)
 
         if not ignoring:
             mongodb.posts.update_one({'_id': original_pid},
