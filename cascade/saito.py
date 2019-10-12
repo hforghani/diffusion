@@ -226,7 +226,7 @@ class Saito(AsLT):
             rond_set = cascade.get_rond_set(graph)
 
             for uid in rond_set:
-                uid_i = user_map[uid]
+                uid_i = user_map[str(uid)]
                 active_parents = cascade.get_active_parents(uid, graph)
                 act_par_indexes = [user_map[str(id)] for id in active_parents]
                 inactive_parents = set(graph.predecessors(uid)) - set(active_parents)
@@ -268,7 +268,7 @@ class Saito(AsLT):
             cols = []
 
             for v in cascade.users:
-                v_i = user_map[v]
+                v_i = user_map[str(v)]
                 active_parents = cascade.get_active_parents(v, graph)
                 if not active_parents:
                     continue
@@ -313,7 +313,7 @@ class Saito(AsLT):
             cols = []
 
             for v in cascade.get_rond_set(graph):
-                v_i = user_map[v]
+                v_i = user_map[str(v)]
                 u_set = {v} | (set(graph.predecessors(v)) - set(cascade.get_active_parents(v, graph)))
                 if not u_set:
                     continue
