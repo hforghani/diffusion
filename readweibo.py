@@ -44,9 +44,6 @@ class Command:
             help="just set attributes and ignore creating data"
         )
         parser.add_argument(
-            "-i", "--index", action="store_true", help="create the indexes"
-        )
-        parser.add_argument(
             "-c", "--clear", action="store_true", dest="clear",
             help="clear existing data and continue"
         )
@@ -77,7 +74,6 @@ class Command:
                     users.rewind()
                     user_ids = {u['_id'] for u in users}
 
-
                 # Create memes and their root posts.
                 if args.roots_file:
                     logger.info('======== creating memes and roots ...')
@@ -92,11 +88,6 @@ class Command:
                     logger.info('======== creating retweets ...')
                     self.create_retweets(args.retweets_file, args.start_index, users_map, user_ids, memes_map)
 
-            # Create the indexes.
-            if args.index:
-                logger.info('======== creating indexes ...')
-                self.create_indexes()
-
             # Set the meme count, first time, and last time attributes of memes.
             if args.set_attributes:
                 logger.info('======== setting counts and publication times for the memes ...')
@@ -106,7 +97,6 @@ class Command:
         except:
             logger.info(traceback.format_exc())
             raise
-
 
     def create_roots(self, path):
         """
@@ -155,7 +145,6 @@ class Command:
             logger.info('%d memes and their original posts created' % i)
 
         return memes_map
-
 
     def create_users(self, paths):
         """
@@ -216,7 +205,6 @@ class Command:
                 users = []
 
         return users_map, user_ids
-
 
     # @profile
     def create_retweets(self, path, start_index, users_map, user_ids, memes_map):
@@ -299,7 +287,7 @@ class Command:
 
         meme_reshares = []
         meme_postmemes = []
-        #resh_pairs = set()
+        # resh_pairs = set()
         posts_map = {str(original_uid): {'_id': original_pid, 'datetime': original_time}}
 
         for i in range(retweet_num):
@@ -308,7 +296,6 @@ class Command:
             meme_postmemes.extend(post_memes)
 
         return meme_reshares, meme_postmemes
-
 
     def read_one_reshare_seq(self, f, meme_id, original_uid, users_map, posts_map, ignoring=False):
         # Read retweet data.
@@ -369,7 +356,7 @@ class Command:
                 resh_dt = retweet_time - timedelta(microseconds=(len(uid_list) - i - 2) * 10)
                 src, dst = uid_list[i], uid_list[i + 1]
 
-                #if (str(src), str(dst)) not in resh_pairs:
+                # if (str(src), str(dst)) not in resh_pairs:
                 resh_post = posts_map[str(src)]
                 resh_post_id = resh_post['_id']
 
@@ -384,10 +371,9 @@ class Command:
                 reshares.append(resh)
                 post_memes.append({'post_id': post_id, 'meme_id': meme_id, 'datetime': resh_dt})
                 posts_map[str(dst)] = {'_id': post_id, 'datetime': resh_dt}
-                #resh_pairs.add((str(src), str(dst)))
+                # resh_pairs.add((str(src), str(dst)))
 
         return reshares, post_memes
-
 
     def calc_memes_values(self):
         count = mongodb.memes.count()
@@ -440,18 +426,6 @@ class Command:
                 operations = []
                 logger.info('%d%% done', i * 100 / count)
         mongodb.memes.bulk_write(operations)
-
-    def create_indexes(self):
-        logger.info('creating an index for memes ...')
-        mongodb.memes.create_index('depth')
-        logger.info('creating indexes for postmemes ...')
-        mongodb.postmemes.create_indexes([IndexModel('meme_id'), IndexModel('post_id'), IndexModel('datetime')])
-        logger.info('creating indexes for posts ...')
-        mongodb.posts.create_indexes([IndexModel('author_id'), IndexModel('datetime')])
-        logger.info('creating indexes for reshares ...')
-        mongodb.reshares.create_indexes([IndexModel('post_id'), IndexModel('reshared_post_id'), IndexModel('datetime'),
-                                         IndexModel(
-                                             [('user_id', pymongo.ASCENDING), ('ref_user_id', pymongo.ASCENDING)])])
 
 
 if __name__ == '__main__':
