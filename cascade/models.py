@@ -304,7 +304,7 @@ class AsLT(object):
         """
         self.project = project
         self.init_tree = None
-        self.max_delay = 1000
+        self.max_delay = 10000
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
         self.user_ids = None
         self.users_map = None
@@ -332,34 +332,25 @@ class AsLT(object):
         tree = initial_tree.copy()
 
         # Initialize values.
-        t0 = time.time()
         cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         activated = tree.nodes()
         self.probabilities = {}
 
         if user_ids is None or users_map is None:
-            #user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
             user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             users_map = {user_ids[i]: i for i in range(len(user_ids))}
         self.user_ids = user_ids
         self.users_map = users_map
 
         thresholds = {}
-        if log:
-            logger.info('time1 = %.2f' % (time.time() - t0))
-
-        # Get weights and delay vectors.
-        t0 = time.time()
-        if log:
-            logger.info('time2 = %.2f' % (time.time() - t0))
 
         # Iterate on steps. For each step try to activate other nodes.
         step = 0
         while cur_step:
             t0 = time.time()
             step += 1
-            # if log:
-            #     logger.info('step %d ...' % step)
+            if log:
+                logger.info('step {} on {} users ...'.format(step, len(cur_step)))
 
             next_step = []
 
@@ -399,18 +390,25 @@ class AsLT(object):
 
                         # Sample delay from exponential distribution and calculate the receive time.
                         delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
+                        if delay > self.max_delay: delay = self.max_delay
+
                         # if delay_param > 0:
                         #     delay = np.random.exponential(delay_param)  # in days
                         # else:
                         #     if log:
                         #         logger.warn('delay param = {}'.format(delay_param))
                         #     delay = 1000    # a very large delay!
+
                         send_dt = str_to_datetime(node.datetime)
-                        receive_dt = send_dt + timedelta(days=delay)
+                        try:
+                            receive_dt = send_dt + timedelta(days=delay)
+                        except:
+                            logger.info('send_dt: {}, delay: {}'.format(send_dt, delay))
+                            raise
 
                         # Add it to the tree.
                         child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
-                        # child = CascadeNode(v)
+                        #child = CascadeNode(v)
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
@@ -418,7 +416,7 @@ class AsLT(object):
                         #     logger.info('a reshare predicted')
             cur_step = sorted(next_step, key=lambda n: n.datetime)
             if log:
-                logger.info('step %d, time = %.2f' % (step, time.time() - t0))
+                logger.info('step %d done, time = %.2f' % (step, time.time() - t0))
 
         return tree
 
@@ -447,7 +445,6 @@ class IC(object):
         activated = tree.nodes()
         if self.user_map is None:
             if user_ids is None:
-                #user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
                 user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             self.user_map = {user_ids[i]: i for i in range(len(user_ids))}
         if log:
