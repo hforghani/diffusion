@@ -1,8 +1,6 @@
-import logging
 import numpy as np
 import scipy
-
-logger = logging.getLogger('memm.memm')
+from settings import logger
 
 
 class MEMM():

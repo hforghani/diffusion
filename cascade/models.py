@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from datetime import timedelta
 import json
-import logging
 import os
 import random
 import time
@@ -12,13 +11,10 @@ from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
 
 import settings
+from settings import logger
 from mongo import mongodb
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
-
-logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('cascade.models')
-logger.setLevel(settings.LOG_LEVEL)
 
 
 class CascadeNode(object):
@@ -53,12 +49,14 @@ class CascadeNode(object):
         self.children = [CascadeNode().from_dict(node) for node in node_dict['children']]
         return self
 
-    def copy(self):
+    def copy(self, max_depth=None):
         """
         Get an independent copy of the object.
         """
         node = CascadeNode(self.user_id, self.datetime, self.post_id, self.parent_id)
-        node.children = [child.copy() for child in self.children]
+        if max_depth is None or max_depth > 0:
+            max_depth = max_depth - 1 if max_depth is not None else None
+            node.children = [child.copy(max_depth) for child in self.children]
         return node
 
     def depth(self):
@@ -206,18 +204,20 @@ class CascadeTree(object):
                 leaves.extend(self.get_leaves(child))
         return leaves
 
-    def node_ids(self):
-        return [node.user_id for node in self.nodes()]
+    def node_ids(self, max_depth=None):
+        return [node.user_id for node in self.nodes(max_depth=max_depth)]
 
-    def nodes(self, node=None):
+    def nodes(self, node=None, max_depth=None):
         nodes_list = []
         if node is None:
             for node in self.roots:
-                nodes_list.extend(self.nodes(node))
+                nodes_list.extend(self.nodes(node, max_depth))
         else:
             nodes_list = [node]
-            for child in node.children:
-                nodes_list.extend(self.nodes(child))
+            if max_depth is None or max_depth > 0:
+                max_depth = max_depth - 1 if max_depth is not None else None
+                for child in node.children:
+                    nodes_list.extend(self.nodes(child, max_depth))
         return nodes_list
 
     def edges(self, node=None):
@@ -232,8 +232,8 @@ class CascadeTree(object):
                 edges_list.extend(self.edges(child))
         return edges_list
 
-    def copy(self):
-        tree_copy = [root.copy() for root in self.roots]
+    def copy(self, max_depth=None):
+        tree_copy = [root.copy(max_depth) for root in self.roots]
         return CascadeTree(tree_copy)
 
     def __calc_depth(self):
@@ -317,7 +317,7 @@ class AsLT(object):
         pass
 
     # @profile
-    def predict(self, initial_tree, threshold=None, user_ids=None, users_map=None, log=False):
+    def predict(self, initial_tree, threshold=None, max_step=None, user_ids=None, users_map=None, log=False):
         """
         Predict activation cascade in the future starting from initial nodes in self.tree.
         Set the final tree again in self.tree.
@@ -346,7 +346,7 @@ class AsLT(object):
 
         # Iterate on steps. For each step try to activate other nodes.
         step = 0
-        while cur_step:
+        while cur_step and (max_step is None or step < max_step):
             t0 = time.time()
             step += 1
             if log:
@@ -360,12 +360,14 @@ class AsLT(object):
                 u_i = self.users_map[u]
                 # w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
                 w_u = self.w[u_i, :]
+                if log > 0:
+                    logger.info('weights of user %s:', u)
+                    logger.info('\n'.join(['{}:{}'.format(user_ids[w_u.indices[i]], w_u.data[i]) for i in range(w_u.nnz)]))
 
                 # Iterate on children of u
                 # for v_i in np.nonzero(w_u)[0]:
                 for i in range(w_u.nnz):
                     v_i = w_u.indices[i]
-                    v_i = int(v_i)
                     v = user_ids[v_i]  # receiver (child) user id
                     if v in activated:
                         continue
@@ -408,7 +410,7 @@ class AsLT(object):
 
                         # Add it to the tree.
                         child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
-                        #child = CascadeNode(v)
+                        # child = CascadeNode(v)
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
@@ -416,7 +418,7 @@ class AsLT(object):
                         #     logger.info('a reshare predicted')
             cur_step = sorted(next_step, key=lambda n: n.datetime)
             if log:
-                logger.info('step %d done, time = %.2f' % (step, time.time() - t0))
+                logger.info('step %d done, time = %.2f s' % (step, time.time() - t0))
 
         return tree
 

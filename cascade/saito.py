@@ -1,16 +1,10 @@
-import logging
 import time
 import numpy as np
 from scipy import sparse
 from sklearn.preprocessing import normalize
 from cascade.models import AsLT, ParamTypes
 from mongo import mongodb
-import settings
-
-
-logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('cascade.saito')
-logger.setLevel(settings.LOG_LEVEL)
+from settings import logger
 
 
 class Saito(AsLT):

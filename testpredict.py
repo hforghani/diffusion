@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import argparse
-import logging
 import multiprocessing
 from multiprocessing.pool import Pool
 import traceback
@@ -18,30 +17,26 @@ from memm.models import MEMMModel
 from mln.models import MLN
 from mln.file_generators import FileCreator
 import settings
-
-#logging.basicConfig(format=settings.LOG_FORMAT)
-logging.basicConfig(format=settings.LOG_FORMAT)
-file_handler = logging.FileHandler('testpredict.log', 'w', 'utf-8')
-file_handler.setFormatter(logging.Formatter(settings.LOG_FORMAT))
-logger = logging.getLogger('testpredict')
-logger.addHandler(file_handler)
-logger.setLevel(settings.LOG_LEVEL)
+from settings import logger
 
 
-def evaluate(initial_tree, res_tree, tree, all_nodes, verbosity=settings.VERBOSITY):
+def evaluate(initial_tree, res_tree, tree, all_nodes, max_depth=None, verbosity=settings.VERBOSITY):
     # Get predicted and true nodes.
     res_nodes = set(res_tree.node_ids())
-    true_nodes = set(tree.node_ids())
+    true_nodes = set(tree.node_ids(max_depth=max_depth))
     initial_nodes = set(initial_tree.node_ids())
     res_output = res_nodes - initial_nodes
     true_output = true_nodes - initial_nodes
 
     # Evaluate the result.
+    logger.info('len(all_nodes) = %d', len(all_nodes))
     meas = Validation(res_output, true_output, all_nodes)
     return meas, res_output, true_output
 
 
-def log_trees(tree, res_tree):
+def log_trees(tree, res_tree, max_depth=None):
+    if max_depth is not None:
+        tree = tree.copy(max_depth)
     tree_render = tree.render(digest=True).split('\n')
     res_tree_render = res_tree.render(digest=True).split('\n')
     max_len = max([len(line) for line in tree_render])
@@ -53,7 +48,7 @@ def log_trees(tree, res_tree):
                                           res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
-def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids, users_map,
+def test_meme(meme_ids, method, model, threshold, max_depth, trees, all_node_ids, user_ids, users_map,
               verbosity=settings.VERBOSITY):
     try:
         prp1_list = []
@@ -72,16 +67,17 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
                 node.children = []
 
             # Predict remaining nodes.
+            logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
             if method in ['mlnprac', 'mlnalch']:
-                res_tree = model.predict(meme_id, initial_tree, threshold=threshold, log=verbosity > 2)
+                res_tree = model.predict(meme_id, initial_tree, threshold=threshold, log=verbosity - 2)
             elif method in ['aslt', 'avg']:
-                res_tree = model.predict(initial_tree, threshold=threshold, user_ids=user_ids, users_map=users_map,
-                                         log=verbosity > 2)
+                res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_depth, user_ids=user_ids,
+                                         users_map=users_map, log=verbosity - 2)
             else:
-                res_tree = model.predict(initial_tree, threshold=threshold, log=verbosity > 2)
+                res_tree = model.predict(initial_tree, threshold=threshold, log=verbosity - 2)
 
             # Evaluate the results.
-            meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids)
+            meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)
 
             if method in ['aslt', 'avg']:
                 prp = meas.prp(model.probabilities)
@@ -106,7 +102,7 @@ def test_meme(meme_ids, method, model, threshold, trees, all_node_ids, user_ids,
                     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                 logger.info(log)
             if verbosity > 2:
-                log_trees(tree, res_tree)
+                log_trees(tree, res_tree, max_depth)
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
 
@@ -140,6 +136,13 @@ class Command:
             type=float,
             dest="threshold",
             help="the threshold to apply on the method",
+        )
+        parser.add_argument(
+            "-d",
+            "--max-depth",
+            type=int,
+            dest="max_depth",
+            help="the maximum depth of cascade prediction",
         )
         parser.add_argument(
             "-a",
@@ -193,6 +196,12 @@ class Command:
         else:
             thresholds = [args.threshold]
 
+        # Log the test configuration.
+        logger.info('{0} PROJECT(S) = {1} {0}'.format('=' * 20, project_names))
+        logger.info('{0} METHOD = {1} {0}'.format('=' * 20, method))
+        logger.info('{0} MAX DEPTH = {1} {0}'.format('=' * 20, args.max_depth))
+        logger.info('{0} TESTING ON THRESHOLD(S) {1} {0}'.format('=' * 20, thresholds))
+
         final_prec = []
         final_recall = []
         final_f1 = []
@@ -217,7 +226,7 @@ class Command:
 
             for p_name in project_names:
                 model = models[p_name]
-                mprec, mrec, mf1, mfpr = self.test(model, method, thr, multi_processed)
+                mprec, mrec, mf1, mfpr = self.test(model, method, thr, args.max_depth, multi_processed)
                 prec.append(mprec)
                 recall.append(mrec)
                 f1.append(mf1)
@@ -266,7 +275,7 @@ class Command:
                 model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
             elif method == 'memm':
                 train_set, _ = project.load_train_test()
-                model = MEMMModel(project).fit(train_set, log=self.verbosity > 2)
+                model = MEMMModel(project).fit(train_set, log=self.verbosity - 2)
             elif method == 'aslt':
                 model = Saito(project)
             elif method == 'avg':
@@ -276,7 +285,7 @@ class Command:
             models[p_name] = model
         return models
 
-    def test(self, model, method, threshold, multi_processed=False):
+    def test(self, model, method, threshold, max_depth=None, multi_processed=False):
         # Load training and test sets and cascade trees.
         project = model.project
         train_set, test_set = project.load_train_test()
@@ -290,12 +299,13 @@ class Command:
 
         if multi_processed:
             precisions, recalls, f1s, fprs, prp1_list, prp2_list = self.__test_multi_processed(test_set, method, model,
-                                                                                               threshold, trees,
-                                                                                               all_node_ids)
+                                                                                               threshold, max_depth,
+                                                                                               trees, all_node_ids)
         else:
-            precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_meme(test_set, method, model, threshold, trees,
-                                                                             all_node_ids, self.user_ids,
-                                                                             self.users_map, self.verbosity)
+            precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_meme(test_set, method, model, threshold,
+                                                                             max_depth, trees, all_node_ids,
+                                                                             self.user_ids, self.users_map,
+                                                                             self.verbosity)
 
         mean_prec = np.array(precisions).mean()
         mean_rec = np.array(recalls).mean()
@@ -310,14 +320,14 @@ class Command:
             logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
             logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
 
-        #return meas
+        # return meas
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
-    def __test_multi_processed(self, test_set, method, model, threshold, trees, all_node_ids):
+    def __test_multi_processed(self, test_set, method, model, threshold, max_depth, trees, all_node_ids):
         """
         Create a process pool to distribute the prediction.
         """
-        #process_count = multiprocessing.cpu_count()
+        # process_count = multiprocessing.cpu_count()
         process_count = 4
         pool = Pool(processes=process_count)
         step = int(math.ceil(float(len(test_set)) / process_count))
@@ -325,7 +335,7 @@ class Command:
         for j in range(0, len(test_set), step):
             meme_ids = test_set[j: j + step]
             res = pool.apply_async(test_meme,
-                                   (meme_ids, method, model, threshold, trees, all_node_ids, self.user_ids,
+                                   (meme_ids, method, model, threshold, max_depth, trees, all_node_ids, self.user_ids,
                                     self.users_map, self.verbosity))
             results.append(res)
 

@@ -1,8 +1,17 @@
 import logging
 import os
+from datetime import datetime
 
-LOG_FORMAT = '[%(levelname)s] [%(asctime)s] [%(name)s] %(message)s'
+LOG_FORMAT = '[%(levelname)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s'
 LOG_LEVEL = logging.DEBUG
+
+logging.basicConfig(format=LOG_FORMAT)
+file_handler = logging.FileHandler('log/testpredict-{}.log'.format(datetime.now().strftime('%Y%m%d-%H%M%S')), 'w',
+                                   'utf-8')
+file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+logger = logging.getLogger()
+logger.addHandler(file_handler)
+logger.setLevel(LOG_LEVEL)
 
 VERBOSITY = 2
 

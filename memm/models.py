@@ -1,10 +1,8 @@
-import logging
 import time
 from bson import ObjectId
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm.memm import MEMM
-
-logger = logging.getLogger('memm.models')
+from settings import logger
 
 
 class MEMMModel():
@@ -54,7 +52,7 @@ class MEMMModel():
                 activated = set()
                 meme_seqs = {}
 
-                for uid in act_seq.users:   # Notice users are sorted by activation time.
+                for uid in act_seq.users:  # Notice users are sorted by activation time.
                     activated.add(uid)
                     if self.__parents[uid]:
                         u_obs = observations.setdefault(uid, [0] * len(self.__parents[uid]))

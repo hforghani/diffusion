@@ -1,14 +1,9 @@
-import logging
 import numpy as np
 from scipy import sparse
 
-import settings
+from settings import logger
 from cascade.models import AsLT, ParamTypes
 from mongo import mongodb
-
-logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('cascade.avg')
-logger.setLevel(settings.LOG_LEVEL)
 
 
 class LTAvg(AsLT):

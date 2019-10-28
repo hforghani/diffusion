@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
-import logging
 import os
 import re
 
 from cascade.models import CascadeNode
 from mln.file_generators import FileCreator
 import settings
-
-logger = logging.getLogger('mln.models')
+from settings import logger
 
 
 class NodeProb:

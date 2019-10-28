@@ -1,9 +1,7 @@
-import logging
 import os
 import numpy
 from scipy import sparse
-
-logger = logging.getLogger('mln.file_generators')
+from settings import logger
 
 
 class FileCreator:
