@@ -8,7 +8,7 @@ import time
 from bson.objectid import ObjectId
 
 import settings
-from mongo import mongodb
+from settings import mongodb
 
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('memedepths')

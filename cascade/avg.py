@@ -1,9 +1,8 @@
 import numpy as np
 from scipy import sparse
 
-from settings import logger
+from settings import logger, mongodb
 from cascade.models import AsLT, ParamTypes
-from mongo import mongodb
 
 
 class LTAvg(AsLT):

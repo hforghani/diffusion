@@ -1,17 +1,11 @@
 # -*- coding: utf-8 -*-
 import argparse
-import logging
 import traceback
 from random import shuffle
 import time
 
-import settings
 from cascade.models import Project
-from mongo import mongodb
-
-logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('sampledata')
-logger.setLevel(settings.LOG_LEVEL)
+from settings import mongodb, logger
 
 
 class Command:

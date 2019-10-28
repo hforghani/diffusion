@@ -62,3 +62,4 @@ target/
 diffusion/local_settings.py
 *.lprof
 thresholds.txt
+local_settings.py

@@ -1,6 +1,8 @@
 import logging
 import os
 from datetime import datetime
+import pymongo
+from local_settings import *
 
 LOG_FORMAT = '[%(levelname)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s'
 LOG_LEVEL = logging.DEBUG
@@ -16,6 +18,8 @@ logger.setLevel(LOG_LEVEL)
 VERBOSITY = 2
 
 BASEPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '')
+
+mongo_client = pymongo.MongoClient("mongodb://localhost:27017/")
 
 THRESHOLDS = {
     'memm': (-0.01, 1),

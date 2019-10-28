@@ -11,8 +11,7 @@ from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
 
 import settings
-from settings import logger
-from mongo import mongodb
+from settings import logger, mongodb
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
@@ -194,14 +193,16 @@ class CascadeTree(object):
         return max_dt
 
     def get_leaves(self, node=None):
-        if node is None:
-            node = self.roots
         leaves = []
-        if not node.children:
-            leaves.append(node)
+        if node is None:
+            for root in self.roots:
+                leaves.extend(self.get_leaves(root))
         else:
-            for child in node.children:
-                leaves.extend(self.get_leaves(child))
+            if not node.children:
+                leaves.append(node)
+            else:
+                for child in node.children:
+                    leaves.extend(self.get_leaves(child))
         return leaves
 
     def node_ids(self, max_depth=None):
@@ -310,6 +311,10 @@ class AsLT(object):
         self.users_map = None
 
         self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
+        # logger.info('sum of columns:')
+        # for i in range(self.w.shape[1]):
+        #     if self.w[:, i].nnz:
+        #         logger.info('%d: %f', i, self.w[:, i].sum())
         self.w = self.w.tocsr()
         self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
 
@@ -332,8 +337,8 @@ class AsLT(object):
         tree = initial_tree.copy()
 
         # Initialize values.
-        cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        activated = tree.nodes()
+        cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
+        activated = [node for node in cur_step]
         self.probabilities = {}
 
         if user_ids is None or users_map is None:
@@ -360,9 +365,10 @@ class AsLT(object):
                 u_i = self.users_map[u]
                 # w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
                 w_u = self.w[u_i, :]
-                if log > 0:
+                if log > 1 and w_u.nnz:
                     logger.info('weights of user %s:', u)
-                    logger.info('\n'.join(['{}:{}'.format(user_ids[w_u.indices[i]], w_u.data[i]) for i in range(w_u.nnz)]))
+                    logger.info(
+                        '\n'.join(['{} : {}'.format(w_u.indices[i], w_u.data[i]) for i in range(w_u.nnz)]))
 
                 # Iterate on children of u
                 # for v_i in np.nonzero(w_u)[0]:

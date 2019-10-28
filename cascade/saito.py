@@ -3,8 +3,7 @@ import numpy as np
 from scipy import sparse
 from sklearn.preprocessing import normalize
 from cascade.models import AsLT, ParamTypes
-from mongo import mongodb
-from settings import logger
+from settings import logger, mongodb
 
 
 class Saito(AsLT):

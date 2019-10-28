@@ -1,10 +1,4 @@
-import logging
-from mongo import mongodb
-import settings
-
-logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('setpostmemesdt')
-logger.setLevel(settings.LOG_LEVEL)
+from settings import mongodb, logger
 
 post_ids = mongodb.postmemes.find({'datetime': None}, {'post_id': 1, '_id': 0})
 post_ids_done = set()

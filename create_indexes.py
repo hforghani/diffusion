@@ -4,7 +4,7 @@ import pymongo
 from pymongo import IndexModel
 
 import settings
-from mongo import mongodb
+from settings import mongodb
 
 
 def handle(logger):

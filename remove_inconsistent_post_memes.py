@@ -1,5 +1,5 @@
 import logging
-from mongo import mongodb
+from settings import mongodb
 import settings
 
 logging.basicConfig(format=settings.LOG_FORMAT)
