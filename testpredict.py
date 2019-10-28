@@ -27,9 +27,10 @@ def evaluate(initial_tree, res_tree, tree, all_nodes, max_depth=None, verbosity=
     initial_nodes = set(initial_tree.node_ids())
     res_output = res_nodes - initial_nodes
     true_output = true_nodes - initial_nodes
+    if verbosity > 2:
+        logger.info('len(all_nodes) = %d', len(all_nodes))
 
     # Evaluate the result.
-    logger.info('len(all_nodes) = %d', len(all_nodes))
     meas = Validation(res_output, true_output, all_nodes)
     return meas, res_output, true_output
 
@@ -115,59 +116,21 @@ class Command:
     help = 'Test information diffusion prediction'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "-p",
-            "--project",
-            type=str,
-            dest="project",
-            help="project name or multiple comma-separated project names",
-        )
-        parser.add_argument(
-            "-m",
-            "--method",
-            type=str,
-            dest="method",
-            choices=['mlnprac', 'mlnalch', 'memm', 'aslt', 'avg'],
-            help="the method by which we want to test",
-        )
-        parser.add_argument(
-            "-t",
-            "--threshold",
-            type=float,
-            dest="threshold",
-            help="the threshold to apply on the method",
-        )
-        parser.add_argument(
-            "-d",
-            "--max-depth",
-            type=int,
-            dest="max_depth",
-            help="the maximum depth of cascade prediction",
-        )
-        parser.add_argument(
-            "-a",
-            "--all",
-            action='store_true',
-            dest="all_thresholds",
-            default=False,
-            help="test the method for all threshold values and show the charts",
-        )
-        parser.add_argument(
-            "-u",
-            "--multiprocessed",
-            action='store_true',
-            dest="multi_processed",
-            default=False,
-            help="run tests on multiple processes",
-        )
-        parser.add_argument(
-            "-v",
-            "--verbosity",
-            type=int,
-            dest="verbosity",
-            default=settings.VERBOSITY,
-            help="verbosity level",
-        )
+        parser.add_argument("-p", "--project", type=str, dest="project",
+                            help="project name or multiple comma-separated project names")
+        parser.add_argument("-m", "--method", type=str, dest="method",
+                            choices=['mlnprac', 'mlnalch', 'memm', 'aslt', 'avg'],
+                            help="the method by which we want to test", )
+        parser.add_argument("-t", "--threshold", type=float, dest="threshold",
+                            help="the threshold to apply on the method", )
+        parser.add_argument("-d", "--max-depth", type=int, dest="max_depth",
+                            help="the maximum depth of cascade prediction", )
+        parser.add_argument("-a", "--all", action='store_true', dest="all_thresholds", default=False,
+                            help="test the method for all threshold values and show the charts", )
+        parser.add_argument("-u", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
+                            help="run tests on multiple processes", )
+        parser.add_argument("-v", "--verbosity", type=int, dest="verbosity", default=settings.VERBOSITY,
+                            help="verbosity level", )
 
     THRESHOLDS_COUNT = 10
 
