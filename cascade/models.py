@@ -338,7 +338,7 @@ class AsLT(object):
 
         # Initialize values.
         cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        activated = [node for node in cur_step]
+        activated = tree.nodes()
         self.probabilities = {}
 
         if user_ids is None or users_map is None:

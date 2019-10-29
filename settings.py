@@ -20,11 +20,4 @@ VERBOSITY = 2
 BASEPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '')
 
 mongo_client = pymongo.MongoClient("mongodb://localhost:27017/")
-
-THRESHOLDS = {
-    'memm': (-0.01, 1),
-    'mlnprac': (5, 10),
-    'mlnalch': (-0.01, 0.5),
-    'aslt': (-0.01, 1),
-    'avg': (-0.001, 0.1),
-}
+mongodb = mongo_client[db_name]

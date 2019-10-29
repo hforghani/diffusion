@@ -1,3 +1,9 @@
-from settings import mongo_client
+db_name = 'weibo'
 
-mongodb = mongo_client.weibo
+THRESHOLDS = {
+    'memm': (0, 1),
+    'mlnprac': (5, 10),
+    'mlnalch': (0, 0.5),
+    'aslt': (0, 1),
+    'avg': (0, 1),
+}
