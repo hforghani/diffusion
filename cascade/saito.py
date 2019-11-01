@@ -26,7 +26,6 @@ class Saito(AsLT):
 
         # Create maps from users and memes db id's to their matrix id's.
         logger.info('creating user and meme id maps ...')
-        #user_ids = UserAccount.objects.values_list('id', flat=True).order_by('id')
         user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
         user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
         meme_map = {str(meme_ids[i]): i for i in range(len(meme_ids))}
