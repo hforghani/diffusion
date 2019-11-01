@@ -7,7 +7,7 @@ import time
 from bson.objectid import ObjectId
 from datetime import timedelta
 from pymongo.errors import BulkWriteError
-from pymongo.operations import UpdateOne, IndexModel
+from pymongo.operations import UpdateOne
 
 from settings import mongodb
 import settings

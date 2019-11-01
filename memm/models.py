@@ -12,7 +12,7 @@ class MEMMModel():
         self.__parents = {}
         self.__children = {}
 
-    def fit(self, train_set, log=False):
+    def fit(self, train_set, log=0):
         """
         Train MEMM's for each user in training set.
         :param train_set:   meme id's in training set
@@ -27,7 +27,7 @@ class MEMMModel():
             user_ids.update(act_seqs[meme_id].users)
 
         # Create dictionary of parents and children of each node.
-        if log:
+        if log > 0:
             logger.info('collecting parents and children data ...')
         graph_nodes = set(graph.nodes())
         self.__parents = {uid: list(graph.predecessors(uid)) if uid in graph_nodes else []
@@ -44,7 +44,7 @@ class MEMMModel():
             count = 0
 
             # Iterate each activation sequence and extract sequences of (observation, state) for each user
-            if log:
+            if log > 0:
                 logger.info('extracting sequences from memes ...')
             for meme_id in train_set:
                 act_seq = act_seqs[meme_id]
@@ -71,7 +71,7 @@ class MEMMModel():
                         sequences[uid].append(meme_seqs[uid])
                 count += 1
                 if count % 1000 == 0:
-                    if log:
+                    if log > 0:
                         logger.info('%d memes done', count)
 
             seq_to_save = {str(key): value for key, value in sequences.items()}
@@ -79,22 +79,22 @@ class MEMMModel():
             del seq_to_save
 
         # Train a MEMM for each user.
-        if log:
+        if log > 0:
             logger.info("training %d MEMM's ...", len(sequences))
         count = 0
         for uid, seq in sequences.items():
             count += 1
             obs_dim = len(self.__parents[uid])
-            if log:
+            if log > 0:
                 logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
             m = MEMM().fit(seq, obs_dim)
             self.__memms[uid] = m
 
-        if log:
+        if log > 0:
             logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
         return self
 
-    def predict(self, initial_tree, threshold=None, log=False):
+    def predict(self, initial_tree, threshold=None, log=0):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :param log:      Log in console if True else does not log.
@@ -132,11 +132,11 @@ class MEMMModel():
                             node.children.append(child)
                             next_step.append(child)
                             active_ids.append(child_id)
-                            if log:
+                            if log > 0:
                                 logger.info('\ta reshare predicted')
             cur_step = next_step
 
-        if log:
+        if log > 0:
             logger.info('time1 = %.2f' % (time.time() - t0))
 
         return tree
