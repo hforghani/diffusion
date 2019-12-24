@@ -1,4 +1,6 @@
-db_name = 'weibo'
+BASE_PATH = '/path/to/current/folder'
+
+DB_NAME = 'weibo'
 
 THRESHOLDS = {
     'memm': (0, 1),

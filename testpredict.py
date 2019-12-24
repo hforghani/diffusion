@@ -164,7 +164,7 @@ class Command:
             thresholds = [args.threshold]
 
         # Log the test configuration.
-        logger.info('{0} DB : {1} {0}'.format('=' * 20, settings.db_name))
+        logger.info('{0} DB : {1} {0}'.format('=' * 20, settings.DB_NAME))
         logger.info('{0} PROJECT(S) : {1} {0}'.format('=' * 20, project_names))
         logger.info('{0} METHOD : {1} {0}'.format('=' * 20, method))
         logger.info('{0} INITIAL DEPTH : {1} {0}'.format('=' * 20, args.initial_depth))

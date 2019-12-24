@@ -57,26 +57,4 @@ del row_ind
 del col_ind
 
 logger.info('saving into file ...')
-save_sparse('data/weibo_meme_user_mat.npz', meme_user_mat)
-
-#results = mongodb.postmemes.aggregate([
-#                                          {'$lookup':
-#                                               {
-#                                                   'from': 'posts',
-#                                                   'localField': 'post_id',
-#                                                   'foreignField': '_id',
-#                                                   'as': 'post'
-#                                               }
-#                                          },
-#                                          {'$project': {
-#                                              'meme_id': 1, 'post_id': 1, 'post.author_id': 1
-#                                          }},
-#                                          {'$group': {
-#                                              '_id': {'author_id': '$post.author_id', 'meme_id': '$meme_id'},
-#                                              'count': {'$sum': 1}
-#                                          }},
-#                                      ], allowDiskUse=True)
-#
-#logger.info('saving into file ...')
-#with open('weibo_meme_author_counts.json', 'w') as f:
-#    json.dump(results, f)
+save_sparse('../data/weibo_meme_user_mat.npz', meme_user_mat)
