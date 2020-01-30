@@ -295,7 +295,7 @@ class Command:
         # return meas
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
-    def __test_multi_processed(self, test_set, method, model, threshold, max_depth, trees, all_node_ids):
+    def __test_multi_processed(self, test_set, method, model, threshold, initial_depth, max_depth, trees, all_node_ids):
         """
         Create a process pool to distribute the prediction.
         """
