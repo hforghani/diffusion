@@ -741,6 +741,8 @@ class Project(object):
             if i % (post_count / 10) == 0:
                 logger.info('\t%d%% posts done' % (i * 100 / post_count))
 
+        posts.close()
+
         logger.info('\tsetting relative times and max times ...')
         max_t = {}
         i = 0

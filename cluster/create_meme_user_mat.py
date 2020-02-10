@@ -5,13 +5,17 @@ from utils.numpy_utils import save_sparse
 
 
 logger.info('mapping meme ids to indexes ...')
-meme_ids = [m['_id'] for m in mongodb.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')]
+cursor = mongodb.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
+meme_ids = [m['_id'] for m in cursor]
+cursor.close()
 meme_map = {str(meme_ids[i]): i for i in range(len(meme_ids))}
 m_count = len(meme_ids)
 del meme_ids
 
 logger.info('mapping user ids to indexes ...')
-user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id'], no_cursor_timeout=True).sort('_id')]
+cursor = mongodb.users.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
+user_ids = [u['_id'] for u in cursor]
+cursor.close()
 user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
 u_count = len(user_ids)
 del user_ids
@@ -19,15 +23,17 @@ del user_ids
 #meme_user_mat = sparse.lil_matrix((m_count, u_count), dtype=bool)
 
 logger.info('mapping posts to authors ...')
-post_author_map = {str(u['_id']): user_map[str(u['author_id'])] for u in
-                   mongodb.posts.find({}, {'_id', 'author_id'}, no_cursor_timeout=True)}
+cursor = mongodb.posts.find({}, {'_id', 'author_id'}, no_cursor_timeout=True)
+post_author_map = {str(u['_id']): user_map[str(u['author_id'])] for u in cursor}
+cursor.close()
 del user_map
 
 logger.info('reading postmemes ...')
 meme_users = set()
 i = 0
 
-for pm in mongodb.postmemes.find({}, {'_id': 0, 'post_id': 1, 'meme_id': 1}, no_cursor_timeout=True):
+cursor = mongodb.postmemes.find({}, {'_id': 0, 'post_id': 1, 'meme_id': 1}, no_cursor_timeout=True)
+for pm in cursor:
     post_id = str(pm['post_id'])
     user_ind = post_author_map[post_id]
     meme_id = str(pm['meme_id'])
@@ -38,6 +44,7 @@ for pm in mongodb.postmemes.find({}, {'_id': 0, 'post_id': 1, 'meme_id': 1}, no_
     if i % 1000 == 0:
         logger.info('%d postmemes read', i)
 
+cursor.close()
 del post_author_map
 del meme_map
 

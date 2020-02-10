@@ -11,8 +11,10 @@ logger.info('counting posts ...')
 count = mongodb.posts.find({'datetime': None}).count()
 logger.info('removing inconsistent posts ...')
 
-for p in mongodb.posts.find({'datetime': None}, ['_id'], no_cursor_timeout=True):
+cursor = mongodb.posts.find({'datetime': None}, ['_id'], no_cursor_timeout=True)
+for p in cursor:
     mongodb.postmemes.remove({'post_id': p['_id']})
     i += 1
     if i % 10000 == 0:
         logger.info('%d posts done: %.1f%%', i, i / count * 100)
+cursor.close()

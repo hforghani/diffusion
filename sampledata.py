@@ -94,7 +94,9 @@ class Command:
 
                 selected = np.load(os.path.join(BASE_PATH, 'data/weibo_meme_labels2.npy'))
                 logger.info('fetching all meme ids ...')
-                all_meme_ids = [m['_id'] for m in mongodb.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')]
+                cursor = mongodb.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
+                all_meme_ids = [m['_id'] for m in cursor]
+                cursor.close()
                 selected_memes = np.array([str(mid) for mid in all_meme_ids])[selected]
                 selected_memes = [ObjectId(mid) for mid in selected_memes]
                 query = {'_id': {'$in': selected_memes}}

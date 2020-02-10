@@ -134,6 +134,8 @@ class Command:
                 self.save_data(i, depths, tree_nodes)
                 logger.info('temp data saved')
 
+        reshares.close()
+
         logger.info('saving non-zero depths ...')
         for meme_id, depth in depths.items():
             mongodb.memes.find_one_and_update({'_id': meme_id}, {'$set': {'depth': depth}})
