@@ -665,11 +665,7 @@ class Project(object):
                 sequences[int(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
 
         except:  # If graph data does not exist.
-            logger.info('\tquerying posts ids ...')
-            t0 = time.time()
-            post_ids = [pm['post_id'] for pm in
-                        mongodb.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id'])]
-            logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+            post_ids = self.__get_memes_post_ids(train_set)
 
             # Create graph and cascade data.
             sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
@@ -686,11 +682,19 @@ class Project(object):
         seq_fname = 'sequences'
 
         train_set, test_set = self.load_train_test()
+        post_ids = None
 
         try:
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
             graph = relabel_nodes(graph, {n: ObjectId(n) for n in graph.nodes()})
 
+        except:  # If graph and sequence data does not exist.
+            post_ids = self.__get_memes_post_ids(train_set)
+
+            # Create graph and activation sequence.
+            graph = self.__extract_graph(post_ids, train_set, graph_fname)
+
+        try:
             seq_copy = self.load_param(seq_fname, ParamTypes.JSON)
             sequences = {}
             for m in seq_copy:
@@ -699,17 +703,19 @@ class Project(object):
                 sequences[ObjectId(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
 
         except:  # If graph and sequence data does not exist.
-            logger.info('\tquerying posts ids ...')
-            t0 = time.time()
-            post_ids = [pm['post_id'] for pm in
-                        mongodb.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id'])]
-            logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
-
-            # Create graph and activation sequence.
-            graph = self.__extract_graph(post_ids, train_set, graph_fname)
+            if post_ids is None:
+                post_ids = self.__get_memes_post_ids(train_set)
             sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
 
         return graph, sequences
+
+    def __get_memes_post_ids(self, meme_ids):
+        logger.info('\tquerying posts ids ...')
+        t0 = time.time()
+        post_ids = [pm['post_id'] for pm in
+                    mongodb.postmemes.find({'meme_id': {'$in': meme_ids}}, ['post_id'])]
+        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        return post_ids
 
     def __extract_act_seq(self, posts_ids, meme_ids, seq_fname):
         """
