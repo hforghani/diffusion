@@ -9,6 +9,7 @@ from anytree import Node, RenderTree
 from bson.objectid import ObjectId
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
+from pymongo.errors import CursorNotFound
 
 import settings
 from settings import logger, mongodb
@@ -730,24 +731,29 @@ class Project(object):
         post_count = len(posts_ids)
         users = {m: [] for m in meme_ids}
         times = {m: [] for m in meme_ids}
-        posts = mongodb.posts.find({'_id': {'$in': posts_ids}}, ['author_id', 'datetime'], no_cursor_timeout=True) \
-            .sort('datetime')
 
         # Iterate on posts to extract activation sequences.
         i = 0
-        for post in posts:
-            if post['datetime'] is not None:
-                for pm in mongodb.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': meme_ids}},
-                                                 {'_id': 0, 'meme_id': 1}):
-                    meme_id = pm['meme_id']
-                    if post['author_id'] not in users[meme_id]:
-                        users[meme_id].append(post['author_id'])
-                        times[meme_id].append(post['datetime'])
-            i += 1
-            if i % (post_count / 10) == 0:
-                logger.info('\t%d%% posts done' % (i * 100 / post_count))
+        while True:
+            posts = mongodb.posts.find({'_id': {'$in': posts_ids}}, ['author_id', 'datetime'], no_cursor_timeout=True) \
+                .sort('datetime').skip(i)
 
-        posts.close()
+            try:
+                for post in posts:
+                    if post['datetime'] is not None:
+                        for pm in mongodb.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': meme_ids}},
+                                                         {'_id': 0, 'meme_id': 1}):
+                            meme_id = pm['meme_id']
+                            if post['author_id'] not in users[meme_id]:
+                                users[meme_id].append(post['author_id'])
+                                times[meme_id].append(post['datetime'])
+                    i += 1
+                    if i % (post_count / 10) == 0:
+                        logger.info('\t%d%% posts done' % (i * 100 / post_count))
+                posts.close()
+                break
+            except CursorNotFound:
+                logger.info('Lost cursor! retrying with skip ...')
 
         logger.info('\tsetting relative times and max times ...')
         max_t = {}

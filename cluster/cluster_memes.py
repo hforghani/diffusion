@@ -2,6 +2,7 @@ import json
 import os
 from bson import ObjectId
 from sklearn.cluster import SpectralClustering, DBSCAN
+from sklearn.preprocessing.data import normalize
 from settings import mongodb, logger, BASEPATH
 import numpy as np
 from matplotlib import pyplot as plt
@@ -50,6 +51,7 @@ def print_mat_tab(mat):
             print('\t{}'.format(mat[i, j]), end='')
         print()
 
+
 def print_mat_all_tab(mat):
     count = mat.shape[0]
     for i in range(1, count + 1):
@@ -61,6 +63,7 @@ def print_mat_all_tab(mat):
         for j in range(count):
             print('\t{}'.format(mat[i, j]), end='')
         print()
+
 
 def get_jaccard_mat(memes, users):
     count = len(memes)
@@ -85,8 +88,8 @@ def heat_map(mat):
     plt.show()
 
 
-def cluster_mat(mat):
-    clustering = SpectralClustering(n_clusters=5,
+def cluster_mat(mat, clust_num):
+    clustering = SpectralClustering(n_clusters=clust_num,
                                     assign_labels="discretize",
                                     random_state=0).fit(mat)
     #clustering = DBSCAN(eps=0.001, min_samples=5, metric='precomputed', n_jobs=-1).fit(mat)
@@ -101,6 +104,8 @@ def load_or_extract_users(meme_ids):
             users = json.load(f)
     except (FileNotFoundError, ValueError):
         users = {}
+
+    res_users = {}
     i = 1
     changed = False
     for meme_id in meme_ids:
@@ -108,18 +113,34 @@ def load_or_extract_users(meme_ids):
             logger.info('querying users of cascade {}'.format(i))
             users[meme_id] = get_users(meme_id)
             changed = True
+        res_users[meme_id] = users[meme_id]
         i += 1
+
     if changed:
         logger.info('saving users lists ...')
         with open(fname, 'w') as f:
             json.dump(users, f)
 
-    return users
+    return res_users
+
+
+def calc_error(mat, clusters):
+    count = mat.shape[0]
+    squares_mat = np.zeros((count, count))
+    begin = 0
+    for clust, clust_memes in clusters:
+        clust_size = clust_memes.size
+        squares_mat[begin: begin + clust_size, begin: begin + clust_size] = 1
+        begin += clust_size
+    error = np.linalg.norm(mat - squares_mat)
+    return error
 
 
 def main():
-# Extract the top cascades.
-    count = 500
+    count = 100
+    clust_num = 4
+
+    # Extract the top cascades.
     memes = [str(m['_id']) for m in mongodb.memes.find({}, ['_id']).sort('count', -1)[:count]]
 
     # Extract user sets of top cascades
@@ -128,31 +149,38 @@ def main():
     # Calculate the Jaccard matrix.
     logger.info('creating the similarity matrix ...')
     mat = get_jaccard_mat(memes, users)
+    mat = normalize(mat - np.eye(count), norm='max') + np.eye(count)
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
-    labels = cluster_mat(mat)
+    labels = cluster_mat(mat, clust_num)
 
-    order = np.array([], dtype=np.int8)
+    # Create the ordered indexes of cascades.
+    ordered_ind = np.array([], dtype=np.int8)
     memes_arr = np.array([str(m) for m in memes])
     uni_val = np.unique(labels)
-    clusters = {}
+    clusters = []
     logger.info('%d cluster(s) found', uni_val.size)
     for val in uni_val:
         indexes = np.nonzero(labels == val)[0]
         indexes = indexes.astype(np.int8)
-        clusters[val] = memes_arr[indexes]
-        order = np.concatenate((order, indexes))
-    with open(os.path.join(BASEPATH, 'data', 'weibo_clusters'), 'w') as f:
-        for clust in clusters:
-            f.write('cluster {}: size = {}\n'.format(clust, clusters[clust].size))
-            f.write('\n'.join(clusters[clust]))
+        clusters.append((val, memes_arr[indexes]))
+        ordered_ind = np.concatenate((ordered_ind, indexes))
+
+    # Print the clusters into the file.
+    with open(os.path.join(BASEPATH, 'data', 'weibo-clust'), 'w') as f:
+        for clust, clust_memes in clusters:
+            f.write('cluster {}: size = {}\n'.format(clust, clust_memes.size))
+            f.write('\n'.join(clust_memes))
             f.write('\n')
 
+    new_mat = mat[:, ordered_ind]
+    new_mat = new_mat[ordered_ind, :]
 
-    new_mat = mat[:, order]
-    new_mat = new_mat[order, :]
-    new_mat -= np.eye(count)
+    # Calculate the clustering error.
+    error = calc_error(new_mat, clusters)
+    logger.info('error = %f', error)
+
     #print_mat_all_tab(new_mat)
     heat_map(new_mat)
 
