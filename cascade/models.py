@@ -803,9 +803,9 @@ class Project(object):
             {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
         resh_count = reshares.count()
         reshares.rewind()
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('\ttime: %.2f min', (time.time() - t0) / 60.0)
 
-        logger.info('\textracting graph from %d posts and %s reshares ...' % (len(post_ids), resh_count))
+        logger.info('\textracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
         edges = []
         meme_ids = set(meme_ids)
         i = 0

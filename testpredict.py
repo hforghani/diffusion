@@ -57,6 +57,7 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
         recalls = []
         fprs = []
         f1s = []
+        max_step = max_depth - initial_depth if max_depth is not None else None
 
         for meme_id in meme_ids:
             tree = trees[meme_id]
@@ -71,11 +72,10 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
             if method in ['mlnprac', 'mlnalch']:
                 res_tree = model.predict(meme_id, initial_tree, threshold=threshold, log=verbosity - 2)
             elif method in ['aslt', 'avg']:
-                max_step = max_depth - initial_depth if max_depth is not None else None
                 res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, user_ids=user_ids,
                                          users_map=users_map, log=verbosity - 2)
             else:
-                res_tree = model.predict(initial_tree, threshold=threshold, log=verbosity - 2)
+                res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, log=verbosity - 2)
 
             # Evaluate the results.
             meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)

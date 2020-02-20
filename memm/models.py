@@ -85,8 +85,8 @@ class MEMMModel():
         for uid, seq in sequences.items():
             count += 1
             obs_dim = len(self.__parents[uid])
-            if log > 0:
-                logger.info('training MEMM %d (user id: %d, dimensions: %d) ...', count, uid, obs_dim)
+            #if log > 0:
+            #    logger.info('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, obs_dim)
             m = MEMM().fit(seq, obs_dim)
             self.__memms[uid] = m
 
@@ -94,7 +94,7 @@ class MEMMModel():
             logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
         return self
 
-    def predict(self, initial_tree, threshold=None, log=0):
+    def predict(self, initial_tree, threshold=None, max_step=None, log=0):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :param log:      Log in console if True else does not log.
@@ -107,26 +107,34 @@ class MEMMModel():
         t0 = time.time()
 
         # Find initially activated nodes.
-        cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
+        cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         active_ids = initial_tree.node_ids()
+        step_num = 1
 
         # Create dictionary of current observations of the nodes.
         observations = {uid: [0] * len(self.__parents.get(uid, [])) for uid in active_ids}
 
         # Predict the cascade tree.
         # At each iteration find newly activated nodes based on MEMM probabilities and add them to the tree.
-        while cur_step:
+        while cur_step and (max_step is None or step_num <= max_step):
+            if log > 0:
+                logger.info('\t predicting step %d ...', step_num)
+
             next_step = []
+
             for node in cur_step:
                 uid = node.user_id
+
                 for child_id in self.__children.get(uid, []):
                     obs = observations.setdefault(child_id, [0] * len(self.__parents[child_id]))
                     index = self.__parents[child_id].index(uid)
                     obs[index] = 1
+
                     if child_id not in active_ids and child_id in self.__memms:
                         memm = self.__memms[child_id]
                         obs_str = ''.join([str(o) for o in obs])
                         new_state = memm.predict(obs_str, threshold)
+
                         if new_state == 1:
                             child = CascadeNode(child_id)
                             node.children.append(child)
@@ -135,6 +143,7 @@ class MEMMModel():
                             if log > 0:
                                 logger.info('\ta reshare predicted')
             cur_step = next_step
+            step_num += 1
 
         if log > 0:
             logger.info('time1 = %.2f' % (time.time() - t0))
