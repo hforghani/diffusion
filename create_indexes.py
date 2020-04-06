@@ -18,6 +18,8 @@ def handle(logger):
     mongodb.reshares.create_indexes([IndexModel('post_id'), IndexModel('reshared_post_id'), IndexModel('datetime'),
                                      IndexModel(
                                          [('user_id', pymongo.ASCENDING), ('ref_user_id', pymongo.ASCENDING)])])
+    logger.info('creating indexes for relations ...')
+    mongodb.relations.create_indexes([IndexModel('parent'), IndexModel('child')])
 
 
 if __name__ == '__main__':

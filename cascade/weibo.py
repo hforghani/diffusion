@@ -65,6 +65,7 @@ def create_roots(path):
 
     return memes_map
 
+
 def to_user_id(number):
     """
     Convert number to 24-length valid db user id.
@@ -72,6 +73,7 @@ def to_user_id(number):
     :return: 24-length valid db user id (instance of ObjectId)
     """
     return ObjectId('{:024d}'.format(int(number)))
+
 
 def create_users(paths):
     """
@@ -185,6 +187,7 @@ def create_retweets(path, start_index, users_map, user_ids, memes_map):
     mongodb.postmemes.insert_many(post_memes)
     mongodb.reshares.insert_many(reshares)
 
+
 def read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring=False):
     # Read root post data.
     line = None
@@ -223,6 +226,7 @@ def read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring=False):
         meme_postmemes.extend(post_memes)
 
     return meme_reshares, meme_postmemes
+
 
 def read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignoring=False):
     # Read retweet data.
@@ -302,6 +306,7 @@ def read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignorin
 
     return reshares, post_memes
 
+
 def calc_memes_values():
     count = mongodb.memes.count()
     save_step = 10 ** 6
@@ -354,6 +359,7 @@ def calc_memes_values():
             logger.info('%d%% done', i * 100 / count)
     mongodb.memes.bulk_write(operations)
 
+
 def read_uidlist(uidlist_file):
     logger.info('reading uidlist ...')
     uid_list = []
@@ -366,56 +372,51 @@ def read_uidlist(uidlist_file):
             line = f.readline()
     return uid_list
 
-def extract_follow_rels(followers_file, uidlist_file, user_ids):
+
+def extract_relations(relations_file, uidlist_file, user_ids=None):
     t0 = time.time()
 
     uid_list = read_uidlist(uidlist_file)
-    uid_list_map = {uid_list[i] : i for i in range(len(uid_list))}
-    user_ids_indexes = {uid_list_map[uid] for uid in user_ids if uid in uid_list_map}
+    uid_list_map = {uid_list[i]: i for i in range(len(uid_list))}
 
-    logger.info('reading following relationships...')
+    user_ids_indexes = None
+    if user_ids:
+        user_ids_indexes = {uid_list_map[uid] for uid in user_ids if uid in uid_list_map}
+
+    logger.info('reading relationships...')
     i = 0
     edges = []
-    graph = DiGraph()
-    with open(followers_file, encoding='utf-8', errors='ignore') as f:
+
+    with open(relations_file, encoding='utf-8', errors='ignore') as f:
         f.readline()
         line = f.readline()
 
         while line:
             line = line.strip().split()
             u1_i = int(line[0])
-            #u1 = uid_list[u1_i]
+            u1 = uid_list[u1_i]
             n = int(line[1])
             for j in range(n):
                 u2_i = int(line[2 + j * 2])
-                #u2 = uid_list[u2_i]
+                u2 = uid_list[u2_i]
                 rel_type = line[3 + j * 2]
-                if u1_i in user_ids_indexes or u2_i in user_ids_indexes:
-                    #edges.append((u2, u1))
-                    edges.append((u2_i, u1_i))
-                    #graph.add_edge(u2, u1)
-                    #graph.add_edge(u2_i, u1_i)
+                if user_ids_indexes is None or u1_i in user_ids_indexes or u2_i in user_ids_indexes:
+                    edges.append({'parent': u2, 'child': u1})
                     if rel_type == '1':
-                        #edges.append((u1, u2))
-                        edges.append((u1_i, u2_i))
-                        #graph.add_edge(u1, u2)
-                        #graph.add_edge(u1_i, u2_i)
+                        edges.append({'parent': u1, 'child': u2})
 
             i += 1
             if i % 10000 == 0:
-                logger.info('%d lines read' % i)
+                logger.info('%d lines read. saving ...' % i)
+                mongodb.relations.insert_many(edges)
+                logger.info('%d new relations saved' % len(edges))
+                edges = []
 
             line = f.readline()
 
-    logger.info('adding edges to graph ...')
-    graph.add_edges_from(edges)
-    del edges
-    #graph = networkx.relabel_nodes(graph, {n: uid_list[n] for n in graph.nodes()})
-
-    logger.info('saving graph ...')
-    path = os.path.join(settings.BASEPATH, 'data', 'weibo-graph.txt')
-    write_adjlist(graph, path)
+    if edges:
+        mongodb.relations.insert_many(edges)
+        logger.info('%d edges saved' % len(edges))
 
     logger.info('graph extraction time: %.2f min', (time.time() - t0) / 60.0)
 
-    return graph

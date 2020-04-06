@@ -1,6 +1,6 @@
 import time
 from bson import ObjectId
-from cascade.models import CascadeNode, CascadeTree, ParamTypes
+from cascade.models import CascadeNode, CascadeTree, ParamTypes, RelationGraph, GraphTypes
 from memm.memm import MEMM
 from settings import logger
 
@@ -19,7 +19,7 @@ class MEMMModel():
         :return:            self
         """
         t0 = time.time()
-        graph, act_seqs = self.project.load_or_extract_graph_seq()
+        graph, act_seqs = self.project.load_or_extract_graph_seq(graph_type=GraphTypes.RELATIONS)
 
         # Extract all user id's in training set.
         user_ids = set()
@@ -29,11 +29,11 @@ class MEMMModel():
         # Create dictionary of parents and children of each node.
         if log > 0:
             logger.info('collecting parents and children data ...')
-        graph_nodes = set(graph.nodes())
-        self.__parents = {uid: list(graph.predecessors(uid)) if uid in graph_nodes else []
-                          for uid in user_ids}
-        self.__children = {uid: list(graph.successors(uid)) if uid in graph_nodes else []
-                           for uid in user_ids}
+        #graph_nodes = set(graph.nodes())
+        #self.__parents = {uid: list(graph.predecessors(uid)) if uid in graph_nodes else []
+        #                  for uid in user_ids}
+        #self.__children = {uid: list(graph.successors(uid)) if uid in graph_nodes else []
+        #                   for uid in user_ids}
 
         try:
             sequences = self.project.load_param('seq-obs-state', ParamTypes.JSON)
@@ -48,9 +48,9 @@ class MEMMModel():
                 logger.info('extracting sequences from memes ...')
             for meme_id in train_set:
                 act_seq = act_seqs[meme_id]
-                observations = {}
-                activated = set()
-                meme_seqs = {}
+                observations = {}   # current observation of each user
+                activated = set()   # set of current activated users
+                meme_seqs = {}      # current sequence of (observation, state) for each user
 
                 for uid in act_seq.users:  # Notice users are sorted by activation time.
                     activated.add(uid)

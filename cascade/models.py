@@ -534,12 +534,48 @@ class IC(object):
         return tree
 
 
-class ParamTypes(object):
+class RelationGraph():
+    def __init__(self, user_ids):
+        self.__graph = DiGraph()
+        self.__graph.add_nodes_from(user_ids)
+        self.__predecessors_fetched = set()
+        self.__successors_fetched = set()
+
+    def nodes(self):
+        return self.__graph.nodes()
+
+    def predecessors(self, uid):
+        if uid in self.__predecessors_fetched:
+            return self.__graph.predecessors(uid)
+        else:
+            pred = list({r['parent'] for r in mongodb.relations.find({'child': uid}, {'_id': 0, 'parent': 1})})
+            edges = [(n, uid) for n in pred]
+            self.__graph.add_edges_from(edges)
+            self.__predecessors_fetched.add(uid)
+            return pred
+
+    def successors(self, uid):
+        if uid in self.__successors_fetched:
+            return self.__graph.successors(uid)
+        else:
+            succ = list({r['child'] for r in mongodb.relations.find({'parent': uid}, {'_id': 0, 'child': 1})})
+            edges = [(uid, n) for n in succ]
+            self.__graph.add_edges_from(edges)
+            self.__successors_fetched.add(uid)
+            return succ
+
+
+class ParamTypes:
     JSON = 'json'
     ARRAY = 'array'
     SPARSE = 'sparse'
     SPARSE_LIST = 'splist'
     GRAPH = 'graph'
+
+
+class GraphTypes:
+    RESHARES = 0
+    RELATIONS = 1
 
 
 class Project(object):
@@ -625,7 +661,7 @@ class Project(object):
         self.trees = trees
         return trees
 
-    def load_or_extract_graph(self):
+    def load_or_extract_graph(self, graph_type=GraphTypes.RESHARES):
         """
         Load or extract the graph of memes in training set.
         :return:
@@ -637,15 +673,11 @@ class Project(object):
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
 
         except:  # If graph data does not exist.
-            logger.info('\tquerying posts ids ...')
-            t0 = time.time()
-            post_ids = [pm['post_id'] for pm in
-                        mongodb.postmemes.find({'meme_id': {'$in': train_set}}, {'_id': 0, 'post_id': 1}).sort(
-                            'datetime')]
-            logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
-
-            # Create graph.
-            graph = self.__extract_graph(post_ids, train_set, graph_fname)
+            post_ids = self.__get_memes_post_ids(train_set)
+            if graph_type == GraphTypes.RESHARES:
+                graph = self.__extract_reshare_graph(post_ids, train_set, graph_fname)
+            else:
+                graph = self.__extract_rel_graph(post_ids, graph_fname)
 
         return graph
 
@@ -667,13 +699,11 @@ class Project(object):
 
         except Exception as e:  # If graph data does not exist.
             post_ids = self.__get_memes_post_ids(train_set)
-
-            # Create graph and cascade data.
             sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
 
         return sequences
 
-    def load_or_extract_graph_seq(self):
+    def load_or_extract_graph_seq(self, graph_type=GraphTypes.RESHARES):
         """
         Load the graph, and list of activation sequences of the project if saved before.
         Otherwise extract them from the training set and return them.
@@ -691,9 +721,10 @@ class Project(object):
 
         except:  # If graph does not exist.
             post_ids = self.__get_memes_post_ids(train_set)
-
-            # Create graph and activation sequence.
-            graph = self.__extract_graph(post_ids, train_set, graph_fname)
+            if graph_type == GraphTypes.RESHARES:
+                graph = self.__extract_reshare_graph(post_ids, train_set, graph_fname)
+            else:
+                graph = self.__extract_rel_graph(post_ids, graph_fname)
 
         try:
             seq_copy = self.load_param(seq_fname, ParamTypes.JSON)
@@ -714,7 +745,7 @@ class Project(object):
         logger.info('\tquerying posts ids ...')
         t0 = time.time()
         post_ids = [pm['post_id'] for pm in
-                    mongodb.postmemes.find({'meme_id': {'$in': meme_ids}}, ['post_id'])]
+                    mongodb.postmemes.find({'meme_id': {'$in': meme_ids}}, {'_id': 0, 'post_id': 1})]
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return post_ids
 
@@ -727,7 +758,7 @@ class Project(object):
         :return:            list of ActSequence's
         """
         t0 = time.time()
-        logger.info('\textracting act. sequences from %d posts ...' % len(posts_ids))
+        logger.info('extracting act. sequences from %d posts ...' % len(posts_ids))
         post_count = len(posts_ids)
         users = {m: [] for m in meme_ids}
         times = {m: [] for m in meme_ids}
@@ -783,10 +814,10 @@ class Project(object):
         self.save_param(seq_copy, seq_fname, ParamTypes.JSON)
         del seq_copy
 
-        logger.info('\tact. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('act. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return sequences
 
-    def __extract_graph(self, post_ids, meme_ids, graph_fname):
+    def __extract_reshare_graph(self, post_ids, meme_ids, graph_fname):
         """
         Extract graph from given meme id's.
         :param post_ids:    list of posts id's related to memes
@@ -794,7 +825,7 @@ class Project(object):
         :param graph_fname: the file name to save graph data
         :return:            directed graph of all reshares
         """
-
+        logger.info('extracting graph of reshares ...')
         t0 = time.time()
 
         logger.info('\tquerying reshares ...')
@@ -832,7 +863,36 @@ class Project(object):
         logger.info('\tsaving graph ...')
         self.save_param(graph, graph_fname, ParamTypes.GRAPH)
 
-        logger.info('\tgraph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('graph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
+        return graph
+
+    def __extract_rel_graph(self, post_ids, graph_fname):
+        logger.info('extracting graph of relations ...')
+        logger.info('\tquerying user ids ...')
+        t0 = time.time()
+        user_ids = [u['author_id'] for u in mongodb.posts.find({'_id': {'$in': post_ids}}, {'_id': 0, 'author_id': 1})]
+
+        logger.info('\textracting children of {} users ...'.format(len(user_ids)))
+        child_rels = [(rel['parent'], rel['child']) for rel in
+                      mongodb.relations.find({'parent': {'$in': user_ids}})]
+        children = {rel[1] for rel in child_rels}
+        users_and_children = list(set(user_ids) | children)
+
+        logger.info('\textracting parents of {} users ...'.format(len(users_and_children)))
+        parent_rels = [(rel['parent'], rel['child']) for rel in
+                       mongodb.relations.find({'child': {'$in': users_and_children}},
+                                              {'_id': 0, 'child': 1, 'parent': 1})]
+        edges = child_rels
+        edges.extend(parent_rels)
+        del parent_rels
+
+        graph = DiGraph()
+        graph.add_edges_from(edges)
+
+        logger.info('\tsaving the graph ...')
+        self.save_param(graph, graph_fname, ParamTypes.GRAPH)
+
+        logger.info('graph extraction time: %.2f min' % ((time.time() - t0) / 60))
         return graph
 
     def get_all_nodes(self):

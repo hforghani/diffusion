@@ -6,7 +6,7 @@ import time
 
 from settings import mongodb
 import settings
-from cascade.weibo import create_users, create_roots, create_retweets, extract_follow_rels, calc_memes_values
+from cascade.weibo import create_users, create_roots, create_retweets, extract_relations, calc_memes_values
 
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('readweibo')
@@ -30,8 +30,8 @@ class Command:
             help="path of Retweet_Content.txt file in Weibo dataset"
         )
         parser.add_argument(
-            "-f", "--followers", type=str, dest="followers_file",
-            help="path of weibo_network.txt file (followers) in Weibo dataset"
+            "-e", "--relations", type=str, dest="relations_file",
+            help="path of weibo_network.txt file (following relations) in Weibo dataset"
         )
         parser.add_argument(
             "-i", "--uidlist", type=str, dest="uidlist_file",
@@ -90,9 +90,9 @@ class Command:
                     logger.info('======== creating retweets ...')
                     create_retweets(args.retweets_file, args.start_index, users_map, user_ids, memes_map)
 
-                if args.followers_file and args.uidlist_file:
+                if args.relations_file and args.uidlist_file:
                     logger.info('======== creating following graph ...')
-                    extract_follow_rels(args.followers_file, args.uidlist_file)
+                    extract_relations(args.relations_file, args.uidlist_file)
 
             # Set the meme count, first time, and last time attributes of memes.
             if args.set_attributes:
