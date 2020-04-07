@@ -9,10 +9,13 @@ from anytree import Node, RenderTree
 from bson.objectid import ObjectId
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
+import py2neo
+from py2neo.matching import NodeMatcher, RelationshipMatcher
 from pymongo.errors import CursorNotFound
 
 import settings
 from settings import logger, mongodb
+from test.create_weibo_neo4j import create_relations
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
@@ -107,7 +110,7 @@ class CascadeTree(object):
         reshares = mongodb.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
             .sort('datetime')
         if log > 0:
-            logger.info('\tTREE: time 1 = %.2f' % (time.time() - t1))
+            logger.info('TREE: time 1 = %.2f' % (time.time() - t1))
 
         # Create nodes for the users.
         t1 = time.time()
@@ -116,12 +119,12 @@ class CascadeTree(object):
         for user_id in user_ids:
             nodes[user_id] = CascadeNode(user_id)
         if log > 0:
-            logger.info('\tTREE: time 2 = %.2f' % (time.time() - t1))
+            logger.info('TREE: time 2 = %.2f' % (time.time() - t1))
 
         # Create diffusion edge if a user reshares to another for the first time. Note that reshares are sorted by time.
         t1 = time.time()
         if log > 0:
-            logger.info('\tTREE: reshares count = %d' % reshares.count())
+            logger.info('TREE: reshares count = %d' % reshares.count())
         self.roots = []
         for reshare in reshares:
             child_id = reshare['user_id']
@@ -144,7 +147,7 @@ class CascadeTree(object):
                 child.datetime = reshare['datetime'].strftime(DT_FORMAT)
                 visited[child_id] = True
         if log > 0:
-            logger.info('\tTREE: time 3 = %.2f' % (time.time() - t1))
+            logger.info('TREE: time 3 = %.2f' % (time.time() - t1))
 
         # Add users with no diffusion edges as single nodes.
         t1 = time.time()
@@ -161,7 +164,7 @@ class CascadeTree(object):
                 node.post_id = post['_id']
                 self.roots.append(node)
         if log > 0:
-            logger.info('\tTREE: time 4 = %.2f' % (time.time() - t1))
+            logger.info('TREE: time 4 = %.2f' % (time.time() - t1))
 
         # Calculate tree depth.
         self.depth = self.__calc_depth()
@@ -474,7 +477,7 @@ class IC(object):
             t0 = time.time()
             i += 1
             if log > 0:
-                logger.info('\tstep %d ...' % i)
+                logger.info('step %d ...' % i)
 
             next_step = []
 
@@ -526,7 +529,7 @@ class IC(object):
                         activated.append(v)
                         next_step.append(child)
                         if log > 0:
-                            logger.info('\ta reshare predicted')
+                            logger.info('a reshare predicted')
             cur_step = sorted(next_step, key=lambda n: n.datetime)
             if log > 0:
                 logger.info('time = %.2f' % (time.time() - t0))
@@ -742,11 +745,11 @@ class Project(object):
         return graph, sequences
 
     def __get_memes_post_ids(self, meme_ids):
-        logger.info('\tquerying posts ids ...')
+        logger.info('querying posts ids ...')
         t0 = time.time()
         post_ids = [pm['post_id'] for pm in
                     mongodb.postmemes.find({'meme_id': {'$in': meme_ids}}, {'_id': 0, 'post_id': 1})]
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('time: %.2f min' % ((time.time() - t0) / 60.0))
         return post_ids
 
     def __extract_act_seq(self, posts_ids, meme_ids, seq_fname):
@@ -780,13 +783,13 @@ class Project(object):
                                 times[meme_id].append(post['datetime'])
                     i += 1
                     if i % (post_count / 10) == 0:
-                        logger.info('\t%d%% posts done' % (i * 100 / post_count))
+                        logger.info('%d%% posts done' % (i * 100 / post_count))
                 posts.close()
                 break
             except CursorNotFound:
                 logger.info('Lost cursor! retrying with skip ...')
 
-        logger.info('\tsetting relative times and max times ...')
+        logger.info('setting relative times and max times ...')
         max_t = {}
         i = 0
         for meme in mongodb.memes.find({'_id': {'$in': meme_ids}}, ['last_time', 'first_time']):
@@ -796,14 +799,14 @@ class Project(object):
             max_t[mid] = (meme['last_time'] - meme['first_time']).total_seconds() / (3600.0 * 24)  # number of days
             i += 1
             if i % (len(meme_ids) / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
+                logger.info('%d%% done' % (i * 100 / len(meme_ids)))
 
         sequences = {}
         for m in meme_ids:
             if users[m]:
                 sequences[m] = ActSequence(users[m], times[m], max_t[m])
 
-        logger.info('\tsaving act. sequences ...')
+        logger.info('saving act. sequences ...')
         seq_copy = {}
         for m in sequences:
             seq_copy[str(m)] = {
@@ -828,15 +831,15 @@ class Project(object):
         logger.info('extracting graph of reshares ...')
         t0 = time.time()
 
-        logger.info('\tquerying reshares ...')
+        logger.info('querying reshares ...')
         reshares = mongodb.reshares.find(
             {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
             {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
         resh_count = reshares.count()
         reshares.rewind()
-        logger.info('\ttime: %.2f min', (time.time() - t0) / 60.0)
+        logger.info('time: %.2f min', (time.time() - t0) / 60.0)
 
-        logger.info('\textracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
+        logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
         edges = []
         meme_ids = set(meme_ids)
         i = 0
@@ -855,44 +858,33 @@ class Project(object):
                     edges.append((ref_user_id, user_id))
             i += 1
             if i % (resh_count / 10) == 0:
-                logger.info('\t%d%% reshares done' % (i * 100 / resh_count))
+                logger.info('%d%% reshares done' % (i * 100 / resh_count))
 
         graph = DiGraph()
         graph.add_edges_from(edges)
 
-        logger.info('\tsaving graph ...')
+        logger.info('saving graph ...')
         self.save_param(graph, graph_fname, ParamTypes.GRAPH)
 
         logger.info('graph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return graph
 
     def __extract_rel_graph(self, post_ids, graph_fname):
-        logger.info('extracting graph of relations ...')
-        logger.info('\tquerying user ids ...')
+        logger.info('method __extract_rel_graph started')
+        logger.info('querying user ids ...')
         t0 = time.time()
         user_ids = [u['author_id'] for u in mongodb.posts.find({'_id': {'$in': post_ids}}, {'_id': 0, 'author_id': 1})]
 
-        logger.info('\textracting children of {} users ...'.format(len(user_ids)))
-        child_rels = [(rel['parent'], rel['child']) for rel in
-                      mongodb.relations.find({'parent': {'$in': user_ids}})]
-        children = {rel[1] for rel in child_rels}
-        users_and_children = list(set(user_ids) | children)
+        graph = py2neo.Graph(user='neo4j', password='123')
+        create_relations(graph, settings.WEIBO_FOLLOWERS_PATH, settings.WEIBO_UIDLIST_PATH, user_ids)
 
-        logger.info('\textracting parents of {} users ...'.format(len(users_and_children)))
-        parent_rels = [(rel['parent'], rel['child']) for rel in
-                       mongodb.relations.find({'child': {'$in': users_and_children}},
-                                              {'_id': 0, 'child': 1, 'parent': 1})]
-        edges = child_rels
-        edges.extend(parent_rels)
-        del parent_rels
+        children = graph.run('match (n)-[PARENT_OF]->(m) '
+                             'where n._id in [%s] '
+                             'return m' % ', '.join(['"%s"' % str(uid) for uid in user_ids])).data()
+        children_user_ids = [ObjectId(u['_id']) for u in children]
+        create_relations(graph, settings.WEIBO_FOLLOWERS_PATH, settings.WEIBO_UIDLIST_PATH, children_user_ids)
 
-        graph = DiGraph()
-        graph.add_edges_from(edges)
-
-        logger.info('\tsaving the graph ...')
-        self.save_param(graph, graph_fname, ParamTypes.GRAPH)
-
-        logger.info('graph extraction time: %.2f min' % ((time.time() - t0) / 60))
+        logger.info('method __extract_rel_graph finished in %.2f min' % ((time.time() - t0) / 60))
         return graph
 
     def get_all_nodes(self):

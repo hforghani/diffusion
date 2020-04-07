@@ -40,9 +40,12 @@ def create_relations(graph, relations_file, uidlist_file, user_ids=None):
 
     user_ids_str = None
     if user_ids is not None:
-        user_ids_str = [str[u] for u in user_ids]
+        user_ids_str = {str(u) for u in user_ids}
 
-    logger.info('reading relationships ...')
+    if user_ids is None:
+        logger.info('reading relationships ...')
+    else:
+        logger.info('reading relationships of {} users ...'.format(len(user_ids)))
     i = 0
     rel_count = 0
     tx = graph.begin()
@@ -62,13 +65,16 @@ def create_relations(graph, relations_file, uidlist_file, user_ids=None):
                 rel_count += 1
                 u2_i = int(line[2 + j * 2])
                 u2 = nodes[u2_i]
-                if user_ids_str is None or u1['_id'] in user_ids_str or u2['_id'] in user_ids_str:
-                    rel = Relationship(u2, 'PARENT_OF', u1)
-                    tx.create(rel)
 
-                if rel_count % 1000000 == 0:
+                if user_ids_str is None or u1['_id'] in user_ids_str or u2['_id'] in user_ids_str:
+                    #rel = Relationship(u2, 'PARENT_OF', u1)
+                    #tx.create(rel)
+                    parent_of = Relationship.type('PARENT_OF')
+                    tx.merge(parent_of(u2, u1), 'User', '_id')
+
+                if rel_count % 10000000 == 0:
                     tx.commit()
-                    logger.info('%d relations created' % rel_count)
+                    logger.info('%d relations merged' % rel_count)
                     tx = graph.begin()
 
             i += 1
@@ -80,7 +86,7 @@ def create_relations(graph, relations_file, uidlist_file, user_ids=None):
     tx.commit()
     logger.info('%d relations created' % rel_count)
 
-    logger.info('graph extraction time: %.2f min', (time.time() - t0) / 60.0)
+    logger.info('graph creation time: %.2f min', (time.time() - t0) / 60.0)
 
 
 if __name__ == '__main__':
