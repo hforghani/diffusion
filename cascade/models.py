@@ -10,7 +10,6 @@ from bson.objectid import ObjectId
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
 from pymongo.errors import CursorNotFound
-from neo4j.models import Neo4jGraph
 
 import settings
 from settings import logger, mongodb
@@ -866,20 +865,6 @@ class Project(object):
 
         logger.info('graph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return graph
-
-    def __extract_rel_graph(self, post_ids, graph_fname):
-        logger.info('method __extract_rel_graph started')
-        t0 = time.time()
-
-        logger.info('querying user ids ...')
-        user_ids = mongodb.posts.find({'_id': {'$in': post_ids}}, {'_id': 0, 'author_id': 1}).distinct('author_id')
-
-        graph = Neo4jGraph('User')
-        logger.info('creating MEMM training graph for %d users ...', len(user_ids))
-        digraph = graph.create_memm_train_graph(user_ids)
-
-        logger.info('method __extract_rel_graph finished in %.2f min' % ((time.time() - t0) / 60))
-        return digraph
 
     def get_all_nodes(self):
         if self.trees is None:

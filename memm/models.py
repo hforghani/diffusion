@@ -1,6 +1,6 @@
 import time
 from bson import ObjectId
-from cascade.models import CascadeNode, CascadeTree, ParamTypes, GraphTypes
+from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm.memm import MEMM
 from neo4j.models import Neo4jGraph
 from settings import logger
@@ -10,25 +10,7 @@ class MEMMModel():
     def __init__(self, project):
         self.project = project
         self.__memms = {}
-        self.__parents = {}
-        self.__children = {}
         self.__graph = Neo4jGraph('User')
-
-    def __get_or_fetch_parents(self, uid):
-        if str(uid) in self.__parents:
-            return self.__parents[str(uid)]
-        else:
-            parents = self.__graph.parents(uid)
-            self.__parents[str(uid)] = parents
-            return parents
-
-    def __get_or_fetch_children(self, uid):
-        if str(uid) in self.__children:
-            return self.__children[str(uid)]
-        else:
-            children = self.__graph.children(uid)
-            self.__children[str(uid)] = children
-            return children
 
     def fit(self, train_set, log=0):
         """
@@ -38,20 +20,6 @@ class MEMMModel():
         """
         t0 = time.time()
         act_seqs = self.project.load_or_extract_act_seq()
-
-        # Extract all user id's in training set.
-        user_ids = set()
-        for meme_id in train_set:
-            user_ids.update(act_seqs[meme_id].users)
-
-        # Create dictionary of parents and children of each node.
-        #if log > 0:
-        #    logger.info('collecting parents and children data ...')
-        #graph_nodes = set(graph.nodes())
-        #self.__parents = {uid: list(graph.predecessors(uid)) if uid in graph_nodes else []
-        #                  for uid in user_ids}
-        #self.__children = {uid: list(graph.successors(uid)) if uid in graph_nodes else []
-        #                   for uid in user_ids}
 
         try:
             sequences = self.project.load_param('seq-obs-state', ParamTypes.JSON)
@@ -75,12 +43,10 @@ class MEMMModel():
 
                 for uid in act_seq.users:  # Notice users are sorted by activation time.
                     activated.add(uid)
-                    if log > 1:
-                        logger.info('extracting parents count ...')
                     parents_count = self.__graph.parents_count(uid)
                     if log > 1:
                         logger.info('extracting children ...')
-                    children = self.__get_or_fetch_children(uid)
+                    children = self.__graph.get_or_fetch_children(uid)
 
                     if parents_count:
                         u_obs = observations.setdefault(uid, [0] * parents_count)
@@ -92,7 +58,7 @@ class MEMMModel():
 
                     j = 0
                     for child in children:
-                        child_parents = self.__get_or_fetch_parents(child)
+                        child_parents = self.__graph.get_or_fetch_parents(child)
                         obs = observations.setdefault(child, [0] * len(child_parents))
                         if child not in activated:
                             cascade_seqs.setdefault(child, [])
@@ -166,10 +132,10 @@ class MEMMModel():
 
             for node in cur_step:
                 uid = node.user_id
-                children = self.__get_or_fetch_children(uid)
+                children = self.__graph.get_or_fetch_children(uid)
 
                 for child_id in children:
-                    parents = self.__get_or_fetch_parents(child_id)
+                    parents = self.__graph.get_or_fetch_parents(child_id)
                     obs = observations.setdefault(child_id, [0] * len(parents))
                     index = parents[child_id].index(uid)
                     obs[index] = 1
