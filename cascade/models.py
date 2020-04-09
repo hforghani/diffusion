@@ -9,13 +9,11 @@ from anytree import Node, RenderTree
 from bson.objectid import ObjectId
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
-import py2neo
-from py2neo.matching import NodeMatcher, RelationshipMatcher
 from pymongo.errors import CursorNotFound
+from neo4j.models import Neo4jGraph
 
 import settings
 from settings import logger, mongodb
-from test.create_weibo_neo4j import create_relations
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
@@ -871,21 +869,17 @@ class Project(object):
 
     def __extract_rel_graph(self, post_ids, graph_fname):
         logger.info('method __extract_rel_graph started')
-        logger.info('querying user ids ...')
         t0 = time.time()
-        user_ids = [u['author_id'] for u in mongodb.posts.find({'_id': {'$in': post_ids}}, {'_id': 0, 'author_id': 1})]
 
-        graph = py2neo.Graph(user='neo4j', password='123')
-        create_relations(graph, settings.WEIBO_FOLLOWERS_PATH, settings.WEIBO_UIDLIST_PATH, user_ids)
+        logger.info('querying user ids ...')
+        user_ids = mongodb.posts.find({'_id': {'$in': post_ids}}, {'_id': 0, 'author_id': 1}).distinct('author_id')
 
-        children = graph.run('match (n)-[PARENT_OF]->(m) '
-                             'where n._id in [%s] '
-                             'return m' % ', '.join(['"%s"' % str(uid) for uid in user_ids])).data()
-        children_user_ids = [ObjectId(u['_id']) for u in children]
-        create_relations(graph, settings.WEIBO_FOLLOWERS_PATH, settings.WEIBO_UIDLIST_PATH, children_user_ids)
+        graph = Neo4jGraph('User')
+        logger.info('creating MEMM training graph for %d users ...', len(user_ids))
+        digraph = graph.create_memm_train_graph(user_ids)
 
         logger.info('method __extract_rel_graph finished in %.2f min' % ((time.time() - t0) / 60))
-        return graph
+        return digraph
 
     def get_all_nodes(self):
         if self.trees is None:
