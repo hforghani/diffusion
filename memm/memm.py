@@ -10,19 +10,17 @@ class MEMM():
         self.__all_obs = None
         self.__map_obs_index = {}
 
-    def fit(self, sequences, obs_dim, log=0):
+    def fit(self, evidence, log=0):
         """
         Learn MEMM lambdas and transition probabilities for each previous state.
-        :param sequences:   list of sequences. Each sequence is a list of tuples (observation, state).
-                            Each observation is a string of 0 and 1 representing the activation state of input neighbors.
-        :param obs_dim:     number of observation dimensions
+        :param evidence:   an instance of MemmEvidence
         :return:            self
         """
 
         #t0 = time.time()
         #new_sequences = sequences
         #orig_indexes = {i: i for i in range(obs_dim)}
-        new_sequences, orig_indexes = self.__decrease_dim(sequences, obs_dim)
+        new_sequences, orig_indexes = self.__decrease_dim(evidence.sequences, evidence.dim)  #TODO: Change to use evidences from this line to the end.
         #logger.info('time 1: %.2f', time.time() - t0)
 
         #t0 = time.time()
