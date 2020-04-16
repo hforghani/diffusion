@@ -56,11 +56,14 @@ class MEMMModel():
         except FileNotFoundError:
             evidences = {}
 
-        for uid in new_evidences:
-            evidences.setdefault(uid, MemmEvidence([], self.__graph.parents_count(uid)))
-            evidences[uid].sequences.extend(new_evidences[uid])
+        if new_evidences:
+            if log > 0:
+                logger.info('integrating MEMM evidences ...')
+            for uid in new_evidences:
+                evidences.setdefault(uid, MemmEvidence([], new_evidences[uid].dim))
+                evidences[uid].sequences.extend(new_evidences[uid].sequences)
+            self.__save_evidences(evidences, log)
 
-        self.__save_evidences(evidences, log)
         return evidences
 
     def __prepare_evidences(self, train_set, log=0):
@@ -78,17 +81,21 @@ class MEMMModel():
         except FileNotFoundError:
             logger.info('no evidences found! extraction started')
             count = 0
-            new_evidences = {}
+            new_evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances which are not saved yet.
+            cascade_seqs = {}   # dictionary of user id's to the sequences of ObsPair instances for this current cascade
 
             if log > 0:
                 logger.info('extracting sequences from %d cascades ...', len(train_set))
 
             # Iterate each activation sequence and extract sequences of (observation, state) for each user
             for cascade_id in train_set:
+                if count == 0:  # TODO: Remove this!
+                    count += 1
+                    continue
+
                 act_seq = act_seqs[cascade_id]
                 observations = {}   # current observation of each user
                 activated = set()   # set of current activated users
-                cascade_seqs = {}   # current sequence of the tuples (obs. binary presentation, obs. dimension, state) for each user
                 i = 0
                 if log > 1:
                     logger.info('cascade %d with %d users ...', count + 1, len(act_seq.users))
@@ -132,18 +139,21 @@ class MEMMModel():
                     if log > 1:
                         logger.info('%d users done', i)
 
-                # Add current sequence of pairs (observation, state) to the MEMM evidences.
-                for uid in cascade_seqs:
-                    if len(cascade_seqs[uid]) > 1:
-                        new_evidences.setdefault(uid, MemmEvidence([], self.__graph.parents_count(uid)))
-                        new_evidences[uid].sequences.append(cascade_seqs[uid])
-
                 count += 1
                 if log > 0 and count % 1000 == 0:
                     logger.info('%d cascades done', count)
 
+                # Add current sequence of pairs (observation, state) to the MEMM evidences.
+                logger.info('adding sequences of current cascade ...')
+                for uid in cascade_seqs:
+                    if len(cascade_seqs[uid]) > 1:
+                        new_evidences.setdefault(uid, MemmEvidence([], self.__graph.parents_count(uid)))
+                        new_evidences[uid].sequences.append(cascade_seqs[uid])
+                cascade_seqs = {}
+
+                self.__graph = Neo4jGraph('User')  # To clear the cache.
+
                 if len(act_seq.users) > 1000:
-                    self.__graph = Neo4jGraph('User')  # To clear the cache.
                     self.__add_and_save_evidences(new_evidences, log)
                     new_evidences = {}
 

@@ -5,13 +5,15 @@ from py2neo import Graph
 
 class Neo4jGraph:
     MAX_RAM_PERCENT = 85    # Stop collecting parents and children cache if the memory usage is higher than this threshold
-    CRITICAL_RAM_PERCENT = 90  # Remove some cache entries if the memory usage is higher than this threshold
+    CRITICAL_RAM_PERCENT = 92  # Remove some cache entries if the memory usage is higher than this threshold
 
     def __init__(self, label):
         self.label = label
         self.__graph = Graph(user='neo4j', password='123')
         self.__parents = {}
         self.__children = {}
+        self.__par_count = {}
+        self.__child_count = {}
         self.__id_to_int_map = {}
         self.__int_to_id = []
 
@@ -45,21 +47,23 @@ class Neo4jGraph:
 
     def parents_count(self, user_id):
         uid_int = self.__id_to_int(user_id)
-        if uid_int in self.__parents:
-            return len(self.__parents)
+        if uid_int in self.__par_count:
+            return self.__par_count[uid_int]
         else:
             cypher = 'match (n:{0}{{_id:"{1}"}})<--(m:{0}) return count(m)'.format(self.label, str(user_id))
-            data = self.__graph.run(cypher).data()[0]
-            return data['count(m)']
+            count = self.__graph.run(cypher).data()[0]['count(m)']
+            self.__par_count[uid_int] = count
+            return count
 
     def children_count(self, user_id):
         uid_int = self.__id_to_int(user_id)
-        if uid_int in self.__children:
-            return len(self.__children)
+        if uid_int in self.__child_count:
+            return self.__child_count[uid_int]
         else:
             cypher = 'match (n:{0}{{_id:"{1}"}})-->(m:{0}) return count(m)'.format(self.label, str(user_id))
-            data = self.__graph.run(cypher).data()[0]
-            return data['count(m)']
+            count = self.__graph.run(cypher).data()[0]['count(m)']
+            self.__child_count[uid_int] = count
+            return count
 
     def get_or_fetch_parents(self, uid):
         uid_int = self.__id_to_int(uid)
@@ -71,6 +75,7 @@ class Neo4jGraph:
                 self.__parents[uid_int] = [self.__id_to_int(u) for u in parents]
             else:
                 self.__check_critical_ram()
+            self.__par_count[uid_int] = len(parents)
             return parents
 
     def get_or_fetch_children(self, uid):
@@ -83,8 +88,8 @@ class Neo4jGraph:
                 self.__children[uid_int] = [self.__id_to_int(u) for u in children]
             else:
                 self.__check_critical_ram()
-
-        return children
+            self.__child_count[uid_int] = len(children)
+            return children
 
     def __id_to_int(self, uid):
         if str(uid) in self.__id_to_int_map:
@@ -99,8 +104,9 @@ class Neo4jGraph:
         if psutil.virtual_memory().percent > self.CRITICAL_RAM_PERCENT:
             main_dict = self.__parents if len(self.__parents) > len(self.__children) else self.__children
             for i in range(len(main_dict) - 1, -1, -1):
-                del main_dict[i]
-                if psutil.virtual_memory().percent <= self.MAX_RAM_PERCENT:
-                    break
+                if i in main_dict:
+                    del main_dict[i]
+                    if psutil.virtual_memory().percent <= self.MAX_RAM_PERCENT:
+                        break
             return True
         return False
