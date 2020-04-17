@@ -1,6 +1,8 @@
 from bson import ObjectId
 import psutil
 from py2neo import Graph
+from settings import logger
+import settings
 
 
 class Neo4jGraph:
@@ -9,7 +11,7 @@ class Neo4jGraph:
 
     def __init__(self, label):
         self.label = label
-        self.__graph = Graph(user='neo4j', password='123')
+        self.__graph = Graph(user=settings.NEO4J_USER, password=settings.NEO4J_PASS)
         self.__parents = {}
         self.__children = {}
         self.__par_count = {}
@@ -103,10 +105,14 @@ class Neo4jGraph:
     def __check_critical_ram(self):
         if psutil.virtual_memory().percent > self.CRITICAL_RAM_PERCENT:
             main_dict = self.__parents if len(self.__parents) > len(self.__children) else self.__children
-            for i in range(len(main_dict) - 1, -1, -1):
-                if i in main_dict:
-                    del main_dict[i]
-                    if psutil.virtual_memory().percent <= self.MAX_RAM_PERCENT:
-                        break
+            if main_dict:
+                count = 0
+                for i in range(len(main_dict) - 1, -1, -1):
+                    if i in main_dict:
+                        del main_dict[i]
+                        count += 1
+                        if psutil.virtual_memory().percent <= self.MAX_RAM_PERCENT:
+                            break
+                logger.info('%d dict entries deleted to free RAM!', count)
             return True
         return False

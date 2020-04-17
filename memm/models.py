@@ -1,22 +1,13 @@
 import time
 from bson import ObjectId
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
+from memm.evidence_models import MemmEvidence, MemmObsPair
 from memm.memm import MEMM
 from neo4j.models import Neo4jGraph
 from settings import logger
 
 
-class MemmEvidence:
-    def __init__(self, sequences, dim):
-        self.sequences = sequences # list of sequences of MemmObsPair.
-        self.dim = dim # observation dimension.  e.g dimension of binary representation 101 is 3
-
-
-class MemmObsPair:
-    def __init__(self, obs, state):
-        self.obs = obs # observation in binary presentation. e.g 5 = 101
-        self.state = state # activeness state including 0 or 1
-
+MEMM_EVID_FILE_NAME = 'memm/evidence'
 
 class MEMMModel():
     def __init__(self, project):
@@ -32,14 +23,14 @@ class MEMMModel():
         if log > 0:
             logger.info('saving MEMM evidences ...')
         seq_to_save = {str(uid): self.__jsonize_evidence(train_set) for uid, train_set in sequences.items()}
-        self.project.save_param(seq_to_save, 'seq-obs-state', ParamTypes.JSON)
+        self.project.save_param(seq_to_save, MEMM_EVID_FILE_NAME, ParamTypes.JSON)
         if log > 0:
             logger.info('done')
 
     def __load_evidences(self, log=0):
         if log > 0:
             logger.info('loading MEMM evidences ...')
-        tsets = self.project.load_param('seq-obs-state', ParamTypes.JSON)
+        tsets = self.project.load_param(MEMM_EVID_FILE_NAME, ParamTypes.JSON)
         tsets = {
             ObjectId(uid): MemmEvidence([
                                             [MemmObsPair(pair[0], pair[1]) for pair in seq]
@@ -89,10 +80,6 @@ class MEMMModel():
 
             # Iterate each activation sequence and extract sequences of (observation, state) for each user
             for cascade_id in train_set:
-                if count == 0:  # TODO: Remove this!
-                    count += 1
-                    continue
-
                 act_seq = act_seqs[cascade_id]
                 observations = {}   # current observation of each user
                 activated = set()   # set of current activated users
@@ -146,12 +133,9 @@ class MEMMModel():
                 # Add current sequence of pairs (observation, state) to the MEMM evidences.
                 logger.info('adding sequences of current cascade ...')
                 for uid in cascade_seqs:
-                    if len(cascade_seqs[uid]) > 1:
-                        new_evidences.setdefault(uid, MemmEvidence([], self.__graph.parents_count(uid)))
-                        new_evidences[uid].sequences.append(cascade_seqs[uid])
+                    new_evidences.setdefault(uid, MemmEvidence([], self.__graph.parents_count(uid)))
+                    new_evidences[uid].sequences.append(cascade_seqs[uid])
                 cascade_seqs = {}
-
-                self.__graph = Neo4jGraph('User')  # To clear the cache.
 
                 if len(act_seq.users) > 1000:
                     self.__add_and_save_evidences(new_evidences, log)

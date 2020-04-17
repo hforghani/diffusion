@@ -886,7 +886,7 @@ class Project(object):
     def save_param(self, param, name, type):
         path = os.path.join(self.project_path, '%s.%s' % (name, self.SUFFIXES[type]))
         if type == ParamTypes.JSON:
-            json.dump(param, open(path, 'w'), indent=4)
+            json.dump(param, open(path, 'w'), indent=1)
         elif type == ParamTypes.ARRAY:
             np.save(path, param)
         elif type == ParamTypes.SPARSE:

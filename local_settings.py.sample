@@ -2,6 +2,9 @@ BASE_PATH = '/path/to/current/folder'
 
 DB_NAME = 'weibo'
 
+NEO4J_USER = 'neo4j'
+NEO4J_PASS = '123'
+
 THRESHOLDS = {
     'memm': (0, 1),
     'mlnprac': (5, 10),
