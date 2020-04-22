@@ -105,7 +105,7 @@ class Neo4jGraph:
     def __check_critical_ram(self):
         if psutil.virtual_memory().percent > self.CRITICAL_RAM_PERCENT:
             main_dict = self.__parents if len(self.__parents) > len(self.__children) else self.__children
-            if main_dict:
+            if len(main_dict):
                 count = 0
                 for i in range(len(main_dict) - 1, -1, -1):
                     if i in main_dict:
