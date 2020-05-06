@@ -15,48 +15,43 @@ class MEMMModel():
         self.__memms = {}
         self.__graph = Neo4jGraph('User')
 
-    def __save_evidences(self, sequences, log=0):
-        if log > 0:
-            logger.info('saving MEMM evidences ...')
+    def __save_evidences(self, sequences):
+        logger.info('saving MEMM evidences ...')
         self.project.save_param(sequences, MEMM_EVID_FILE_NAME, ParamTypes.JSON)
-        if log > 0:
-            logger.info('done')
+        logger.info('done')
 
-    def __load_evidences(self, log=0):
-        if log > 0:
-            logger.info('loading MEMM evidences ...')
+    def __load_evidences(self):
+        logger.info('loading MEMM evidences ...')
         tsets = self.project.load_param(MEMM_EVID_FILE_NAME, ParamTypes.JSON)
         return tsets
 
-    def __add_and_save_evidences(self, new_evidences, log):
+    def __add_and_save_evidences(self, new_evidences):
         try:
-            evidences = self.__load_evidences(log)
+            evidences = self.__load_evidences()
         except FileNotFoundError:
             evidences = {}
 
         if new_evidences:
-            if log > 0:
-                logger.info('integrating MEMM evidences ...')
+            logger.info('integrating MEMM evidences ...')
             for uid in new_evidences:
                 if uid not in evidences:
                     evidences[uid] = new_evidences[uid]
                 else:
                     evidences[uid][1].extend(new_evidences[uid][1])
-            self.__save_evidences(evidences, log)
+            self.__save_evidences(evidences)
 
         return evidences
 
-    def __prepare_evidences(self, train_set, log=0):
+    def __prepare_evidences(self, train_set):
         """
         Prepare the sequence of observations and states to train the MEMM models.
         :param train_set: list of training cascade id's
-        :param log: log level
         :return: a dictionary of user id's to instances of MemmEvidence
         """
         act_seqs = self.project.load_or_extract_act_seq()
 
         try:
-            evidences = self.__load_evidences(log)
+            evidences = self.__load_evidences()
 
         except FileNotFoundError:
             logger.info('no evidences found! extraction started')
@@ -64,8 +59,7 @@ class MEMMModel():
             new_evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances which are not saved yet.
             cascade_seqs = {}   # dictionary of user id's to the sequences of ObsPair instances for this current cascade
 
-            if log > 0:
-                logger.info('extracting sequences from %d cascades ...', len(train_set))
+            logger.info('extracting sequences from %d cascades ...', len(train_set))
 
             # Iterate each activation sequence and extract sequences of (observation, state) for each user
             for cascade_id in train_set:
@@ -73,14 +67,12 @@ class MEMMModel():
                 observations = {}   # current observation of each user
                 activated = set()   # set of current activated users
                 i = 0
-                if log > 1:
-                    logger.info('cascade %d with %d users ...', count + 1, len(act_seq.users))
+                logger.info('cascade %d with %d users ...', count + 1, len(act_seq.users))
 
                 for uid in act_seq.users:  # Notice users are sorted by activation time.
                     activated.add(uid)
                     parents_count = self.__graph.parents_count(uid)
-                    if log > 1:
-                        logger.info('extracting children ...')
+                    logger.debug('extracting children ...')
                     children = self.__graph.children(uid)
 
                     # Put the last observation with state 1 in the sequence of (observation, state).
@@ -92,8 +84,8 @@ class MEMMModel():
                             del cascade_seqs[uid][-1]
                             cascade_seqs[uid].append((obs, 1))
 
-                    if log > 1 and children:
-                        logger.info('iterating on %d children ...', len(children))
+                    if children:
+                        logger.debug('iterating on %d children ...', len(children))
 
                     # Set the related coefficient of the children observations equal to 1.
                     j = 0
@@ -107,15 +99,14 @@ class MEMMModel():
                             cascade_seqs.setdefault(child, [(0, 0)])
                             cascade_seqs[child].append((obs, 0))
                         j += 1
-                        if log > 1 and j % 1000 == 0:
-                            logger.info('%d children done', j)
+                        if j % 1000 == 0:
+                            logger.debug('%d children done', j)
 
                     i += 1
-                    if log > 1:
-                        logger.info('%d users done', i)
+                    logger.debug('%d users done', i)
 
                 count += 1
-                if log > 0 and count % 1000 == 0:
+                if count % 1000 == 0:
                     logger.info('%d cascades done', count)
 
                 # Add current sequence of pairs (observation, state) to the MEMM evidences.
@@ -127,37 +118,35 @@ class MEMMModel():
                 cascade_seqs = {}
 
                 if len(act_seq.users) > 1000:
-                    self.__add_and_save_evidences(new_evidences, log)
+                    self.__add_and_save_evidences(new_evidences)
                     new_evidences = {}
 
-            evidences = self.__add_and_save_evidences(new_evidences, log)
+            evidences = self.__add_and_save_evidences(new_evidences)
 
         self.__graph = Neo4jGraph('User')  # To clear the cache.
         return evidences
 
-    def fit(self, train_set, log=0):
+    def fit(self, train_set):
         """
         Train MEMM's for each user in training set.
         :param train_set:   cascade id's in training set
         :return:            self
         """
         t0 = time.time()
-        evidences = self.__prepare_evidences(train_set, log)
+        evidences = self.__prepare_evidences(train_set)
         user_ids = list(evidences.keys())
 
         # Train a MEMM for each user.
-        if log > 0:
-            logger.info("training %d MEMM's ...", len(evidences))
+        logger.info("training %d MEMM's ...", len(evidences))
         count = 0
         for uid in user_ids:
             count += 1
             ev = evidences[uid]
-            #if log > 0:
             #    logger.info('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev[0])
             m = MEMM()
             try:
                 t1 = time.time()
-                m.fit(ev, log)
+                m.fit(ev)
                 times[0] += time.time() - t1
                 self.__memms[uid] = m
                 del evidences[uid]  # to free RAM
@@ -167,14 +156,12 @@ class MEMMModel():
                 logger.debug('%d MEMM models trained', count)
                 logger.debug('times : %s', [int(t) for t in times])
 
-        if log > 0:
-            logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
+        logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
         return self
 
     def predict(self, initial_tree, threshold=None, max_step=None):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
-        :param log:      Log in console if True else does not log.
         :return:         Predicted tree
         """
         if not isinstance(initial_tree, CascadeTree):

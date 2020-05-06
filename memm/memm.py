@@ -38,7 +38,7 @@ class MEMM():
         self.__map_obs_index = {}
         self.__orig_indexes = None
 
-    def fit(self, evidence, log=0):
+    def fit(self, evidence):
         """
         Learn MEMM lambdas and transition probabilities for each previous state.
         :param evidence:   an instance of MemmEvidence
@@ -263,7 +263,7 @@ class MEMM():
                 Lambda[i] += (np.log(F[i]) - np.log(E[i])) / C
         return Lambda
 
-    def __check_lambda_convergence(self, Lambda0, Lambda1, epsilon, log=0):
+    def __check_lambda_convergence(self, Lambda0, Lambda1, epsilon):
         """
         Check if the lambdas are relatively the same.
         :param Lambda0: previous lambda

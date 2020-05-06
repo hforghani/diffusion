@@ -19,15 +19,14 @@ import settings
 from settings import logger, mongodb
 
 
-def evaluate(initial_tree, res_tree, tree, all_nodes, max_depth=None, verbosity=settings.VERBOSITY):
+def evaluate(initial_tree, res_tree, tree, all_nodes, max_depth=None):
     # Get predicted and true nodes.
     res_nodes = set(res_tree.node_ids())
     true_nodes = set(tree.node_ids(max_depth=max_depth))
     initial_nodes = set(initial_tree.node_ids())
     res_output = res_nodes - initial_nodes
     true_output = true_nodes - initial_nodes
-    if verbosity > 2:
-        logger.info('len(all_nodes) = %d', len(all_nodes))
+    logger.debug('len(all_nodes) = %d', len(all_nodes))
 
     # Evaluate the result.
     meas = Validation(res_output, true_output, all_nodes)
@@ -44,12 +43,11 @@ def log_trees(tree, res_tree, max_depth=None):
     formatted_line = '{:' + str(max_len + 5) + '}{}'
     logger.info(formatted_line.format('true tree:', 'output tree:'))
     for i in range(max_lines):
-        logger.info(formatted_line.format(tree_render[i] if i < len(tree_render) else '',
+        logger.debug(formatted_line.format(tree_render[i] if i < len(tree_render) else '',
                                           res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
-def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids, users_map,
-              verbosity=settings.VERBOSITY):
+def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids, users_map):
     try:
         prp1_list = []
         prp2_list = []
@@ -66,14 +64,13 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
             initial_tree = tree.copy(initial_depth)
 
             # Predict remaining nodes.
-            if verbosity > 1:
-                logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
+            logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
             # TODO: apply max_depth for all methods.
             if method in ['mlnprac', 'mlnalch']:
-                res_tree = model.predict(meme_id, initial_tree, threshold=threshold, log=verbosity - 2)
+                res_tree = model.predict(meme_id, initial_tree, threshold=threshold)
             elif method in ['aslt', 'avg']:
                 res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, user_ids=user_ids,
-                                         users_map=users_map, log=verbosity - 2)
+                                         users_map=users_map)
             else:
                 res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step)
 
@@ -96,14 +93,12 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
             fprs.append(fpr)
             f1s.append(f1)
 
-            if verbosity > 1:
-                log = 'meme %s: %d outputs, %d true, precision = %.3f, recall = %.3f, , f1 = %.3f' % (
-                    meme_id, len(res_output), len(true_output), prec, rec, f1)
-                if method in ['aslt', 'avg']:
-                    log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-                logger.info(log)
-            if verbosity > 2:
-                log_trees(tree, res_tree, max_depth)
+            log = 'meme %s: %d outputs, %d true, precision = %.3f, recall = %.3f, , f1 = %.3f' % (
+                meme_id, len(res_output), len(true_output), prec, rec, f1)
+            if method in ['aslt', 'avg']:
+                log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
+            logger.info(log)
+            log_trees(tree, res_tree, max_depth)
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
 
@@ -135,18 +130,14 @@ class Command:
                             help="the maximum depth of cascade prediction")
         parser.add_argument("-u", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
                             help="run tests on multiple processes")
-        parser.add_argument("-v", "--verbosity", type=int, dest="verbosity", default=settings.VERBOSITY,
-                            help="verbosity level")
 
     def __init__(self):
-        self.verbosity = settings.VERBOSITY
         self.user_ids = None
         self.users_map = None
 
     def handle(self, args):
         start = time.time()
         project_names = args.project.split(',')
-        self.verbosity = args.verbosity
         multi_processed = args.multi_processed
 
         # Get the method or raise exception.
@@ -186,8 +177,7 @@ class Command:
 
         for thr in thresholds:
             if args.all_thresholds:
-                if self.verbosity:
-                    logger.info('{0} THRESHOLD = {1:.3f} {0}'.format('=' * 20, thr))
+                logger.info('{0} THRESHOLD = {1:.3f} {0}'.format('=' * 20, thr))
             prec = []
             recall = []
             f1 = []
@@ -213,23 +203,20 @@ class Command:
                 ff1 = f1[0]
                 ffpr = fpr[0]
 
-            if self.verbosity:
-                logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', fprec, frecall, ff1, ffpr)
+            logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', fprec, frecall, ff1, ffpr)
 
             final_prec.append(fprec)
             final_recall.append(frecall)
             final_f1.append(ff1)
             final_fpr.append(ffpr)
 
-        if self.verbosity:
-            logger.info('command done in %.2f min' % ((time.time() - start) / 60))
+        logger.info('command done in %.2f min' % ((time.time() - start) / 60))
 
         if args.all_thresholds:
             # Find the threshold with maximum F1.
             best_ind = int(np.argmax(np.array(final_f1)))
             best_f1, best_thres = final_f1[best_ind], thresholds[best_ind]
-            if self.verbosity:
-                logger.info('F1 max = %f in threshold = %f' % (best_f1, best_thres))
+            logger.info('F1 max = %f in threshold = %f' % (best_f1, best_thres))
 
             self.__display_charts(best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
                                   thresholds)
@@ -245,7 +232,7 @@ class Command:
                 model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
             elif method == 'memm':
                 train_set, _ = project.load_train_test()
-                model = MEMMModel(project).fit(train_set, log=self.verbosity - 2)
+                model = MEMMModel(project).fit(train_set)
             elif method == 'aslt':
                 model = Saito(project)
             elif method == 'avg':
@@ -259,13 +246,12 @@ class Command:
         # Load training and test sets and cascade trees.
         project = model.project
         train_set, test_set = project.load_train_test()
-        trees = project.load_trees(verbosity=self.verbosity - 1)
+        trees = project.load_trees()
 
         all_node_ids = project.get_all_nodes()
         # all_node_ids = self.user_ids
 
-        if self.verbosity > 1:
-            logger.info('test set size = %d' % len(test_set))
+        logger.info('test set size = %d' % len(test_set))
 
         if multi_processed:
             precisions, recalls, f1s, fprs, prp1_list, prp2_list = self.__test_multi_processed(test_set, method, model,
@@ -276,19 +262,17 @@ class Command:
             precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_meme(test_set, method, model, threshold,
                                                                              initial_depth, max_depth, trees,
                                                                              all_node_ids, self.user_ids,
-                                                                             self.users_map,
-                                                                             self.verbosity)
+                                                                             self.users_map)
 
         mean_prec = np.array(precisions).mean()
         mean_rec = np.array(recalls).mean()
         mean_fpr = np.array(fprs).mean()
         mean_f1 = np.array(f1s).mean()
 
-        if self.verbosity > 1:
-            logger.info('project %s: mean precision = %.3f, mean recall = %.3f, f1 = %.3f' % (
-                project.project_name, mean_prec, mean_rec, mean_f1))
+        logger.info('project %s: mean precision = %.3f, mean recall = %.3f, f1 = %.3f' % (
+            project.project_name, mean_prec, mean_rec, mean_f1))
 
-        if method in ['aslt', 'avg'] and self.verbosity > 1:
+        if method in ['aslt', 'avg']:
             logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
             logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
 
@@ -308,7 +292,7 @@ class Command:
             meme_ids = test_set[j: j + step]
             res = pool.apply_async(test_meme,
                                    (meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids,
-                                    self.user_ids, self.users_map, self.verbosity))
+                                    self.user_ids, self.users_map))
             results.append(res)
 
         pool.close()

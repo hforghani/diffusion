@@ -13,8 +13,6 @@ logger = logging.getLogger()
 logger.addHandler(file_handler)
 logger.setLevel(LOG_LEVEL)
 
-VERBOSITY = 2
-
 BASEPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '')
 
 mongo_client = pymongo.MongoClient("mongodb://localhost:27017/")

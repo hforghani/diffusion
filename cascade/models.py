@@ -94,7 +94,7 @@ class CascadeTree(object):
             self.roots = roots
             self.depth = self.__calc_depth()
 
-    def extract_cascade(self, meme_id, log=0):
+    def extract_cascade(self, meme_id):
         t1 = time.time()
 
         # Fetch posts related to the meme and reshares.
@@ -106,8 +106,7 @@ class CascadeTree(object):
         user_ids = list(set([p['author_id'] for p in posts]))
         reshares = mongodb.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
             .sort('datetime')
-        if log > 0:
-            logger.info('TREE: time 1 = %.2f' % (time.time() - t1))
+        logger.debug('TREE: time 1 = %.2f' % (time.time() - t1))
 
         # Create nodes for the users.
         t1 = time.time()
@@ -115,13 +114,11 @@ class CascadeTree(object):
         visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
         for user_id in user_ids:
             nodes[user_id] = CascadeNode(user_id)
-        if log > 0:
-            logger.info('TREE: time 2 = %.2f' % (time.time() - t1))
+        logger.debug('TREE: time 2 = %.2f' % (time.time() - t1))
 
         # Create diffusion edge if a user reshares to another for the first time. Note that reshares are sorted by time.
         t1 = time.time()
-        if log > 0:
-            logger.info('TREE: reshares count = %d' % reshares.count())
+        logger.debug('TREE: reshares count = %d' % reshares.count())
         self.roots = []
         for reshare in reshares:
             child_id = reshare['user_id']
@@ -143,8 +140,7 @@ class CascadeTree(object):
                 child.post_id = reshare['post_id']
                 child.datetime = reshare['datetime'].strftime(DT_FORMAT)
                 visited[child_id] = True
-        if log > 0:
-            logger.info('TREE: time 3 = %.2f' % (time.time() - t1))
+        logger.debug('TREE: time 3 = %.2f' % (time.time() - t1))
 
         # Add users with no diffusion edges as single nodes.
         t1 = time.time()
@@ -160,8 +156,7 @@ class CascadeTree(object):
                 node.datetime = post['datetime'].strftime(DT_FORMAT) if post['datetime'] else None
                 node.post_id = post['_id']
                 self.roots.append(node)
-        if log > 0:
-            logger.info('TREE: time 4 = %.2f' % (time.time() - t1))
+        logger.debug('TREE: time 4 = %.2f' % (time.time() - t1))
 
         # Calculate tree depth.
         self.depth = self.__calc_depth()
@@ -323,14 +318,13 @@ class AsLT(object):
         pass
 
     # @profile
-    def predict(self, initial_tree, threshold=None, max_step=None, user_ids=None, users_map=None, log=0):
+    def predict(self, initial_tree, threshold=None, max_step=None, user_ids=None, users_map=None):
         """
         Predict activation cascade in the future starting from initial nodes in self.tree.
         Set the final tree again in self.tree.
         :param initial_tree:    Initial tree of activated nodes
         :param threshold:       Threshold of activation probability. IF None, threshold is sampled randomly.
         :param user_ids:        List of possible users for activation. All of users if value is None.
-        :param log:             Log in console if True else does not log.
         :return:                Returns self.tree
         """
         if not isinstance(initial_tree, CascadeTree):
@@ -355,8 +349,7 @@ class AsLT(object):
         while cur_step and (max_step is None or step < max_step):
             t0 = time.time()
             step += 1
-            if log > 0:
-                logger.info('step {} on {} users ...'.format(step, len(cur_step)))
+            logger.debug('step {} on {} users ...'.format(step, len(cur_step)))
 
             next_step = []
 
@@ -366,9 +359,9 @@ class AsLT(object):
                 u_i = self.users_map[u]
                 # w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
                 w_u = self.w[u_i, :]
-                if log > 1 and w_u.nnz:
-                    logger.info('weights of user %s:', u)
-                    logger.info(
+                if w_u.nnz:
+                    logger.debug('weights of user %s:', u)
+                    logger.debug(
                         '\n'.join(['{} : {}'.format(w_u.indices[i], w_u.data[i]) for i in range(w_u.nnz)]))
 
                 # Iterate on children of u
@@ -404,15 +397,14 @@ class AsLT(object):
                         # if delay_param > 0:
                         #     delay = np.random.exponential(delay_param)  # in days
                         # else:
-                        #     if log > 0:
-                        #         logger.warn('delay param = {}'.format(delay_param))
+                        #     logger.warn('delay param = {}'.format(delay_param))
                         #     delay = 1000    # a very large delay!
 
                         send_dt = str_to_datetime(node.datetime)
                         try:
                             receive_dt = send_dt + timedelta(days=delay)
                         except:
-                            logger.info('send_dt: {}, delay: {}'.format(send_dt, delay))
+                            logger.debug('send_dt: {}, delay: {}'.format(send_dt, delay))
                             raise
 
                         # Add it to the tree.
@@ -421,11 +413,9 @@ class AsLT(object):
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
-                        # if log > 0:
-                        #     logger.info('a reshare predicted')
+                         #logger.debug('a reshare predicted')
             cur_step = sorted(next_step, key=lambda n: n.datetime)
-            if log > 0:
-                logger.info('step %d done, time = %.2f s' % (step, time.time() - t0))
+            logger.debug('step %d done, time = %.2f s' % (step, time.time() - t0))
 
         return tree
 
@@ -442,7 +432,7 @@ class IC(object):
     def fit(self):
         pass
 
-    def predict(self, initial_tree, threshold=None, user_ids=None, log=0):
+    def predict(self, initial_tree, threshold=None, user_ids=None):
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()
@@ -456,8 +446,7 @@ class IC(object):
             if user_ids is None:
                 user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             self.user_map = {user_ids[i]: i for i in range(len(user_ids))}
-        if log > 0:
-            logger.info('time1 = %.2f' % (time.time() - t0))
+        logger.debug('time1 = %.2f' % (time.time() - t0))
 
         # Get diffusion probabilities and delay vectors.
         t0 = time.time()
@@ -465,16 +454,14 @@ class IC(object):
         p = p.tocsr()
         r = self.project.load_param(self.r_param_name, ParamTypes.SPARSE)
         r = r.tolil()
-        if log > 0:
-            logger.info('time2 = %.2f' % (time.time() - t0))
+        logger.debug('time2 = %.2f' % (time.time() - t0))
 
         # Iterate on steps. For each step try to activate other nodes.
         i = 0
         while cur_step:
             t0 = time.time()
             i += 1
-            if log > 0:
-                logger.info('step %d ...' % i)
+            logger.debug('step %d ...' % i)
 
             next_step = []
 
@@ -525,11 +512,9 @@ class IC(object):
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
-                        if log > 0:
-                            logger.info('a reshare predicted')
+                        logger.debug('a reshare predicted')
             cur_step = sorted(next_step, key=lambda n: n.datetime)
-            if log > 0:
-                logger.info('time = %.2f' % (time.time() - t0))
+            logger.debug('time = %.2f' % (time.time() - t0))
 
         return tree
 
@@ -611,7 +596,7 @@ class Project(object):
 
         return self.training, self.test
 
-    def load_trees(self, verbosity=settings.VERBOSITY):
+    def load_trees(self):
         """
         Load trees of memes in training and test sets.
         :return:
@@ -621,11 +606,9 @@ class Project(object):
             trees = self.load_param('trees', ParamTypes.JSON)
             trees = {ObjectId(key): value for key, value in trees.items()}
             # Convert tree dictionaries to tree objects.
-            if verbosity:
-                logger.info('converting trees to objects ...')
+            logger.debug('converting trees to objects ...')
             trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
-            if verbosity:
-                logger.info('done')
+            logger.debug('done')
         except FileNotFoundError:
             try:
                 trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
@@ -638,12 +621,11 @@ class Project(object):
                 # Save trees for the project.
                 self.save_param(trees, 'trees', ParamTypes.JSON)
                 # Convert tree dictionaries to tree objects.
-                if verbosity:
-                    logger.info('converting trees to objects ...')
+                logger.debug('converting trees to objects ...')
                 trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
-                if verbosity:
-                    logger.info('done')
+                logger.debug('done')
             except FileNotFoundError:
+                logger.info('trees not found. extracting ...')
                 trees = {}
                 i = 0
                 all_memes = self.training + self.test
