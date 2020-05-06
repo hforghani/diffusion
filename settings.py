@@ -5,7 +5,6 @@ import pymongo
 from local_settings import *
 
 LOG_FORMAT = '[%(levelname)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s'
-LOG_LEVEL = logging.INFO
 logging.basicConfig(format=LOG_FORMAT)
 file_handler = logging.FileHandler('{}/log/{}.log'.format(BASE_PATH, datetime.now().strftime('%Y%m%d-%H%M%S')), 'w',
                                    'utf-8')

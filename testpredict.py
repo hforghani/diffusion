@@ -75,7 +75,7 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
                 res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, user_ids=user_ids,
                                          users_map=users_map, log=verbosity - 2)
             else:
-                res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, log=verbosity - 2)
+                res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step)
 
             # Evaluate the results.
             meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)

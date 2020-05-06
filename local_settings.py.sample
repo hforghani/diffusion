@@ -1,6 +1,13 @@
+import logging
+
 BASE_PATH = '/path/to/current/folder'
 
+LOG_LEVEL = logging.DEBUG
+
 DB_NAME = 'weibo'
+
+WEIBO_FOLLOWERS_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\weibo_network.txt'
+WEIBO_UIDLIST_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\uidlist.txt'
 
 NEO4J_USER = 'neo4j'
 NEO4J_PASS = '123'

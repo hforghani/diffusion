@@ -1,7 +1,33 @@
+import os
 import numpy as np
 import scipy
-from memm.evidence_models import MemmObsPair
+import time
+from cascade.models import ParamTypes
 from settings import logger
+
+times = [0] * 11
+
+
+class MemmException(Exception):
+    pass
+
+
+def obs_to_array(obs, dim):
+    obs_copy = obs
+    obs_arr = []
+    for _ in range(dim):
+        obs_arr.append(obs_copy % 2)
+        obs_copy >>= 1
+    obs_arr = obs_arr[::-1]
+    return np.array(obs_arr, dtype=int)
+
+
+def array_to_obs(arr):
+    obs = 0
+    for d in arr:
+        obs <<= 1
+        obs += int(d)
+    return obs
 
 
 class MEMM():
@@ -10,6 +36,7 @@ class MEMM():
         self.TPM = None
         self.__all_obs_arr = None
         self.__map_obs_index = {}
+        self.__orig_indexes = None
 
     def fit(self, evidence, log=0):
         """
@@ -17,37 +44,39 @@ class MEMM():
         :param evidence:   an instance of MemmEvidence
         :return:            self
         """
-
-        #t0 = time.time()
-        #new_sequences = sequences
-        #orig_indexes = {i: i for i in range(obs_dim)}
-        new_sequences, orig_indexes = self.__decrease_dim(evidence.sequences,
-                                                          evidence.dim)
+        t0 = time.time()
+        dim, sequences = evidence[0], evidence[1]
+        new_sequences, self.__orig_indexes = self.__decrease_dim(sequences, dim)
+        new_dim = len(self.__orig_indexes)
+        times[1] += time.time() - t0
         #logger.info('time 1: %.2f', time.time() - t0)
 
-        #t0 = time.time()
+        if new_dim == 0:
+            raise MemmException('Cannot train MEMM with all observations given zero')
+
+        t0 = time.time()
         all_obs = set()
         for seq in new_sequences:
-            all_obs.update([pair.obs for pair in seq])
+            all_obs.update([pair[0] for pair in seq])
         all_obs = list(all_obs)
-        self.__all_obs_arr = [self.__obs_to_array(obs, evidence.dim) for obs in all_obs]
+        self.__all_obs_arr = [obs_to_array(obs, new_dim) for obs in all_obs]
         self.__all_obs_arr = np.array(self.__all_obs_arr)
         self.__map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
+        times[2] += time.time() - t0
         #logger.info('time 2: %.2f', time.time() - t0)
 
-        #t0 = time.time()
+        t0 = time.time()
         epsilon = 0.1
-        new_obs_dim = len(orig_indexes)
 
         # Get pairs of (obs, state) which their previous state is 0.
         rel_pairs, rel_indexes = self.__get_related_pairs(new_sequences, self.__map_obs_index)
 
         #logger.info('time 3: %.2f', time.time() - t0)
-        #t0 = time.time()
+        times[3] += time.time() - t0
+        t0 = time.time()
 
-        #TODO: Change to use evidences from this line to the end.
         # Create observations and states matrices for related pairs.
-        obs_mat, state_mat = self.__create_matrices(rel_pairs, evidence.dim)
+        obs_mat, state_mat = self.__create_matrices(rel_pairs, new_dim)
 
         # Calculate features for observation-state pairs. Shape of f1 is obs_num * (obs_dim+1)
         features, C = self.__calc_features(obs_mat, state_mat)
@@ -57,12 +86,15 @@ class MEMM():
 
         # Initialize Lambda as 1 then learn from training data.
         # Lambda is different per s' (previous state), But here just we use s' = 0.
-        self.Lambda = np.ones(new_obs_dim + 1)
+        self.Lambda = np.ones(new_dim + 1)
 
         #logger.info('time 4: %.2f', time.time() - t0)
+        times[4] += time.time() - t0
+        t0 = time.time()
 
         # GIS, run until convergence
         iter_count = 0
+        nnz_list = [] # for test
         while True:
             iter_count += 1
             #logger.info("iteration = %d ...", iter_count)
@@ -78,50 +110,70 @@ class MEMM():
             #t3 = time.time() - t0
             #logger.info('iteration %d times: %.2f, %.2f, %.2f', iter_count, t1, t2, t3)
 
-            if self.__check_lambda_convergence(Lambda0, self.Lambda, epsilon):
-                if log > 0:
-                    logger.info('GIS iterations : %d', iter_count)
+            #if self.__check_lambda_convergence(Lambda0, self.Lambda, epsilon):
+            nnz = np.count_nonzero(np.absolute(Lambda0 - self.Lambda) > epsilon)
+            nnz_list.append(nnz)
+            if nnz == 0:
+                #if log > 0:
+                #    logger.info('distances in iterations: %s', nnz_list)
+                #    logger.info('GIS iterations : %d', iter_count)
                 break
 
-        #tpm_str = np.array2string(self.TPM, formatter={'float_kind': lambda x: "%.2f" % x})
-        #logger.info("TPM: \n%s", tpm_str[:100] + ' ...' if len(tpm_str) > 100 else tpm_str)
-        #lambda_str = np.array2string(self.Lambda, formatter={'float_kind': lambda x: "%.2f" % x})
-        #logger.info("lambda: %s", lambda_str[:100] + ' ...' if len(lambda_str) > 100 else lambda_str)
-
-        # Increase dimensions of Lambda to the original ones.
-        if evidence.dim != new_obs_dim:
-            lambda_indexes = [i for i in orig_indexes]
-            lambda_indexes.append(evidence.dim - 1)
-            self.Lambda = self.__inc_matrix_dim(self.Lambda, lambda_indexes, evidence.dim)
-            self.__all_obs_arr = self.__inc_matrix_dim(self.__all_obs_arr, orig_indexes, evidence.dim)
-            self.__map_obs_index = self.__inc_map_obs_dim(self.__map_obs_index, orig_indexes, evidence.dim)
+        #logger.info('time 5: %.2f', time.time() - t0)
+        times[5] += time.time() - t0
 
         return self
 
-    def predict(self, obs, threshold=None):
+    def predict(self, obs, dim, threshold=None):
         """
         Predict the state conditioned on the given observation if the previous state is 0 (inactivated).
         :param obs:     current observation
+        :param dim:     dimension of observation vector
         :return:        predicted next state
         """
-        obs_vec = np.array([int(d) for d in obs], dtype=bool)
-        if obs in self.__map_obs_index:
-            index = self.__map_obs_index[obs]
+        logger.debug('running MEMM predict method ...')
+        new_obs = self.__decrease_dim_by_indexes(obs, dim, self.__orig_indexes)
+        new_dim = len(self.__orig_indexes)
+        if new_obs in self.__map_obs_index:
+            index = self.__map_obs_index[new_obs]
+            logger.debug('obs found. prob = %f', self.TPM[index][1])
         else:
             #return 0
+            new_obs_vec = obs_to_array(new_obs, new_dim)
             obs_num = self.__all_obs_arr.shape[0]
-            sim = np.sum(self.__all_obs_arr == np.tile(obs_vec, (obs_num, 1)), axis=1)
+            sim = np.sum(self.__all_obs_arr == np.tile(new_obs_vec, (obs_num, 1)), axis=1)
             index = np.argmax(sim)
+            logger.debug('obs not found. sim = %f. prob = %f', np.max(sim) / new_dim, self.TPM[index][1])
         if threshold is None:
             threshold = 0.5
         return 1 if self.TPM[index][1] >= threshold else 0
+
+    def save(self, project, user_id):
+        path = os.path.join(project.project_path, 'memm/learned')
+        if not os.path.exists(path):
+            os.mkdir(path)
+        path2 = os.path.join(project.project_path, 'memm/learned/{}'.format(user_id))
+        if not os.path.exists(path2):
+            os.mkdir(path2)
+        project.save_param(self.Lambda, 'memm/learned/{}/lambda'.format(user_id), ParamTypes.ARRAY)
+        project.save_param(self.TPM, 'memm/learned/{}/tpm'.format(user_id), ParamTypes.ARRAY)
+        project.save_param(self.__all_obs_arr, 'memm/learned/{}/all_obs_arr'.format(user_id), ParamTypes.ARRAY)
+        project.save_param(self.__map_obs_index, 'memm/learned/{}/map_obs_index'.format(user_id), ParamTypes.JSON)
+        project.save_param(self.__orig_indexes, 'memm/learned/{}/orig_indexes'.format(user_id), ParamTypes.JSON)
+
+    def load(self, project, user_id):
+        self.Lambda = project.load_param('memm/learned/{}/lambda'.format(user_id), ParamTypes.ARRAY)
+        self.TPM = project.load_param('memm/learned/{}/tpm'.format(user_id), ParamTypes.ARRAY)
+        self.__all_obs_arr = project.load_param('memm/learned/{}/all_obs_arr'.format(user_id), ParamTypes.ARRAY)
+        self.__map_obs_index = project.load_param('memm/learned/{}/map_obs_index'.format(user_id), ParamTypes.JSON)
+        self.__orig_indexes = project.load_param('memm/learned/{}/orig_indexes'.format(user_id), ParamTypes.JSON)
 
     def __create_matrices(self, pairs, dim):
         obs_array = []
         state_array = []
         for pair in pairs:
-            obs_array.append(self.__obs_to_array(pair.obs, dim))
-            state_array.append(pair.state)
+            obs_array.append(obs_to_array(pair[0], dim))
+            state_array.append(pair[1])
         return np.array(obs_array, dtype=bool), np.array(state_array, dtype=bool)
 
     def __calc_features(self, obs_mat, state_mat):
@@ -147,14 +199,14 @@ class MEMM():
         for seq in sequences:
             if not seq:
                 continue
-            previous_state = seq[0].state
+            previous_state = seq[0][1]
             for pair in seq[1:]:
                 if previous_state == 1:
                     break
                 else:
                     rel_pairs.append(pair)
-                    rel_indexes.append(map_obs_index[pair.obs])
-                    previous_state = pair.state
+                    rel_indexes.append(map_obs_index[pair[0]])
+                    previous_state = pair[1]
 
         return rel_pairs, rel_indexes
 
@@ -211,7 +263,7 @@ class MEMM():
                 Lambda[i] += (np.log(F[i]) - np.log(E[i])) / C
         return Lambda
 
-    def __check_lambda_convergence(self, Lambda0, Lambda1, epsilon):
+    def __check_lambda_convergence(self, Lambda0, Lambda1, epsilon, log=0):
         """
         Check if the lambdas are relatively the same.
         :param Lambda0: previous lambda
@@ -221,56 +273,68 @@ class MEMM():
         """
         return np.count_nonzero(np.absolute(Lambda0 - Lambda1) > epsilon) == 0
 
-    def __decrease_dim(self, sequences, obs_dim):
+    def __decrease_dim(self, sequences, dim):
         """
         Decrease dimensions of observations in sequences. Remove the dimensions related to the parents
         which has no activation (e.t. has no digit 1) in any observation.
         :param sequences:   list of sequences of (obs, state)
-        :param obs_dim:     number of dimensions
-        :return: new sequences, map of new indexes to the old ones
+        :param dim:         number of observation dimensions
+        :return:            new sequences, map of new indexes to the old ones; with one difference that
+                            the observation is numpy array in tuple (obs, state)
         """
         # Find the dimensions with any non-zero value.
+        t0 = time.time()
         has_nonzero = 0
-        for i in range(len(sequences)):
-            seq = sequences[i]
-            for obs_state in seq:
-                has_nonzero |= obs_state.obs
-
-        # Count the used (nonzero) dimensions
-        nnz_count = 0
-        has_nnz_copy = has_nonzero
-        for _ in range(obs_dim):
-            nnz_count += has_nnz_copy % 2
-            has_nnz_copy >>= 1
-
-        if nnz_count == obs_dim:
-            return sequences, {i: i for i in range(obs_dim)}
-
-        # Decrease the dimensions and create the new sequences.
-        new_sequences = []
         for seq in sequences:
-            new_seq = []
-            for obs_state in seq:
-                new_obs = 0
-                mask = 1
-                new_mask = 1
-                for _ in range(obs_dim):
-                    if mask & has_nonzero & obs_state.obs:
-                        new_obs += new_mask
-                        new_mask <<= 1
-                    mask <<= 1
-                new_seq.append(MemmObsPair(new_obs, obs_state.state))
-            new_sequences.append(new_seq)
+            for obs, state in seq[1:]:
+                has_nonzero |= obs
+        times[7] += time.time() - t0
+        t0 = time.time()
 
         # Create map of new dimension indexes to the old indexes.
         orig_indexes = []
         has_nnz_copy = has_nonzero
-        for i in range(obs_dim):
+        for i in range(dim):
             if has_nnz_copy % 2:
-                orig_indexes.append(i)
+                orig_indexes.append(dim - i - 1)
             has_nnz_copy >>= 1
+        orig_indexes.sort()
+        times[8] += time.time() - t0
+        t0 = time.time()
+        #logger.info('orig_indexes = %s', orig_indexes)
+
+        # Count the used (nonzero) dimensions
+        new_dim = len(orig_indexes)
+        times[9] += time.time() - t0
+        t0 = time.time()
+
+        #logger.info('dim : %d, new dim: %d', dim, new_dim)
+        if new_dim == dim:
+            return sequences, {i: i for i in range(dim)}
+
+        # Decrease the dimensions and create the new sequences.
+        new_sequences = []
+        for seq in sequences:
+            #logger.info('sequence:')
+            new_seq = []
+            for obs, state in seq:
+                new_obs = self.__decrease_dim_by_indexes(obs, dim, orig_indexes)
+                new_seq.append((new_obs, state))
+                #logger.info('obs: %d', obs)
+                #logger.info('obs: %s', obs_to_array(obs, dim).astype(int))
+                #logger.info('new obs: %d', new_obs)
+                #logger.info('%s : %d', obs_to_array(new_obs, new_dim).astype(int), state)
+            new_sequences.append(new_seq)
+        times[10] += time.time() - t0
 
         return new_sequences, orig_indexes
+
+    def __decrease_dim_by_indexes(self, obs, dim, orig_indexes):
+        new_obs = 0
+        for ind in orig_indexes:
+            new_obs <<= 1
+            new_obs += (obs >> (dim - ind - 1)) % 2
+        return new_obs
 
     def __inc_matrix_dim(self, matrix, orig_indexes, obs_dim):
         """
@@ -291,26 +355,15 @@ class MEMM():
 
     def __inc_map_obs_dim(self, map_obs_index, orig_indexes, obs_dim):
         new_map = {}
+        new_dim = len(orig_indexes)
         for obs, index in map_obs_index.items():
-            obs_vec = self.__obs_to_array(obs, obs_dim)
-            orig_vec = np.zeros(obs_dim)
+            obs_vec = obs_to_array(obs, new_dim)
+            orig_vec = np.zeros(obs_dim, dtype=bool)
             orig_vec[orig_indexes] = obs_vec
-            orig_obs = self.__array_to_obs(orig_vec)
+            orig_obs = array_to_obs(orig_vec)
             new_map[orig_obs] = index
+            #logger.info('obs: %d', obs)
+            #logger.info('obs: %s', obs_vec.astype(int))
+            #logger.info('orig indexes: %s', orig_indexes)
+            #logger.info('orig obs: %s', obs_to_array(orig_obs, obs_dim).astype(int))
         return new_map
-
-    def __obs_to_array(self, obs, dim):
-        obs_copy = obs
-        obs_arr = []
-        for _ in range(dim):
-            obs_arr.append(obs_copy % 2)
-            obs_copy >>= 1
-        obs_arr = obs_arr[::-1]
-        return np.array(obs_arr, dtype=bool)
-
-    def __array_to_obs(self, arr):
-        obs = 0
-        for d in arr:
-            obs <<= 1
-            obs += d
-        return obs
