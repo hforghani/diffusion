@@ -9,7 +9,7 @@ logging.basicConfig(format=LOG_FORMAT)
 file_handler = logging.FileHandler('{}/log/{}.log'.format(BASE_PATH, datetime.now().strftime('%Y%m%d-%H%M%S')), 'w',
                                    'utf-8')
 file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
-logger = logging.getLogger()
+logger = logging.getLogger('diffusion')
 logger.addHandler(file_handler)
 logger.setLevel(LOG_LEVEL)
 

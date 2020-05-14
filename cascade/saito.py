@@ -154,11 +154,11 @@ class Saito(AsLT):
                 cols.append(v_i)
             i += 1
             if i % (u_count / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / u_count))
+                logger.info('%d%% done' % (i * 100 / u_count))
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
         r = np.ones(u_count, np.float32)
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
+        logger.info('time: %.2f min' % ((time.time() - t0) / 60.0))
         return w, r
 
     def calc_h(self, data, graph, w, r, meme_ids, meme_map, user_map):

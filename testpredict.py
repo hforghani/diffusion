@@ -41,9 +41,9 @@ def log_trees(tree, res_tree, max_depth=None):
     max_len = max([len(line) for line in tree_render])
     max_lines = max(len(tree_render), len(res_tree_render))
     formatted_line = '{:' + str(max_len + 5) + '}{}'
-    logger.info(formatted_line.format('true tree:', 'output tree:'))
+    logger.debugv(formatted_line.format('true tree:', 'output tree:'))
     for i in range(max_lines):
-        logger.debug(formatted_line.format(tree_render[i] if i < len(tree_render) else '',
+        logger.debugv(formatted_line.format(tree_render[i] if i < len(tree_render) else '',
                                           res_tree_render[i] if i < len(res_tree_render) else ''))
 
 

@@ -1,12 +1,15 @@
+import json
+import os
 import time
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm.memm import MEMM, MemmException, times
 from neo4j.models import Neo4jGraph
-from settings import logger
+import numpy as np
+from settings import logger, BASEPATH
 
 
-#MEMM_EVID_FILE_NAME = 'memm/evidence'
-MEMM_EVID_FILE_NAME = 'memm/evidence-5d88f41e86887707d4526076'
+MEMM_EVID_FILE_NAME = 'memm/evidence'
+#MEMM_EVID_FILE_NAME = 'memm/evidence-5d88f41e86887707d4526076'
 
 
 class MEMMModel():
@@ -132,7 +135,14 @@ class MEMMModel():
         :param train_set:   cascade id's in training set
         :return:            self
         """
+        #try:
+        #    logger.info('loading trained MEMMs ...')
+        #    self.__load_memms()
+        #
+        #except FileNotFoundError:
+        logger.info('MEMMs not found. training ...')
         t0 = time.time()
+
         evidences = self.__prepare_evidences(train_set)
         user_ids = list(evidences.keys())
 
@@ -142,21 +152,28 @@ class MEMMModel():
         for uid in user_ids:
             count += 1
             ev = evidences[uid]
-            #    logger.info('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev[0])
+            #    logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev[0])
             m = MEMM()
             try:
-                t1 = time.time()
                 m.fit(ev)
-                times[0] += time.time() - t1
                 self.__memms[uid] = m
                 del evidences[uid]  # to free RAM
             except MemmException:
                 logger.warn('evidences for user %s ignored due to insufficient data', uid)
             if count % 1000 == 0:
                 logger.debug('%d MEMM models trained', count)
-                logger.debug('times : %s', [int(t) for t in times])
+                logger.debug('times : %d (%d (%d + %d + %d) + %d + %d + %d + %d (%d + %d + %d + %d))',
+                             times[0],
+                             times[1], times[6], times[7], times[8],
+                             times[2],
+                             times[3],
+                             times[4],
+                             times[5], times[9], times[10], times[11], times[12])
 
+        logger.info('saving trained MEMMs ...')
+        #self.__save_memms()
         logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
+
         return self
 
     def predict(self, initial_tree, threshold=None, max_step=None):
@@ -164,6 +181,7 @@ class MEMMModel():
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return:         Predicted tree
         """
+        ptimes = [0] * 4
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()
@@ -181,35 +199,105 @@ class MEMMModel():
         # Predict the cascade tree.
         # At each iteration find newly activated nodes based on MEMM probabilities and add them to the tree.
         while cur_step and (max_step is None or step_num <= max_step):
-            logger.debug('\t predicting step %d ...', step_num)
+            logger.debug('predicting step %d ...', step_num)
 
             next_step = []
 
+            i = 0
             for node in cur_step:
                 uid = node.user_id
                 children = self.__graph.children(uid)
 
-                for child_id in children:
-                    parents = self.__graph.get_or_fetch_parents(child_id)
-                    obs = observations.setdefault(child_id, 0)
-                    index = parents.index(uid)
-                    obs |= 1 << (len(parents) - index - 1)
-                    observations[child_id] = obs
+                # Add all children if threshold is 0.
+                if threshold == 0:
+                    for child_id in set(children) - set(active_ids):
+                        child = CascadeNode(child_id)
+                        node.children.append(child)
+                        next_step.append(child)
+                        active_ids.append(child_id)
 
-                    if child_id not in active_ids and child_id in self.__memms:
-                        memm = self.__memms[child_id]
-                        logger.debug('predicting cascade ...')
-                        new_state = memm.predict(obs, len(parents), threshold)
+                elif threshold != 1:
+                    #j = 0
+                    for child_id in children:
+                        t = time.time()
+                        parents = self.__graph.get_or_fetch_parents(child_id)
+                        ptimes[0] += time.time() - t
+                        t = time.time()
+                        obs = observations.setdefault(child_id, 0)
+                        index = parents.index(uid)
+                        obs |= 1 << (len(parents) - index - 1)
+                        observations[child_id] = obs
+                        ptimes[1] += time.time() - t
+                        #logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
+                        #             child_id not in active_ids, child_id in self.__memms)
 
-                        if new_state == 1:
-                            child = CascadeNode(child_id)
-                            node.children.append(child)
-                            next_step.append(child)
-                            active_ids.append(child_id)
-                            logger.debug('\ta reshare predicted')
+                        if child_id not in active_ids and str(child_id) in self.__memms:
+                            t = time.time()
+                            memm = self.__memms[str(child_id)]
+                            #logger.debug('predicting cascade ...')
+                            new_state = memm.predict(obs, len(parents), threshold)
+
+                            if new_state == 1:
+                                child = CascadeNode(child_id)
+                                node.children.append(child)
+                                next_step.append(child)
+                                active_ids.append(child_id)
+                                #logger.debug('\ta reshare predicted')
+                                #j += 1
+                                #logger.debug('%d / %d of children iterated', j, len(children))
+                            ptimes[2] += time.time() - t
+
+                    i += 1
+                    logger.debug('%d / %d nodes of current step done', i, len(cur_step))
+                    logger.debug('times: %s', [int(t) for t in ptimes[:3]])
+
             cur_step = next_step
             step_num += 1
 
         logger.debug('time1 = %.2f' % (time.time() - t0))
 
         return tree
+
+    def __save_memms(self):
+        uids = list(self.__memms.keys())
+        save_dir = os.path.join(BASEPATH, 'data', self.project.project_name, 'memm')
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
+        save_dir = os.path.join(save_dir, 'trained')
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
+        lambda_all = {uid: self.__memms[uid].Lambda for uid in uids}
+        np.savez(os.path.join(save_dir, 'labmda.npz'), **lambda_all)
+        tpm_all = {uid: self.__memms[uid].TPM for uid in uids}
+        np.savez(os.path.join(save_dir, 'tpm.npz'), **tpm_all)
+        obs_arr_all = {uid: self.__memms[uid].all_obs_arr for uid in uids}
+        np.savez(os.path.join(save_dir, 'all_obs_arr.npz'), **obs_arr_all)
+        map_obs_index_all = {uid: self.__memms[uid].map_obs_index for uid in uids}
+        with open(os.path.join(save_dir, 'map_obs_index.json'), 'w') as f:
+            json.dump(map_obs_index_all, f)
+        orig_indexes_all = {uid: self.__memms[uid].orig_indexes for uid in uids}
+        with open(os.path.join(save_dir, 'orig_indexes.json'), 'w') as f:
+            json.dump(orig_indexes_all, f)
+
+    def __load_memms(self):
+        self.__memms = {}
+        load_dir = os.path.join(BASEPATH, 'data', self.project.project_name, 'memm', 'trained')
+        lambda_all = np.load(os.path.join(load_dir, 'labmda.npz'))
+        for uid in lambda_all:
+            memm = MEMM()
+            memm.Lambda = lambda_all[uid]
+            self.__memms[uid] = memm
+        tpm_all = np.load(os.path.join(load_dir, 'tpm.npz'))
+        for uid in tpm_all:
+            self.__memms[uid].TPM = tpm_all[uid]
+        obs_arr_all = np.load(os.path.join(load_dir, 'all_obs_arr.npz'))
+        for uid in obs_arr_all:
+            self.__memms[uid].all_obs_arr = obs_arr_all[uid]
+        with open(os.path.join(load_dir, 'map_obs_index.json')) as f:
+            map_obs_index_all = json.load(f)
+        for uid in map_obs_index_all:
+            self.__memms[uid].map_obs_index = map_obs_index_all[uid]
+        with open(os.path.join(load_dir, 'orig_indexes.json')) as f:
+            orig_indexes_all = json.load(f)
+        for uid in orig_indexes_all:
+            self.__memms[uid].orig_indexes = orig_indexes_all[uid]
