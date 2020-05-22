@@ -1,9 +1,18 @@
+import argparse
 from cascade.models import Project, ParamTypes
 from neo4j.models import Neo4jGraph
 from settings import logger
 
+def add_arguments(parser):
+    parser.add_argument("-p", "--project", type=str, dest="project",
+                        help="project name")
+
 if __name__ == '__main__':
-    project = Project('weibo-size7')
+    parser = argparse.ArgumentParser('Merge MEMM evidences based on the training set of the project given.')
+    add_arguments(parser)
+    args = parser.parse_args()
+
+    project = Project(args.project)
     graph = Neo4jGraph('User')
 
     train_set, test_set = project.load_train_test()
