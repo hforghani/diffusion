@@ -20,7 +20,7 @@ class Neo4jGraph:
         self.__int_to_id = []
 
     def parents(self, user_id):
-        cypher = 'match (n:{0}{{_id:"{1}"}})<--(m:{0}) return m._id'.format(self.label, str(user_id))
+        cypher = 'match (n:{0}{{_id:"{1}"}})<--(m:{0}) using index n:{0}(_id) return m._id'.format(self.label, str(user_id))
         data = self.__graph.run(cypher).data()
         parents = [ObjectId(item['m._id']) for item in data]
         return parents
@@ -28,13 +28,14 @@ class Neo4jGraph:
     def parents_of_list(self, user_ids):
         cypher = 'match (n:{0})<--(m:{0}) ' \
                  'where n._id in [{1}] ' \
+                 'using index n:{0}(_id) ' \
                  'return m._id'.format(self.label, ','.join(['"%s"' % str(uid) for uid in user_ids]))
         data = self.__graph.run(cypher).data()
         parents = [ObjectId(item['m._id']) for item in data]
         return parents
 
     def children(self, user_id):
-        cypher = 'match (n:{0}{{_id:"{1}"}})-->(m:{0}) return m._id'.format(self.label, str(user_id))
+        cypher = 'match (n:{0}{{_id:"{1}"}})-->(m:{0}) using index n:{0}(_id) return m._id'.format(self.label, str(user_id))
         data = self.__graph.run(cypher).data()
         children = [ObjectId(item['m._id']) for item in data]
         return children
@@ -42,6 +43,7 @@ class Neo4jGraph:
     def children_of_list(self, user_ids):
         cypher = 'match (n:{0})-->(m:{0}) ' \
                  'where n._id in [{1}] ' \
+                 'using index n:{0}(_id) ' \
                  'return m._id'.format(self.label, ','.join(['"%s"' % str(uid) for uid in user_ids]))
         data = self.__graph.run(cypher).data()
         children = [ObjectId(item['m._id']) for item in data]
@@ -104,15 +106,13 @@ class Neo4jGraph:
 
     def __check_critical_ram(self):
         if psutil.virtual_memory().percent > self.CRITICAL_RAM_PERCENT:
-            main_dict = self.__parents if len(self.__parents) > len(self.__children) else self.__children
-            if len(main_dict):
-                count = 0
-                for i in range(len(main_dict) - 1, -1, -1):
-                    if i in main_dict:
-                        del main_dict[i]
-                        count += 1
-                        if psutil.virtual_memory().percent <= self.MAX_RAM_PERCENT:
-                            break
+            if len(self.__parents) > len(self.__children):
+                count = len(self.__parents)
+                self.__parents = {}
+            else:
+                count = len(self.__children)
+                self.__children = {}
+            if count:
                 logger.info('%d dict entries deleted to free RAM!', count)
             return True
         return False

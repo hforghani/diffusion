@@ -9,7 +9,7 @@ from settings import logger, BASEPATH
 
 
 MEMM_EVID_FILE_NAME = 'memm/evidence'
-#MEMM_EVID_FILE_NAME = 'memm/evidence-5d88f41e86887707d4526076'
+# MEMM_EVID_FILE_NAME = 'memm/evidence-5d88f41e86887707d4526076'
 
 
 class MEMMModel():
@@ -160,17 +160,25 @@ class MEMMModel():
                 del evidences[uid]  # to free RAM
             except MemmException:
                 logger.warn('evidences for user %s ignored due to insufficient data', uid)
-            if count % 1000 == 0:
+            if count % 10000 == 0:
                 logger.debug('%d MEMM models trained', count)
-                logger.debug('times : %d (%d (%d + %d + %d) + %d + %d + %d + %d (%d + %d + %d + %d))',
-                             times[0],
-                             times[1], times[6], times[7], times[8],
-                             times[2],
-                             times[3],
-                             times[4],
-                             times[5], times[9], times[10], times[11], times[12])
+                logger.debug('\n{:25}{}\n'.format('piece of code', 'time (s)') +
+                             '{:25}{:.0f}\n'.format('all', times[0]) +
+                             '{:25}{:.0f}\n'.format('__decrease_dim', times[1]) +
+                             '{:25}{:.0f}\n'.format('> has_nonzero', times[6]) +
+                             '{:25}{:.0f}\n'.format('> orig_indexes', times[7]) +
+                             '{:25}{:.0f}\n'.format('> new_sequences', times[8]) +
+                             '{:25}{:.0f}\n'.format('all_obs_arr', times[2]) +
+                             '{:25}{:.0f}\n'.format('__get_related_pairs', times[3]) +
+                             '{:25}{:.0f}\n'.format('__create_matrices', times[13]) +
+                             '{:25}{:.0f}\n'.format('__calc_features', times[4]) +
+                             '{:25}{:.0f}\n'.format('iteration', times[5]) +
+                             '{:25}{:.0f}\n'.format('> __build_tpm', times[9]) +
+                             '{:25}{:.0f}\n'.format('> __build_expectation', times[10]) +
+                             '{:25}{:.0f}\n'.format('> __build_next_lambda', times[11]) +
+                             '{:25}{:.0f}\n'.format('> count_nonzero', times[12]))
 
-        logger.info('saving trained MEMMs ...')
+        # logger.info('saving trained MEMMs ...')
         #self.__save_memms()
         logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
 
@@ -210,14 +218,19 @@ class MEMMModel():
 
                 # Add all children if threshold is 0.
                 if threshold == 0:
-                    for child_id in set(children) - set(active_ids):
+                    j = 0
+                    inact_children = set(children) - set(active_ids)
+                    for child_id in inact_children:
                         child = CascadeNode(child_id)
                         node.children.append(child)
                         next_step.append(child)
                         active_ids.append(child_id)
+                        j += 1
+                        if j % 100 == 0:
+                            logger.debugv('%d / %d of children iterated', j, len(inact_children))
 
                 elif threshold != 1:
-                    #j = 0
+                    j = 0
                     for child_id in children:
                         t = time.time()
                         parents = self.__graph.get_or_fetch_parents(child_id)
@@ -243,13 +256,16 @@ class MEMMModel():
                                 next_step.append(child)
                                 active_ids.append(child_id)
                                 #logger.debug('\ta reshare predicted')
-                                #j += 1
-                                #logger.debug('%d / %d of children iterated', j, len(children))
+
                             ptimes[2] += time.time() - t
 
-                    i += 1
-                    logger.debug('%d / %d nodes of current step done', i, len(cur_step))
-                    logger.debug('times: %s', [int(t) for t in ptimes[:3]])
+                        j += 1
+                        if j % 100 == 0:
+                            logger.debugv('%d / %d of children iterated', j, len(children))
+
+                i += 1
+                logger.debug('%d / %d nodes of current step done', i, len(cur_step))
+                logger.debug('times: %s', [int(t) for t in ptimes[:3]])
 
             cur_step = next_step
             step_num += 1

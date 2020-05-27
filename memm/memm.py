@@ -76,7 +76,10 @@ class MEMM():
         t0 = time.time()
 
         # Create observations and states matrices for related pairs.
-        obs_mat, state_mat = self.__create_matrices(rel_pairs, new_dim)
+        obs_mat, state_mat = self.__create_matrices(rel_pairs, rel_indexes, new_dim)
+
+        times[13] += time.time() - t0
+        t0 = time.time()
 
         # Calculate features for observation-state pairs. Shape of f1 is obs_num * (obs_dim+1)
         features, C = self.__calc_features(obs_mat, state_mat)
@@ -150,12 +153,9 @@ class MEMM():
             threshold = 0.5
         return 1 if self.TPM[index][1] >= threshold else 0
 
-    def __create_matrices(self, pairs, dim):
-        obs_array = []
-        state_array = []
-        for pair in pairs:
-            obs_array.append(obs_to_array(pair[0], dim))
-            state_array.append(pair[1])
+    def __create_matrices(self, pairs, indexes, dim):
+        obs_array = [self.all_obs_arr[indexes[i], :] for i in range(len(pairs))]
+        state_array = [pair[1] for pair in pairs]
         return np.array(obs_array, dtype=bool), np.array(state_array, dtype=bool)
 
     def __calc_features(self, obs_mat, state_mat):

@@ -519,37 +519,6 @@ class IC(object):
         return tree
 
 
-class RelationGraph():
-    def __init__(self, user_ids):
-        self.__graph = DiGraph()
-        self.__graph.add_nodes_from(user_ids)
-        self.__predecessors_fetched = set()
-        self.__successors_fetched = set()
-
-    def nodes(self):
-        return self.__graph.nodes()
-
-    def predecessors(self, uid):
-        if uid in self.__predecessors_fetched:
-            return self.__graph.predecessors(uid)
-        else:
-            pred = list({r['parent'] for r in mongodb.relations.find({'child': uid}, {'_id': 0, 'parent': 1})})
-            edges = [(n, uid) for n in pred]
-            self.__graph.add_edges_from(edges)
-            self.__predecessors_fetched.add(uid)
-            return pred
-
-    def successors(self, uid):
-        if uid in self.__successors_fetched:
-            return self.__graph.successors(uid)
-        else:
-            succ = list({r['child'] for r in mongodb.relations.find({'parent': uid}, {'_id': 0, 'child': 1})})
-            edges = [(uid, n) for n in succ]
-            self.__graph.add_edges_from(edges)
-            self.__successors_fetched.add(uid)
-            return succ
-
-
 class ParamTypes:
     JSON = 'json'
     ARRAY = 'array'
