@@ -19,7 +19,7 @@ def handle(logger):
                                      IndexModel(
                                          [('user_id', pymongo.ASCENDING), ('ref_user_id', pymongo.ASCENDING)])])
     logger.info('creating indexes for relations ...')
-    mongodb.relations.create_indexes([IndexModel('parent'), IndexModel('child')])
+    mongodb.relations.create_indexes([IndexModel('user_id')])
 
 
 if __name__ == '__main__':

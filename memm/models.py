@@ -5,7 +5,7 @@ from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm.memm import MEMM, MemmException, times
 from neo4j.models import Neo4jGraph
 import numpy as np
-from settings import logger, BASEPATH
+from settings import logger, BASEPATH, mongodb
 
 
 MEMM_EVID_FILE_NAME = 'memm/evidence'
@@ -16,7 +16,6 @@ class MEMMModel():
     def __init__(self, project):
         self.project = project
         self.__memms = {}
-        self.__graph = Neo4jGraph('User')
 
     def __save_evidences(self, sequences):
         logger.info('saving MEMM evidences ...')
@@ -72,11 +71,17 @@ class MEMMModel():
                 i = 0
                 logger.info('cascade %d with %d users ...', count + 1, len(act_seq.users))
 
+                # relations = mongodb.relations.find({'user_id': {'$in': act_seq.users}})
+                # rel_dic = {rel['user_id']: rel for rel in relations}
+
                 for uid in act_seq.users:  # Notice users are sorted by activation time.
                     activated.add(uid)
-                    parents_count = self.__graph.parents_count(uid)
+                    # parents_count = len(rel_dic[uid]['parents'])
+                    rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'children': 1, 'parents': 1})
+                    parents_count = len(rel['parents'])
                     logger.debug('extracting children ...')
-                    children = self.__graph.children(uid)
+                    # children = rel_dic[uid]['children']
+                    children = rel['children']
 
                     # Put the last observation with state 1 in the sequence of (observation, state).
                     if parents_count:
@@ -90,10 +95,20 @@ class MEMMModel():
                     if children:
                         logger.debug('iterating on %d children ...', len(children))
 
+                    # relations = mongodb.relations.find({'user_id': {'$in': cur_step}}, {'_id':0, 'user_id':1, 'parents':1})
+                    # parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+
                     # Set the related coefficient of the children observations equal to 1.
                     j = 0
                     for child in children:
-                        child_parents = self.__graph.get_or_fetch_parents(child)
+                        # if child not in parents_dic:
+                        #     continue
+                        # child_parents = parents_dic[child]
+                        rel = mongodb.relations.find_one({'user_id': child}, {'_id': 0, 'parents': 1})
+                        if rel is None:
+                            continue
+                        child_parents = rel['parents']
+
                         obs = observations.setdefault(child, 0)
                         index = child_parents.index(uid)
                         obs |= 1 << (len(child_parents) - index - 1)
@@ -115,7 +130,9 @@ class MEMMModel():
                 # Add current sequence of pairs (observation, state) to the MEMM evidences.
                 logger.info('adding sequences of current cascade ...')
                 for uid in cascade_seqs:
-                    dim = self.__graph.parents_count(uid)
+                    # dim = len(rel_dic[uid]['parents'])
+                    rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'parents': 1})
+                    dim = len(rel['parents']) #TODO: Collect counts at the beginning
                     new_evidences.setdefault(uid, [dim, []])
                     new_evidences[uid].sequences.append(cascade_seqs[uid])
                 cascade_seqs = {}
@@ -126,7 +143,6 @@ class MEMMModel():
 
             evidences = self.__add_and_save_evidences(new_evidences)
 
-        self.__graph = Neo4jGraph('User')  # To clear the cache.
         return evidences
 
     def fit(self, train_set):
@@ -211,10 +227,15 @@ class MEMMModel():
 
             next_step = []
 
+            # relations = mongodb.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}}, {'_id':0, 'user_id':1, 'children':1})
+            # children_dic = {rel['user_id']: rel['children'] for rel in relations}
+
             i = 0
             for node in cur_step:
                 uid = node.user_id
-                children = self.__graph.children(uid)
+                # children = children_dic.get(uid, [])
+                rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'children': 1})
+                children = rel['children'] if rel is not None else []
 
                 # Add all children if threshold is 0.
                 if threshold == 0:
@@ -230,10 +251,20 @@ class MEMMModel():
                             logger.debugv('%d / %d of children iterated', j, len(inact_children))
 
                 elif threshold != 1:
+                    # relations = mongodb.relations.find({'user_id': {'$in': children}}, {'_id':0, 'user_id':1, 'parents':1})
+                    # parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+
                     j = 0
                     for child_id in children:
                         t = time.time()
-                        parents = self.__graph.get_or_fetch_parents(child_id)
+                        # if child_id not in parents_dic:
+                        #     continue
+                        # parents = parents_dic[child_id]
+                        rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
+                        if rel is None:
+                            continue
+                        parents = rel['parents']
+
                         ptimes[0] += time.time() - t
                         t = time.time()
                         obs = observations.setdefault(child_id, 0)
