@@ -1,4 +1,5 @@
 import logging
+from log_levels import DEBUG_LEVELV_NUM     # Do not remove this line.
 
 BASE_PATH = '/path/to/current/folder'
 
