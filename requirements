@@ -4,6 +4,7 @@ numpy
 cython
 scipy
 scikit-learn
+psutil
 cvxopt
 ad3
 pystruct
