@@ -1,15 +1,60 @@
 import json
+import math
+import multiprocessing
 import os
 import time
+from multiprocessing.pool import Pool
+
+from pympler.asizeof import asizeof
+
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm.memm import MEMM, MemmException, times
-from neo4j.models import Neo4jGraph
+# from neo4j.models import Neo4jGraph
 import numpy as np
 from settings import logger, BASEPATH, mongodb
 
-
 MEMM_EVID_FILE_NAME = 'memm/evidence'
+
+
 # MEMM_EVID_FILE_NAME = 'memm/evidence-5d88f41e86887707d4526076'
+
+
+def train_memms(evidences):
+    user_ids = list(evidences.keys())
+    p_name = multiprocessing.current_process().name
+    logger.debug('[%s] training memms started', p_name)
+    memms = {}
+    count = 0
+    for uid in user_ids:
+        count += 1
+        ev = evidences.pop(uid)  # to free RAM
+        #    logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev[0])
+        m = MEMM()
+        try:
+            m.fit(ev)
+            memms[uid] = m
+        except MemmException:
+            logger.warn('evidences for user %s ignored due to insufficient data', uid)
+        if count % 1000 == 0:
+            logger.debug('[%s] %d memms trained', p_name, count)
+            # logger.debug('\n{:25}{}\n'.format('piece of code', 'time (s)') +
+            #              '{:25}{:.0f}\n'.format('all', times[0]) +
+            #              '{:25}{:.0f}\n'.format('__decrease_dim', times[1]) +
+            #              '{:25}{:.0f}\n'.format('> has_nonzero', times[6]) +
+            #              '{:25}{:.0f}\n'.format('> orig_indexes', times[7]) +
+            #              '{:25}{:.0f}\n'.format('> new_sequences', times[8]) +
+            #              '{:25}{:.0f}\n'.format('all_obs_arr', times[2]) +
+            #              '{:25}{:.0f}\n'.format('__get_related_pairs', times[3]) +
+            #              '{:25}{:.0f}\n'.format('__create_matrices', times[13]) +
+            #              '{:25}{:.0f}\n'.format('__calc_features', times[4]) +
+            #              '{:25}{:.0f}\n'.format('iteration', times[5]) +
+            #              '{:25}{:.0f}\n'.format('> __build_tpm', times[9]) +
+            #              '{:25}{:.0f}\n'.format('> __build_expectation', times[10]) +
+            #              '{:25}{:.0f}\n'.format('> __build_next_lambda', times[11]) +
+            #              '{:25}{:.0f}\n'.format('> count_nonzero', times[12]))
+
+    logger.debug('[%s] training memms finished', p_name)
+    return memms
 
 
 class MEMMModel():
@@ -59,15 +104,15 @@ class MEMMModel():
             logger.info('no evidences found! extraction started')
             count = 0
             new_evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances which are not saved yet.
-            cascade_seqs = {}   # dictionary of user id's to the sequences of ObsPair instances for this current cascade
+            cascade_seqs = {}  # dictionary of user id's to the sequences of ObsPair instances for this current cascade
 
             logger.info('extracting sequences from %d cascades ...', len(train_set))
 
             # Iterate each activation sequence and extract sequences of (observation, state) for each user
             for cascade_id in train_set:
                 act_seq = act_seqs[cascade_id]
-                observations = {}   # current observation of each user
-                activated = set()   # set of current activated users
+                observations = {}  # current observation of each user
+                activated = set()  # set of current activated users
                 i = 0
                 logger.info('cascade %d with %d users ...', count + 1, len(act_seq.users))
 
@@ -132,7 +177,7 @@ class MEMMModel():
                 for uid in cascade_seqs:
                     # dim = len(rel_dic[uid]['parents'])
                     rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'parents': 1})
-                    dim = len(rel['parents']) #TODO: Collect counts at the beginning
+                    dim = len(rel['parents'])  # TODO: Collect counts at the beginning
                     new_evidences.setdefault(uid, [dim, []])
                     new_evidences[uid].sequences.append(cascade_seqs[uid])
                 cascade_seqs = {}
@@ -145,57 +190,94 @@ class MEMMModel():
 
         return evidences
 
+    def __separate_big_ev(self, evidences):
+        big_userids = []
+        notbig_userids = []
+        big_threshold = 80000
+        for uid in evidences:
+            if asizeof(evidences[uid][1]) > big_threshold:
+                big_userids.append(uid)
+            else:
+                notbig_userids.append(uid)
+        return big_userids, notbig_userids
+
+    def __fit_multiproc(self, evidences):
+        """
+        Side effect: Clears the evidences dictionary.
+        """
+        user_ids = list(evidences.keys())
+        process_count = multiprocessing.cpu_count()
+        # process_count = 8
+        logger.debug('starting %d processes to train MEMMs', process_count)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(len(evidences) / process_count))
+        results = []
+
+        for i in range(process_count):
+            user_ids_i = user_ids[i * step: (i + 1) * step]
+            evidences_i = {}
+            for uid in user_ids_i:
+                evidences_i[uid] = evidences.pop(uid)  # to free RAM
+
+            # Train a MEMM for each user.
+            res = pool.apply_async(train_memms, (evidences_i,))
+            results.append(res)
+
+        del evidences  # to free RAM
+        pool.close()
+        pool.join()
+
+        # Collect results of the processes.
+        logger.debug('assembling multiprocessed results of MEMM training ...')
+        for res in results:
+            memms_i = res.get()
+            user_ids_i = list(memms_i.keys())
+            for uid in user_ids_i:
+                self.__memms[uid] = memms_i.pop(uid)  # to free RAM
+        logger.debug('assembling done')
+
     def fit(self, train_set):
         """
         Train MEMM's for each user in training set.
         :param train_set:   cascade id's in training set
         :return:            self
         """
-        #try:
-        #    logger.info('loading trained MEMMs ...')
-        #    self.__load_memms()
-        #
-        #except FileNotFoundError:
-        logger.info('MEMMs not found. training ...')
         t0 = time.time()
 
+        # Divide evidences into some parts. Each time load a part from evidences and train the
+        # corresponding MEMMS to avoid high RAM consumption.
         evidences = self.__prepare_evidences(train_set)
-        user_ids = list(evidences.keys())
 
-        # Train a MEMM for each user.
-        logger.info("training %d MEMM's ...", len(evidences))
-        count = 0
-        for uid in user_ids:
-            count += 1
-            ev = evidences[uid]
-            #    logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev[0])
-            m = MEMM()
-            try:
-                m.fit(ev)
-                self.__memms[uid] = m
-                del evidences[uid]  # to free RAM
-            except MemmException:
-                logger.warn('evidences for user %s ignored due to insufficient data', uid)
-            if count % 10000 == 0:
-                logger.debug('%d MEMM models trained', count)
-                logger.debug('\n{:25}{}\n'.format('piece of code', 'time (s)') +
-                             '{:25}{:.0f}\n'.format('all', times[0]) +
-                             '{:25}{:.0f}\n'.format('__decrease_dim', times[1]) +
-                             '{:25}{:.0f}\n'.format('> has_nonzero', times[6]) +
-                             '{:25}{:.0f}\n'.format('> orig_indexes', times[7]) +
-                             '{:25}{:.0f}\n'.format('> new_sequences', times[8]) +
-                             '{:25}{:.0f}\n'.format('all_obs_arr', times[2]) +
-                             '{:25}{:.0f}\n'.format('__get_related_pairs', times[3]) +
-                             '{:25}{:.0f}\n'.format('__create_matrices', times[13]) +
-                             '{:25}{:.0f}\n'.format('__calc_features', times[4]) +
-                             '{:25}{:.0f}\n'.format('iteration', times[5]) +
-                             '{:25}{:.0f}\n'.format('> __build_tpm', times[9]) +
-                             '{:25}{:.0f}\n'.format('> __build_expectation', times[10]) +
-                             '{:25}{:.0f}\n'.format('> __build_next_lambda', times[11]) +
-                             '{:25}{:.0f}\n'.format('> count_nonzero', times[12]))
+        logger.info('separating big evidences ...')
+        big_user_ids, notbig_user_ids = self.__separate_big_ev(evidences)
+        big_ev = {}
+        notbig_ev = {}
+        for uid in big_user_ids:
+            big_ev[uid] = evidences.pop(uid)  # to free RAM
+        for uid in notbig_user_ids:
+            notbig_ev[uid] = evidences.pop(uid)  # to free RAM
 
-        # logger.info('saving trained MEMMs ...')
-        #self.__save_memms()
+        # Train not-big evidences multi-processing in multi-processing mode.
+
+        parts_count = 3
+        part_size = int(math.ceil(len(notbig_user_ids) / parts_count))
+
+        for j in range(parts_count):
+            logger.info('loading evidences of part %d of users', j + 1)
+            part_j = notbig_user_ids[j * part_size: (j + 1) * part_size]
+            evidences_j = {}
+            for uid in part_j:
+                evidences_j[uid] = notbig_ev.pop(uid)  # to free RAM
+            logger.info("training %d MEMM's related to part %d of users ...", len(part_j), j + 1)
+            self.__fit_multiproc(evidences_j)
+
+        # Train big evidences sequentially.
+        logger.info('training %d big MEMMs sequentially', len(big_ev))
+        memms = train_memms(big_ev)
+        del big_ev
+        for uid in big_user_ids:
+            self.__memms[uid] = memms.pop(uid)  # to free RAM
+
         logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
 
         return self
@@ -227,15 +309,18 @@ class MEMMModel():
 
             next_step = []
 
-            # relations = mongodb.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}}, {'_id':0, 'user_id':1, 'children':1})
-            # children_dic = {rel['user_id']: rel['children'] for rel in relations}
+            relations = mongodb.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}},
+                                               {'_id': 0, 'user_id': 1, 'children': 1})
+            children_dic = {rel['user_id']: rel['children'] for rel in relations}
 
             i = 0
             for node in cur_step:
                 uid = node.user_id
-                # children = children_dic.get(uid, [])
-                rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'children': 1})
-                children = rel['children'] if rel is not None else []
+                children = children_dic.pop(uid, [])  # to get and free RAM
+                # rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'children': 1})
+                # children = rel['children'] if rel is not None else []
+
+                logger.debug('num of children of %s : %d', uid, len(children))
 
                 # Add all children if threshold is 0.
                 if threshold == 0:
@@ -250,35 +335,39 @@ class MEMMModel():
                         if j % 100 == 0:
                             logger.debugv('%d / %d of children iterated', j, len(inact_children))
 
-                elif threshold != 1:
-                    # relations = mongodb.relations.find({'user_id': {'$in': children}}, {'_id':0, 'user_id':1, 'parents':1})
-                    # parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+                elif threshold < 1:
+                    t = time.time()
+                    relations = mongodb.relations.find({'user_id': {'$in': children}},
+                                                       {'_id': 0, 'user_id': 1, 'parents': 1})
+                    parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+                    ptimes[0] += time.time() - t
 
                     j = 0
                     for child_id in children:
                         t = time.time()
-                        # if child_id not in parents_dic:
-                        #     continue
-                        # parents = parents_dic[child_id]
-                        rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
-                        if rel is None:
-                            continue
-                        parents = rel['parents']
 
-                        ptimes[0] += time.time() - t
+                        if child_id not in parents_dic:
+                            continue
+                        parents = parents_dic[child_id]
+                        # rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
+                        # if rel is None:
+                        #     continue
+                        # parents = rel['parents']
+
+                        ptimes[1] += time.time() - t
                         t = time.time()
                         obs = observations.setdefault(child_id, 0)
                         index = parents.index(uid)
                         obs |= 1 << (len(parents) - index - 1)
                         observations[child_id] = obs
-                        ptimes[1] += time.time() - t
-                        #logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
+                        ptimes[2] += time.time() - t
+                        # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
                         #             child_id not in active_ids, child_id in self.__memms)
 
                         if child_id not in active_ids and str(child_id) in self.__memms:
                             t = time.time()
                             memm = self.__memms[str(child_id)]
-                            #logger.debug('predicting cascade ...')
+                            # logger.debug('predicting cascade ...')
                             new_state = memm.predict(obs, len(parents), threshold)
 
                             if new_state == 1:
@@ -286,9 +375,9 @@ class MEMMModel():
                                 node.children.append(child)
                                 next_step.append(child)
                                 active_ids.append(child_id)
-                                #logger.debug('\ta reshare predicted')
+                                # logger.debug('\ta reshare predicted')
 
-                            ptimes[2] += time.time() - t
+                            ptimes[3] += time.time() - t
 
                         j += 1
                         if j % 100 == 0:
@@ -296,7 +385,7 @@ class MEMMModel():
 
                 i += 1
                 logger.debug('%d / %d nodes of current step done', i, len(cur_step))
-                logger.debug('times: %s', [int(t) for t in ptimes[:3]])
+                logger.debug('times: %s', [int(t) for t in ptimes[:4]])
 
             cur_step = next_step
             step_num += 1
