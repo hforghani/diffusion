@@ -22,7 +22,7 @@ MEMM_EVID_FILE_NAME = 'memm/evidence'
 def train_memms(evidences):
     user_ids = list(evidences.keys())
     p_name = multiprocessing.current_process().name
-    logger.debug('[%s] training memms started', p_name)
+    logger.debugv('[%s] training memms started', p_name)
     memms = {}
     count = 0
     for uid in user_ids:
@@ -53,8 +53,48 @@ def train_memms(evidences):
             #              '{:25}{:.0f}\n'.format('> __build_next_lambda', times[11]) +
             #              '{:25}{:.0f}\n'.format('> count_nonzero', times[12]))
 
-    logger.debug('[%s] training memms finished', p_name)
+    logger.debugv('[%s] training memms finished', p_name)
     return memms
+
+
+def test_memms(children, parents_dic, observations, active_ids, memms, threshold):
+    p_name = multiprocessing.current_process().name
+    logger.debug('[%s] testing memms started', p_name)
+
+    active_children = []
+
+    j = 0
+    for child_id in children:
+        if child_id not in parents_dic:
+            continue
+        parents = parents_dic[child_id]
+        # rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
+        # if rel is None:
+        #     continue
+        # parents = rel['parents']
+
+        obs = observations[child_id]
+        # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
+        #             child_id not in active_ids, child_id in self.__memms)
+
+        if child_id not in active_ids and str(child_id) in memms:
+            memm = memms[str(child_id)]
+            # logger.debug('predicting cascade ...')
+            new_state = memm.predict(obs, len(parents), threshold)
+
+            if new_state == 1:
+                active_children.append(child_id)
+                active_ids.append(child_id)
+                # logger.debug('\ta reshare predicted')
+
+        j += 1
+        if j % 100 == 0:
+            logger.debugv('[%s] %d / %d of children iterated', p_name, j, len(children))
+
+    del memms, children, parents_dic, observations, active_ids
+
+    logger.debug('[%s] testing memms finished', p_name)
+    return active_children
 
 
 class MEMMModel():
@@ -193,7 +233,7 @@ class MEMMModel():
     def __separate_big_ev(self, evidences):
         big_userids = []
         notbig_userids = []
-        big_threshold = 80000
+        big_threshold = 60000
         for uid in evidences:
             if asizeof(evidences[uid][1]) > big_threshold:
                 big_userids.append(uid)
@@ -250,6 +290,7 @@ class MEMMModel():
 
         logger.info('separating big evidences ...')
         big_user_ids, notbig_user_ids = self.__separate_big_ev(evidences)
+        logger.debug('%d big and %d not-big evidences considered', len(big_user_ids), len(notbig_user_ids))
         big_ev = {}
         notbig_ev = {}
         for uid in big_user_ids:
@@ -259,7 +300,7 @@ class MEMMModel():
 
         # Train not-big evidences multi-processing in multi-processing mode.
 
-        parts_count = 3
+        parts_count = 5
         part_size = int(math.ceil(len(notbig_user_ids) / parts_count))
 
         for j in range(parts_count):
@@ -282,12 +323,49 @@ class MEMMModel():
 
         return self
 
+    def __predict_multiproc(self, children, parent_node, parents_dic, observations, active_ids, threshold, next_step):
+        # process_count = multiprocessing.cpu_count()
+        process_count = 2
+        logger.debug('starting %d processes to predict by MEMMs', process_count)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(len(children) / process_count))
+        results = []
+
+        for i in range(process_count):
+            children_i = children[i * step: (i + 1) * step]
+            parents_dic_i = {}
+            for uid in children_i:
+                parents_dic_i[uid] = parents_dic.pop(uid)  # to free RAM
+            observations_i = {uid: observations[uid] for uid in children_i}
+            memms_i = {self.__memms[uid] for uid in children_i if uid in self.__memms}
+
+            # Train a MEMM for each user.
+            res = pool.apply_async(test_memms,
+                                   (children_i, parents_dic_i, observations_i, active_ids, memms_i, threshold))
+            results.append(res)
+
+        del parents_dic  # to free RAM
+        pool.close()
+        pool.join()
+
+        # Collect results of the processes.
+        logger.debug('assembling multi-processed results of MEMM predictions ...')
+        for res in results:
+            act_children = res.get()
+            for child_id in act_children:
+                child = CascadeNode(child_id)
+                parent_node.children.append(child)
+                next_step.append(child)
+                active_ids.append(child_id)
+
+        logger.debug('assembling done')
+
     def predict(self, initial_tree, threshold=None, max_step=None):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return:         Predicted tree
         """
-        ptimes = [0] * 4
+        # ptimes = [0] * 4
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()
@@ -315,12 +393,15 @@ class MEMMModel():
 
             i = 0
             for node in cur_step:
-                uid = node.user_id
-                children = children_dic.pop(uid, [])  # to get and free RAM
-                # rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'children': 1})
+                node_id = node.user_id
+                children = children_dic.pop(node_id, [])  # to get and free RAM
+                # rel = mongodb.relations.find_one({'user_id': node_id}, {'_id': 0, 'children': 1})
                 # children = rel['children'] if rel is not None else []
 
-                logger.debug('num of children of %s : %d', uid, len(children))
+                if not children:
+                    continue
+
+                logger.debug('num of children of %s : %d', node_id, len(children))
 
                 # Add all children if threshold is 0.
                 if threshold == 0:
@@ -336,56 +417,36 @@ class MEMMModel():
                             logger.debugv('%d / %d of children iterated', j, len(inact_children))
 
                 elif threshold < 1:
-                    t = time.time()
+                    # t = time.time()
                     relations = mongodb.relations.find({'user_id': {'$in': children}},
                                                        {'_id': 0, 'user_id': 1, 'parents': 1})
                     parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
-                    ptimes[0] += time.time() - t
+                    # ptimes[0] += time.time() - t
 
-                    j = 0
                     for child_id in children:
-                        t = time.time()
-
+                        obs = observations.setdefault(child_id, 0)
                         if child_id not in parents_dic:
                             continue
                         parents = parents_dic[child_id]
-                        # rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
-                        # if rel is None:
-                        #     continue
-                        # parents = rel['parents']
-
-                        ptimes[1] += time.time() - t
-                        t = time.time()
-                        obs = observations.setdefault(child_id, 0)
-                        index = parents.index(uid)
+                        index = parents.index(node_id)
                         obs |= 1 << (len(parents) - index - 1)
                         observations[child_id] = obs
-                        ptimes[2] += time.time() - t
-                        # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
-                        #             child_id not in active_ids, child_id in self.__memms)
 
-                        if child_id not in active_ids and str(child_id) in self.__memms:
-                            t = time.time()
-                            memm = self.__memms[str(child_id)]
-                            # logger.debug('predicting cascade ...')
-                            new_state = memm.predict(obs, len(parents), threshold)
-
-                            if new_state == 1:
-                                child = CascadeNode(child_id)
-                                node.children.append(child)
-                                next_step.append(child)
-                                active_ids.append(child_id)
-                                # logger.debug('\ta reshare predicted')
-
-                            ptimes[3] += time.time() - t
-
-                        j += 1
-                        if j % 100 == 0:
-                            logger.debugv('%d / %d of children iterated', j, len(children))
+                    if 1000 < len(children) < 200000:
+                        self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
+                                                 next_step)
+                    else:
+                        memms_i = {self.__memms[uid] for uid in children if uid in self.__memms}
+                        act_children = test_memms(children, parents_dic, observations, active_ids, memms_i, threshold)
+                        for child_id in act_children:
+                            child = CascadeNode(child_id)
+                            node.children.append(child)
+                            next_step.append(child)
+                            active_ids.append(child_id)
 
                 i += 1
                 logger.debug('%d / %d nodes of current step done', i, len(cur_step))
-                logger.debug('times: %s', [int(t) for t in ptimes[:4]])
+                # logger.debug('times: %s', [int(t) for t in ptimes[:4]])
 
             cur_step = next_step
             step_num += 1
