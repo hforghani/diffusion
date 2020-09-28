@@ -151,7 +151,10 @@ class MEMM():
             #logger.debug('obs not found. sim = %f. prob = %f', np.max(sim) / new_dim, self.TPM[index][1])
         if threshold is None:
             threshold = 0.5
-        return 1 if self.TPM[index][1] >= threshold else 0
+
+        next_state = 1 if self.TPM[index][1] >= threshold else 0
+
+        return next_state
 
     def __create_matrices(self, pairs, indexes, dim):
         obs_array = [self.all_obs_arr[indexes[i], :] for i in range(len(pairs))]

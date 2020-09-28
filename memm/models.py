@@ -5,6 +5,7 @@ import os
 import time
 from multiprocessing.pool import Pool
 
+from bson import ObjectId
 from pympler.asizeof import asizeof
 
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
@@ -77,10 +78,13 @@ def test_memms(children, parents_dic, observations, active_ids, memms, threshold
         # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
         #             child_id not in active_ids, child_id in self.__memms)
 
-        if child_id not in active_ids and str(child_id) in memms:
-            memm = memms[str(child_id)]
+        # logger.debugv('child_id not in active_ids -> %d', child_id not in active_ids)
+        # logger.debugv('str(child_id) in memms: -> %d', str(child_id) in memms)
+        if child_id not in active_ids and child_id in memms:
+            memm = memms[child_id]
             # logger.debug('predicting cascade ...')
-            new_state = memm.predict(obs, len(parents), threshold)
+            new_state, prob = memm.predict(obs, len(parents), threshold)
+            logger.debugv('[%s] user id {%s} : probability {%f}', p_name, child_id, prob)
 
             if new_state == 1:
                 active_children.append(child_id)
@@ -109,8 +113,9 @@ class MEMMModel():
 
     def __load_evidences(self):
         logger.info('loading MEMM evidences ...')
-        tsets = self.project.load_param(MEMM_EVID_FILE_NAME, ParamTypes.JSON)
-        return tsets
+        evidences = self.project.load_param(MEMM_EVID_FILE_NAME, ParamTypes.JSON)
+        evidences = {ObjectId(uid): evidences[uid] for uid in evidences}
+        return evidences
 
     def __add_and_save_evidences(self, new_evidences):
         try:
@@ -337,7 +342,7 @@ class MEMMModel():
             for uid in children_i:
                 parents_dic_i[uid] = parents_dic.pop(uid)  # to free RAM
             observations_i = {uid: observations[uid] for uid in children_i}
-            memms_i = {self.__memms[uid] for uid in children_i if uid in self.__memms}
+            memms_i = {uid: self.__memms[uid] for uid in children_i if uid in self.__memms}
 
             # Train a MEMM for each user.
             res = pool.apply_async(test_memms,
@@ -436,7 +441,7 @@ class MEMMModel():
                         self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
                                                  next_step)
                     else:
-                        memms_i = {self.__memms[uid] for uid in children if uid in self.__memms}
+                        memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
                         act_children = test_memms(children, parents_dic, observations, active_ids, memms_i, threshold)
                         for child_id in act_children:
                             child = CascadeNode(child_id)
