@@ -8,24 +8,17 @@ import time
 from cascade.models import Project, CascadeTree
 import settings
 
-
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('displaytree')
 logger.setLevel(settings.LOG_LEVEL)
 
 
 class Command:
-    help = 'Display cascade tree of a meme from a project'
+    help = 'Display cascade sizes of a project'
 
     def add_arguments(self, parser):
         parser.add_argument(
-            'meme_id',
-            type=str,
-            help='meme id',
-        )
-        parser.add_argument(
-            '-p',
-            '--project',
+            'project',
             type=str,
             help='project name',
         )
@@ -36,15 +29,12 @@ class Command:
     def handle(self, args):
         try:
             start = time.time()
-            meme_id = args.meme_id
-            if args.project:
-                project = Project(args.project)
-                trees = project.load_trees()
+            project = Project(args.project)
+            trees = project.load_trees()
+            print(f'{"meme id":30}{"size":10}{"depth":10}')
+            for meme_id in trees:
                 tree = trees[meme_id]
-            else:
-                tree = CascadeTree.extract_cascade(meme_id)
-
-            logger.info('\n' + tree.render())
+                print(f'{str(meme_id):30}{len(tree.node_ids()):<10}{tree.depth:<10}')
             logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:
             logger.info(traceback.format_exc())

@@ -5,7 +5,7 @@ import os
 import time
 from multiprocessing.pool import Pool
 
-from bson import ObjectId
+from bson.objectid import ObjectId
 from pympler.asizeof import asizeof
 
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
@@ -78,14 +78,10 @@ def test_memms(children, parents_dic, observations, active_ids, memms, threshold
         # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
         #             child_id not in active_ids, child_id in self.__memms)
 
-        # logger.debugv('child_id not in active_ids -> %d', child_id not in active_ids)
-        # logger.debugv('str(child_id) in memms: -> %d', str(child_id) in memms)
         if child_id not in active_ids and child_id in memms:
             memm = memms[child_id]
             # logger.debug('predicting cascade ...')
-            new_state, prob = memm.predict(obs, len(parents), threshold)
-            logger.debugv('[%s] user id {%s} : probability {%f}', p_name, child_id, prob)
-
+            new_state = memm.predict(obs, len(parents), threshold)
             if new_state == 1:
                 active_children.append(child_id)
                 active_ids.append(child_id)
@@ -150,6 +146,7 @@ class MEMMModel():
             count = 0
             new_evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances which are not saved yet.
             cascade_seqs = {}  # dictionary of user id's to the sequences of ObsPair instances for this current cascade
+            parent_sizes = {} # dictionary of user id's to number of their parents
 
             logger.info('extracting sequences from %d cascades ...', len(train_set))
 
@@ -168,10 +165,11 @@ class MEMMModel():
                     activated.add(uid)
                     # parents_count = len(rel_dic[uid]['parents'])
                     rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'children': 1, 'parents': 1})
-                    parents_count = len(rel['parents'])
+                    parents_count = len(rel['parents']) if rel is not None else 0
+                    parent_sizes[uid] = parents_count
                     logger.debug('extracting children ...')
                     # children = rel_dic[uid]['children']
-                    children = rel['children']
+                    children = rel['children'] if rel is not None else []
 
                     # Put the last observation with state 1 in the sequence of (observation, state).
                     if parents_count:
@@ -198,6 +196,7 @@ class MEMMModel():
                         if rel is None:
                             continue
                         child_parents = rel['parents']
+                        parent_sizes[child] = len(child_parents)
 
                         obs = observations.setdefault(child, 0)
                         index = child_parents.index(uid)
@@ -221,10 +220,9 @@ class MEMMModel():
                 logger.info('adding sequences of current cascade ...')
                 for uid in cascade_seqs:
                     # dim = len(rel_dic[uid]['parents'])
-                    rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'parents': 1})
-                    dim = len(rel['parents'])  # TODO: Collect counts at the beginning
+                    dim = parent_sizes[uid]
                     new_evidences.setdefault(uid, [dim, []])
-                    new_evidences[uid].sequences.append(cascade_seqs[uid])
+                    new_evidences[uid][1].append(cascade_seqs[uid])
                 cascade_seqs = {}
 
                 if len(act_seq.users) > 1000:

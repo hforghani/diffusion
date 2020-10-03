@@ -94,7 +94,8 @@ class CascadeTree(object):
             self.roots = roots
             self.depth = self.__calc_depth()
 
-    def extract_cascade(self, meme_id):
+    @classmethod
+    def extract_cascade(cls, meme_id):
         t1 = time.time()
 
         # Fetch posts related to the meme and reshares.
@@ -119,7 +120,7 @@ class CascadeTree(object):
         # Create diffusion edge if a user reshares to another for the first time. Note that reshares are sorted by time.
         t1 = time.time()
         logger.debug('TREE: reshares count = %d' % reshares.count())
-        self.roots = []
+        roots = []
         for reshare in reshares:
             child_id = reshare['user_id']
             parent_id = reshare['ref_user_id']
@@ -131,7 +132,7 @@ class CascadeTree(object):
                 parent.post_id = reshare['reshared_post_id']
                 parent.datetime = reshare['ref_datetime'].strftime(DT_FORMAT) if reshare['ref_datetime'] else None
                 visited[parent_id] = True
-                self.roots.append(parent)
+                roots.append(parent)
 
             if not visited[child_id]:  # Any other node
                 child = nodes[child_id]
@@ -155,22 +156,20 @@ class CascadeTree(object):
                 post = first_posts[uid]
                 node.datetime = post['datetime'].strftime(DT_FORMAT) if post['datetime'] else None
                 node.post_id = post['_id']
-                self.roots.append(node)
+                roots.append(node)
         logger.debug('TREE: time 4 = %.2f' % (time.time() - t1))
 
-        # Calculate tree depth.
-        self.depth = self.__calc_depth()
-
-        return self
+        return cls(roots)
 
     def get_dict(self):
         return [node.get_dict() for node in self.roots]
 
-    def from_dict(self, tree_dict):
-        self.roots = []
+    @classmethod
+    def from_dict(cls, tree_dict):
+        roots = []
         for node in tree_dict:
-            self.roots.append(CascadeNode().from_dict(node))
-        return self
+            roots.append(CascadeNode().from_dict(node))
+        return cls(roots)
 
     def max_datetime(self, node=None):
         """

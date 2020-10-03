@@ -153,7 +153,6 @@ class MEMM():
             threshold = 0.5
 
         next_state = 1 if self.TPM[index][1] >= threshold else 0
-
         return next_state
 
     def __create_matrices(self, pairs, indexes, dim):
