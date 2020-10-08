@@ -15,7 +15,7 @@ logger.setLevel(settings.LOG_LEVEL)
 
 
 class Command:
-    help = 'Samples random cascades between a min and max user count and shows statistics of the cascades.'
+    help = 'Show statistics of the cascades between a min and max user count'
 
     def add_arguments(self, parser):
         parser.add_argument(

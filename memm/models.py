@@ -3,6 +3,7 @@ import math
 import multiprocessing
 import os
 import time
+import traceback
 from multiprocessing.pool import Pool
 
 from bson.objectid import ObjectId
@@ -59,42 +60,46 @@ def train_memms(evidences):
 
 
 def test_memms(children, parents_dic, observations, active_ids, memms, threshold):
-    p_name = multiprocessing.current_process().name
-    logger.debug('[%s] testing memms started', p_name)
+    try:
+        p_name = multiprocessing.current_process().name
+        logger.debug('[%s] testing memms started', p_name)
 
-    active_children = []
+        active_children = []
 
-    j = 0
-    for child_id in children:
-        if child_id not in parents_dic:
-            continue
-        parents = parents_dic[child_id]
-        # rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
-        # if rel is None:
-        #     continue
-        # parents = rel['parents']
+        j = 0
+        for child_id in children:
+            if child_id not in parents_dic:
+                continue
+            parents = parents_dic[child_id]
+            # rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
+            # if rel is None:
+            #     continue
+            # parents = rel['parents']
 
-        obs = observations[child_id]
-        # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
-        #             child_id not in active_ids, child_id in self.__memms)
+            obs = observations[child_id]
+            # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
+            #             child_id not in active_ids, child_id in self.__memms)
 
-        if child_id not in active_ids and child_id in memms:
-            memm = memms[child_id]
-            # logger.debug('predicting cascade ...')
-            new_state = memm.predict(obs, len(parents), threshold)
-            if new_state == 1:
-                active_children.append(child_id)
-                active_ids.append(child_id)
-                # logger.debug('\ta reshare predicted')
+            if child_id not in active_ids and child_id in memms:
+                memm = memms[child_id]
+                # logger.debug('predicting cascade ...')
+                new_state = memm.predict(obs, len(parents), threshold)
+                if new_state == 1:
+                    active_children.append(child_id)
+                    active_ids.append(child_id)
+                    # logger.debug('\ta reshare predicted')
 
-        j += 1
-        if j % 100 == 0:
-            logger.debugv('[%s] %d / %d of children iterated', p_name, j, len(children))
+            j += 1
+            if j % 100 == 0:
+                logger.debugv('[%s] %d / %d of children iterated', p_name, j, len(children))
 
-    del memms, children, parents_dic, observations, active_ids
+        del memms, children, parents_dic, observations, active_ids
 
-    logger.debug('[%s] testing memms finished', p_name)
-    return active_children
+        logger.debug('[%s] testing memms finished', p_name)
+        return active_children
+    except:
+        traceback.print_exc()
+        raise
 
 
 class MEMMModel():
@@ -102,9 +107,10 @@ class MEMMModel():
         self.project = project
         self.__memms = {}
 
-    def __save_evidences(self, sequences):
+    def __save_evidences(self, evidences):
         logger.info('saving MEMM evidences ...')
-        self.project.save_param(sequences, MEMM_EVID_FILE_NAME, ParamTypes.JSON)
+        evidences = {str(key): value for key, value in evidences.items()}
+        self.project.save_param(evidences, MEMM_EVID_FILE_NAME, ParamTypes.JSON)
         logger.info('done')
 
     def __load_evidences(self):
@@ -328,7 +334,7 @@ class MEMMModel():
 
     def __predict_multiproc(self, children, parent_node, parents_dic, observations, active_ids, threshold, next_step):
         # process_count = multiprocessing.cpu_count()
-        process_count = 2
+        process_count = 4
         logger.debug('starting %d processes to predict by MEMMs', process_count)
         pool = Pool(processes=process_count)
         step = int(math.ceil(len(children) / process_count))
@@ -435,7 +441,7 @@ class MEMMModel():
                         obs |= 1 << (len(parents) - index - 1)
                         observations[child_id] = obs
 
-                    if 1000 < len(children) < 200000:
+                    if 1000 < len(children) < 150000:
                         self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
                                                  next_step)
                     else:
