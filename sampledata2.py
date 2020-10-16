@@ -1,10 +1,12 @@
 import argparse
 import json
 import logging
+import random
 import time
 import traceback
 
 import settings
+from cascade.models import Project
 from settings import mongodb
 from matplotlib import pyplot
 import numpy as np
@@ -15,24 +17,31 @@ logger.setLevel(settings.LOG_LEVEL)
 
 
 class Command:
-    help = 'Show statistics of the cascades between a min and max user count'
+    help = 'Samples a subset of cascades and separate training, validation and test sets and save them into the project data'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--min',
             type=int,
             default=0,
-            help='min user count',
+            help='min number of cascade users',
         )
         parser.add_argument(
             '--max',
             type=int,
-            help='max user count',
+            help='max number of cascade users',
         )
         parser.add_argument(
-            '--out',
+            "-n",
+            "--number",
+            type=int,
+            help="number of samples consisting training, validation and test sets",
+        )
+        parser.add_argument(
+            "-p",
+            "--project",
             type=str,
-            help='file path in which we want to output the list of meme ids',
+            help="project name",
         )
 
     def __init__(self):
@@ -41,33 +50,40 @@ class Command:
     def handle(self, args):
         try:
             start = time.time()
-            memes = list(mongodb.memes.find({}, ['_id', 'count']).sort('count', -1))
-            mcounts = np.array([m['count'] for m in memes])
-            min_count, max_count = min(mcounts), max(mcounts)
-            print(f'min of all: {min_count}')
-            print(f'max of all: {max_count}')
-            range_max = args.max if args.max is not None else max_count
-            bins_num = 100
-            counts, bins = np.histogram(mcounts, bins=bins_num, range=(args.min, range_max))
-            for i in range(len(counts)):
-                print(f'{bins[i]} - {bins[i + 1]} : {counts[i]}')
-            print(f'count between {args.min} and {max_count}: {sum(counts)}')
+            query = {}
+            if args.min:
+                query['size'] = {'$gte': args.min}
+            if args.max:
+                if 'size' in query:
+                    query['size'].update({'$lte': args.max})
+                else:
+                    query['size'] = {'$lte': args.max}
+            logger.debug('query: %s', query)
+            memes = list(mongodb.memes.find(query, ['_id']))
+            memes = [m['_id'] for m in memes]
 
-            if args.out:
-                self.output_memeids(args.out, memes, args.min, range_max)
+            if len(memes) < args.number:
+                raise ValueError(
+                    f'Number of cascades between min and max size ({len(memes)}) is less than given sample number')
 
-            pyplot.bar(bins[:-1], counts, width=(range_max - args.min) / bins_num)
-            pyplot.show()
+            samples = list(np.random.choice(memes, args.number, replace=False))
+            samples = [str(_id) for _id in samples]
+            random.shuffle(samples)
+
+            val_ratio, test_ratio = 0.15, 0.15
+            val_num = round(val_ratio * args.number)
+            test_num = round(test_ratio * args.number)
+            val_set = samples[:val_num]
+            test_set = samples[val_num:val_num + test_num]
+            train_set = samples[val_num + test_num:]
+            project = Project(args.project)
+            project.save_sets(train_set, val_set, test_set)
+
             logger.info('command done in %f min' % ((time.time() - start) / 60))
+
         except:
             logger.error(traceback.format_exc())
             raise
-
-    @staticmethod
-    def output_memeids(filename, memes, min_count, max_count):
-        meme_ids = [str(meme['_id']) for meme in memes if min_count <= meme['count'] <= max_count]
-        with open(filename, 'w') as f:
-            json.dump(meme_ids, f)
 
 
 if __name__ == '__main__':

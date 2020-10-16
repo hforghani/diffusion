@@ -12,7 +12,7 @@ class FileCreator:
         self.project = project
 
         # Load training and test sets and all cascade trees.
-        self.train_memes, self.test_memes = project.load_train_test()
+        self.train_memes, self.val_memes, self.test_memes = project.load_sets()
         self.trees = project.load_trees()
         self.__follow_thr = 0.1
 

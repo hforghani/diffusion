@@ -132,7 +132,7 @@ class Command:
             test_set = meme_ids[train_num:]
 
             project = Project(project_name)
-            project.save_data(test_set, train_set)
+            project.save_sets(train_set, [], test_set)
 
             logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:

@@ -44,7 +44,7 @@ def log_trees(tree, res_tree, max_depth=None):
     logger.debugv(formatted_line.format('true tree:', 'output tree:'))
     for i in range(max_lines):
         logger.debugv(formatted_line.format(tree_render[i] if i < len(tree_render) else '',
-                                          res_tree_render[i] if i < len(res_tree_render) else ''))
+                                            res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
 def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids, users_map):
@@ -117,10 +117,10 @@ class Command:
                             choices=['mlnprac', 'mlnalch', 'memm', 'aslt', 'avg'],
                             help="the method by which we want to test")
         group = parser.add_mutually_exclusive_group()
-        group.add_argument("-t", "--threshold", type=float, dest="threshold",
+        group.add_argument("-t", "--threshold", type=float,
                            help="the threshold to apply on the method")
-        group.add_argument("-a", "--all", action='store_true', dest="all_thresholds", default=False,
-                           help="test the method for all threshold values and show the charts")
+        group.add_argument("-v", "--validation", action='store_true', default=False,
+                           help="learn the best threshold in validation stage")
         parser.add_argument("-c", "--thresh-count", type=int, dest="thresholds_count", default=10,
                             help="in the case the argument --all is given, this argument specifies the number of "
                                  "thresholds to test between min and max thresholds specified in local_settings.py")
@@ -145,12 +145,12 @@ class Command:
         if method is None:
             raise Exception('--method argument required')
 
-        if args.all_thresholds:
+        if args.validation:
             thres_min, thres_max = settings.THRESHOLDS[method]
             step = (thres_max - thres_min) / (args.thresholds_count - 1)
             thresholds = [step * i + thres_min for i in range(args.thresholds_count)]
         elif args.threshold is None:
-            raise Exception('either --all or --threshold arguments must be given')
+            raise Exception('either --validation or --threshold arguments must be given')
         else:
             thresholds = [args.threshold]
 
@@ -162,10 +162,10 @@ class Command:
         logger.info('{0} MAX DEPTH : {1} {0}'.format('=' * 20, args.max_depth))
         logger.info('{0} TESTING ON THRESHOLD(S) : {1} {0}'.format('=' * 20, thresholds))
 
-        final_prec = []
-        final_recall = []
-        final_f1 = []
-        final_fpr = []
+        precs = []
+        recs = []
+        f1s = []
+        fprs = []
 
         if method in ['aslt', 'avg']:
             # Create dictionary of user id's to their sorted index.
@@ -173,79 +173,86 @@ class Command:
             self.user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
 
-        models = self.train(method, project_names)
+        for p_name in project_names:
+            model = self.train(method, p_name)
 
-        for thr in thresholds:
-            if args.all_thresholds:
-                logger.info('{0} THRESHOLD = {1:.3f} {0}'.format('=' * 20, thr))
-            prec = []
-            recall = []
-            f1 = []
-            fpr = []
+            thr = self.validate(model, method, thresholds, args.initial_depth, args.max_depth,
+                                multi_processed)
 
-            for p_name in project_names:
-                model = models[p_name]
-                mprec, mrec, mf1, mfpr = self.test(model, method, thr, args.initial_depth, args.max_depth,
-                                                   multi_processed)
-                prec.append(mprec)
-                recall.append(mrec)
-                f1.append(mf1)
-                fpr.append(mfpr)
+            mprec, mrec, mf1, mfpr = self.test(model, method, thr, args.initial_depth, args.max_depth,
+                                               multi_processed)
 
-            if len(project_names) > 1:
-                fprec = np.mean(np.array(prec))
-                frecall = np.mean(np.array(recall))
-                ff1 = np.mean(np.array(f1))
-                ffpr = np.mean(np.array(fpr))
-            else:
-                fprec = prec[0]
-                frecall = recall[0]
-                ff1 = f1[0]
-                ffpr = fpr[0]
+            logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', mprec, mrec, mf1, mfpr)
 
-            logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', fprec, frecall, ff1, ffpr)
+            precs.append(mprec)
+            recs.append(mrec)
+            f1s.append(mf1)
+            fprs.append(mfpr)
 
-            final_prec.append(fprec)
-            final_recall.append(frecall)
-            final_f1.append(ff1)
-            final_fpr.append(ffpr)
+        if len(project_names) > 1:
+            fprec = np.mean(np.array(precs))
+            frec = np.mean(np.array(recs))
+            ff1 = np.mean(np.array(f1s))
+            ffpr = np.mean(np.array(fprs))
+        else:
+            fprec = precs[0]
+            frec = recs[0]
+            ff1 = f1s[0]
+            ffpr = fprs[0]
+
+        logger.info('Average of projects: precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', fprec, frec, ff1,
+                    ffpr)
 
         logger.info('command done in %.2f min' % ((time.time() - start) / 60))
 
-        if args.all_thresholds:
-            # Find the threshold with maximum F1.
-            best_ind = int(np.argmax(np.array(final_f1)))
-            best_f1, best_thres = final_f1[best_ind], thresholds[best_ind]
-            logger.info('F1 max = %f in threshold = %f' % (best_f1, best_thres))
+    def train(self, method, project_name):
+        project = Project(project_name)
+        # Create and train the model if needed.
+        if method == 'mlnprac':
+            model = MLN(project, method='edge', format=FileCreator.FORMAT_PRACMLN)
+        elif method == 'mlnalch':
+            model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
+        elif method == 'memm':
+            train_set, _, _ = project.load_sets()
+            model = MEMMModel(project).fit(train_set)
+        elif method == 'aslt':
+            model = Saito(project)
+        elif method == 'avg':
+            model = LTAvg(project)
+        else:
+            raise Exception('invalid method "%s"' % method)
+        return model
 
-            self.__display_charts(best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
-                                  thresholds)
+    def validate(self, model, method, thresholds, initial_depth=0, max_depth=None, multi_processed=False):
+        _, val_set, _ = model.project.load_sets()
+        precs = []
+        recs = []
+        f1s = []
+        fprs = []
 
-    def train(self, method, project_names):
-        models = {}
-        for p_name in project_names:
-            project = Project(p_name)
-            # Create and train the model if needed.
-            if method == 'mlnprac':
-                model = MLN(project, method='edge', format=FileCreator.FORMAT_PRACMLN)
-            elif method == 'mlnalch':
-                model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
-            elif method == 'memm':
-                train_set, _ = project.load_train_test()
-                model = MEMMModel(project).fit(train_set)
-            elif method == 'aslt':
-                model = Saito(project)
-            elif method == 'avg':
-                model = LTAvg(project)
-            else:
-                raise Exception('invalid method "%s"' % method)
-            models[p_name] = model
-        return models
+        for thr in thresholds:
+            if args.validation:
+                logger.info(f'{0} THRESHOLD = {1:.3f} {0}'.format('=' * 20, thr))
 
-    def test(self, model, method, threshold, initial_depth=0, max_depth=None, multi_processed=False):
+            prec, rec, f1, fpr = self.test(model, method, val_set, thr, initial_depth, max_depth, multi_processed)
+
+            precs.append(prec)
+            recs.append(rec)
+            f1s.append(f1)
+            fprs.append(fpr)
+            logger.info('precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', prec, rec, f1, fpr)
+
+        best_ind = int(np.argmax(np.array(f1s)))
+        best_f1, best_thr = f1s[best_ind], thresholds[best_ind]
+
+        logger.info(f'F1 max = {best_f1} in threshold = {best_thr}')
+
+        self.__display_charts(best_f1, best_ind, best_thr, f1s, fprs, precs, recs, thresholds)
+        return best_thr
+
+    def test(self, model, method, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False):
         # Load training and test sets and cascade trees.
         project = model.project
-        train_set, test_set = project.load_train_test()
         trees = project.load_trees()
 
         all_node_ids = project.get_all_nodes()
@@ -317,27 +324,27 @@ class Command:
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
 
-    def __display_charts(self, best_f1, best_ind, best_thres, final_f1, final_fpr, final_prec, final_recall,
-                         thresholds):
+    @staticmethod
+    def __display_charts(best_f1, best_ind, best_thres, f1s, fprs, precs, recs, thresholds):
         pyplot.figure(1)
         pyplot.subplot(221)
-        pyplot.plot(thresholds, final_prec)
+        pyplot.plot(thresholds, precs)
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
-        pyplot.scatter([best_thres], [final_prec[best_ind]], c='r', marker='o')
+        pyplot.scatter([best_thres], [precs[best_ind]], c='r', marker='o')
         pyplot.title('precision')
         pyplot.subplot(222)
-        pyplot.plot(thresholds, final_recall)
-        pyplot.scatter([best_thres], [final_recall[best_ind]], c='r', marker='o')
+        pyplot.plot(thresholds, recs)
+        pyplot.scatter([best_thres], [recs[best_ind]], c='r', marker='o')
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.title('recall')
         pyplot.subplot(223)
-        pyplot.plot(thresholds, final_f1)
+        pyplot.plot(thresholds, f1s)
         pyplot.scatter([best_thres], [best_f1], c='r', marker='o')
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.title('F1')
         pyplot.subplot(224)
-        pyplot.plot(final_fpr, final_recall)
-        pyplot.scatter([final_fpr[best_ind]], [final_recall[best_ind]], c='r', marker='o')
+        pyplot.plot(fprs, recs)
+        pyplot.scatter([fprs[best_ind]], [recs[best_ind]], c='r', marker='o')
         pyplot.title('ROC curve')
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.show()

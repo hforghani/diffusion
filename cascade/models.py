@@ -412,7 +412,7 @@ class AsLT(object):
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
-                         #logger.debug('a reshare predicted')
+                        # logger.debug('a reshare predicted')
             cur_step = sorted(next_step, key=lambda n: n.datetime)
             logger.debug('step %d done, time = %.2f s' % (step, time.time() - t0))
 
@@ -539,30 +539,33 @@ class Project(object):
         if not os.path.exists(self.project_path):
             os.mkdir(self.project_path)
         self.training = None
+        self.validation = None
         self.test = None
         self.trees = None
 
-    def save_data(self, test_set, train_set):
+    def save_sets(self, train_set, val_set, test_set):
         # Dump the json into the file.
         self.training = list(train_set)
+        self.validation = list(val_set)
         self.test = list(test_set)
-        data = {'training': train_set, 'test': test_set}
+        data = {'training': train_set, 'validation': val_set, 'test': test_set}
         if not os.path.exists(self.project_path):
             os.mkdir(self.project_path)
         sample_path = os.path.join(self.project_path, 'samples.json')
         json.dump(data, open(sample_path, 'w'), indent=4)
 
-    def load_train_test(self):
+    def load_sets(self):
         sample_set_path = os.path.join(self.project_path, 'samples.json')
         if os.path.exists(sample_set_path):
             data = json.load(open(sample_set_path))
-            train_memes, test_memes = data['training'], data['test']
+            train_memes, val_memes, test_memes = data['training'], data['validation'], data['test']
             self.training = [ObjectId(_id) for _id in train_memes]
+            self.validation = [ObjectId(_id) for _id in val_memes]
             self.test = [ObjectId(_id) for _id in test_memes]
         else:
             raise Exception('Data sample not found. Run sampledata command.')
 
-        return self.training, self.test
+        return self.training, self.validation, self.test
 
     def load_trees(self):
         """
@@ -596,7 +599,7 @@ class Project(object):
                 logger.info('trees not found. extracting ...')
                 trees = {}
                 i = 0
-                all_memes = self.training + self.test
+                all_memes = self.training + self.validation + self.test
                 count = len(all_memes)
                 for meme_id in all_memes:
                     tree = CascadeTree().extract_cascade(meme_id)
@@ -617,7 +620,7 @@ class Project(object):
         :return:
         """
         graph_fname = 'graph'
-        train_set, test_set = self.load_train_test()
+        train_set, _, _ = self.load_sets()
 
         try:
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
@@ -637,7 +640,7 @@ class Project(object):
         :return:
         """
         seq_fname = 'sequences'
-        train_set, test_set = self.load_train_test()
+        train_set, _, _ = self.load_sets()
 
         try:
             seq_copy = self.load_param(seq_fname, ParamTypes.JSON)
@@ -662,7 +665,7 @@ class Project(object):
         graph_fname = 'graph'
         seq_fname = 'sequences'
 
-        train_set, test_set = self.load_train_test()
+        train_set, _, _ = self.load_sets()
         post_ids = None
 
         try:

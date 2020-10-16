@@ -21,14 +21,14 @@ class Saito(AsLT):
     def calc_parameters(self, iterations=3):
         # Load dataset.
         logger.info('extracting data ...')
-        meme_ids, _ = self.project.load_train_test()
+        train_set, _, _ = self.project.load_sets()
         graph, sequences = self.project.load_or_extract_graph_seq()
 
         # Create maps from users and memes db id's to their matrix id's.
         logger.info('creating user and meme id maps ...')
         user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
         user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
-        meme_map = {str(meme_ids[i]): i for i in range(len(meme_ids))}
+        meme_map = {str(train_set[i]): i for i in range(len(train_set))}
 
         # Set initial values of w and r.
         try:
@@ -52,7 +52,7 @@ class Saito(AsLT):
                 logger.info('h loaded')
             except:
                 logger.info('calculating h ...')
-                h = self.calc_h(sequences, graph, w, r, meme_ids, meme_map, user_map)
+                h = self.calc_h(sequences, graph, w, r, train_set, meme_map, user_map)
                 self.project.save_param(h, 'h', ParamTypes.SPARSE)
 
             try:
@@ -60,14 +60,14 @@ class Saito(AsLT):
                 logger.info('g loaded')
             except:
                 logger.info('calculating g ...')
-                g = self.calc_g(sequences, graph, w, r, meme_ids, meme_map, user_map)
+                g = self.calc_g(sequences, graph, w, r, train_set, meme_map, user_map)
                 self.project.save_param(g, 'g', ParamTypes.SPARSE)
 
             try:
                 self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
             except:
                 logger.info('calculating phi_h ...')
-                phi_h = self.calc_phi_h(sequences, graph, w, r, h, meme_ids, meme_map, user_map)
+                phi_h = self.calc_phi_h(sequences, graph, w, r, h, train_set, meme_map, user_map)
                 self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
                 del phi_h
 
@@ -75,7 +75,7 @@ class Saito(AsLT):
                 self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
             except:
                 logger.info('calculating phi_g ...')
-                phi_g = self.calc_phi_g(sequences, graph, w, g, meme_ids, meme_map, user_map)
+                phi_g = self.calc_phi_g(sequences, graph, w, g, train_set, meme_map, user_map)
                 self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
                 del phi_g
 
@@ -84,7 +84,7 @@ class Saito(AsLT):
                 logger.info('psi loaded')
             except:
                 logger.info('calculating psi ...')
-                psi = self.calc_psi(sequences, graph, w, r, g, meme_ids, meme_map, user_map)
+                psi = self.calc_psi(sequences, graph, w, r, g, train_set, meme_map, user_map)
                 self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
 
             del h
@@ -94,14 +94,14 @@ class Saito(AsLT):
 
             logger.info('estimating r ...')
             last_r = r
-            r = self.calc_r(sequences, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map)
+            r = self.calc_r(sequences, graph, phi_h, psi, user_ids, train_set, meme_map, user_map)
 
             phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
             logger.info('phi_g loaded')
 
             logger.info('estimating w ...')
             last_w = w
-            w = self.calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, meme_ids, meme_map)
+            w = self.calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, meme_map)
 
             del phi_h
             del phi_g

@@ -17,7 +17,7 @@ class LTAvg(AsLT):
             pass
 
     def fit(self, calc_weights=True, calc_delays=True, continue_calc=False):
-        train_set, test_set = self.project.load_train_test()
+        train_set, _, _ = self.project.load_sets()
 
         logger.info('querying posts of the memes ...')
         posts_ids = [pm['post_id'] for pm in

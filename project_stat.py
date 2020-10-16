@@ -30,6 +30,7 @@ class Command:
         try:
             start = time.time()
             project = Project(args.project)
+            project.load_sets()
             trees = project.load_trees()
             print(f'{"meme id":30}{"size":10}{"depth":10}')
             for meme_id in trees:

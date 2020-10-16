@@ -63,10 +63,8 @@ if __name__ == '__main__':
     project = Project('weibo-size7')
     graph = Neo4jGraph('User')
 
-    train_set, test_set = project.load_train_test()
-    samples = []
-    samples.extend(train_set)
-    samples.extend(test_set)
+    train_set, val_set, test_set = project.load_sets()
+    samples = train_set + val_set + test_set
 
     for cid in samples:
         logger.info('loading MEMM evidences for cascade %s ...', cid)

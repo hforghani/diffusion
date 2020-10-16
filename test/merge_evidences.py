@@ -15,7 +15,7 @@ if __name__ == '__main__':
     project = Project(args.project)
     graph = Neo4jGraph('User')
 
-    train_set, test_set = project.load_train_test()
+    train_set, _, _ = project.load_sets()
     tsets = {}
 
     for cid in train_set:
