@@ -14,6 +14,7 @@ from pymongo.errors import CursorNotFound
 import settings
 from settings import logger, mongodb
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
+from utils.os_utils import mkdir_rec
 from utils.time_utils import str_to_datetime, DT_FORMAT
 
 
@@ -838,6 +839,8 @@ class Project(object):
 
     def save_param(self, param, name, type):
         path = os.path.join(self.project_path, '%s.%s' % (name, self.SUFFIXES[type]))
+        mkdir_rec(os.path.dirname(path))
+
         if type == ParamTypes.JSON:
             json.dump(param, open(path, 'w'), indent=1)
         elif type == ParamTypes.ARRAY:

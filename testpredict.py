@@ -232,7 +232,7 @@ class Command:
 
         for thr in thresholds:
             if args.validation:
-                logger.info(f'{0} THRESHOLD = {1:.3f} {0}'.format('=' * 20, thr))
+                logger.info('{0} THRESHOLD = {1:.3f} {0}'.format('=' * 20, thr))
 
             prec, rec, f1, fpr = self.test(model, method, val_set, thr, initial_depth, max_depth, multi_processed)
 
@@ -276,7 +276,7 @@ class Command:
         mean_fpr = np.array(fprs).mean()
         mean_f1 = np.array(f1s).mean()
 
-        logger.info('project %s: mean precision = %.3f, mean recall = %.3f, f1 = %.3f' % (
+        logger.info('{project %s} averages: precision = %.3f, recall = %.3f, f1 = %.3f' % (
             project.project_name, mean_prec, mean_rec, mean_f1))
 
         if method in ['aslt', 'avg']:
