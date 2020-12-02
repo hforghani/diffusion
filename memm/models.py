@@ -2,6 +2,7 @@ import json
 import math
 import multiprocessing
 import os
+import random
 import time
 import traceback
 from multiprocessing.pool import Pool
@@ -248,6 +249,8 @@ class MEMMModel():
                 big_userids.append(uid)
             else:
                 notbig_userids.append(uid)
+        # Shuffle not-big user ids' list to balance the process memory sizes.
+        random.shuffle(notbig_userids)
         return big_userids, notbig_userids
 
     def __fit_multiproc(self, evidences):
@@ -255,8 +258,9 @@ class MEMMModel():
         Side effect: Clears the evidences dictionary.
         """
         user_ids = list(evidences.keys())
-        process_count = multiprocessing.cpu_count()
-        # process_count = 8
+        random.shuffle(user_ids)
+        # process_count = multiprocessing.cpu_count()
+        process_count = min(8, multiprocessing.cpu_count())
         logger.debug('starting %d processes to train MEMMs', process_count)
         pool = Pool(processes=process_count)
         step = int(math.ceil(len(evidences) / process_count))
@@ -328,8 +332,7 @@ class MEMMModel():
         for uid in big_user_ids:
             self.__memms[uid] = memms.pop(uid)  # to free RAM
 
-        logger.info("====== MEMM model training time: %.2f m", (time.time() - t0) / 60.0)
-
+        logger.info('training MEMMs finished')
         return self
 
     def __predict_multiproc(self, children, parent_node, parents_dic, observations, active_ids, threshold, next_step):
@@ -378,8 +381,6 @@ class MEMMModel():
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()
-
-        t0 = time.time()
 
         # Find initially activated nodes.
         cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
@@ -459,8 +460,6 @@ class MEMMModel():
 
             cur_step = next_step
             step_num += 1
-
-        logger.debug('time1 = %.2f' % (time.time() - t0))
 
         return tree
 

@@ -17,6 +17,7 @@ from mln.models import MLN
 from mln.file_generators import FileCreator
 import settings
 from settings import logger, mongodb
+from utils.time_utils import time_measure, Timer
 
 
 def evaluate(initial_tree, res_tree, tree, all_nodes, max_depth=None):
@@ -58,24 +59,28 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
         max_step = max_depth - initial_depth if max_depth is not None else None
 
         for meme_id in meme_ids:
-            tree = trees[meme_id]
+            with Timer('getting tree'):
+                tree = trees[meme_id]
 
             # Copy roots in a new tree.
-            initial_tree = tree.copy(initial_depth)
+            with Timer('copying tree'):
+                initial_tree = tree.copy(initial_depth)
 
             # Predict remaining nodes.
-            logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
-            # TODO: apply max_depth for all methods.
-            if method in ['mlnprac', 'mlnalch']:
-                res_tree = model.predict(meme_id, initial_tree, threshold=threshold)
-            elif method in ['aslt', 'avg']:
-                res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, user_ids=user_ids,
-                                         users_map=users_map)
-            else:
-                res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step)
+            with Timer('prediction'):
+                logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
+                # TODO: apply max_depth for all methods.
+                if method in ['mlnprac', 'mlnalch']:
+                    res_tree = model.predict(meme_id, initial_tree, threshold=threshold)
+                elif method in ['aslt', 'avg']:
+                    res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, user_ids=user_ids,
+                                             users_map=users_map)
+                else:
+                    res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step)
 
             # Evaluate the results.
-            meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)
+            with Timer('evaluating results'):
+                meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)
 
             if method in ['aslt', 'avg']:
                 prp = meas.prp(model.probabilities)
@@ -84,21 +89,23 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
                 prp1_list.append(prp1)
                 prp2_list.append(prp2)
 
-            prec = meas.precision()
-            rec = meas.recall()
-            fpr = meas.fpr()
-            f1 = meas.f1()
-            precisions.append(prec)
-            recalls.append(rec)
-            fprs.append(fpr)
-            f1s.append(f1)
+            with Timer('reporting results'):
+                prec = meas.precision()
+                rec = meas.recall()
+                fpr = meas.fpr()
+                f1 = meas.f1()
+                precisions.append(prec)
+                recalls.append(rec)
+                fprs.append(fpr)
+                f1s.append(f1)
 
-            log = 'meme %s: %d outputs, %d true, precision = %.3f, recall = %.3f, , f1 = %.3f' % (
-                meme_id, len(res_output), len(true_output), prec, rec, f1)
-            if method in ['aslt', 'avg']:
-                log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-            logger.info(log)
-            log_trees(tree, res_tree, max_depth)
+                log = 'meme %s: %d outputs, %d true, precision = %.3f, recall = %.3f, , f1 = %.3f' % (
+                    meme_id, len(res_output), len(true_output), prec, rec, f1)
+                if method in ['aslt', 'avg']:
+                    log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
+                logger.info(log)
+                # Notice: This line takes too much execution time:
+                # log_trees(tree, res_tree, max_depth)
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
 
@@ -205,6 +212,7 @@ class Command:
 
         logger.info('command done in %.2f min' % ((time.time() - start) / 60))
 
+    @time_measure(unit='m')
     def train(self, method, project_name):
         project = Project(project_name)
         # Create and train the model if needed.
@@ -223,6 +231,7 @@ class Command:
             raise Exception('invalid method "%s"' % method)
         return model
 
+    @time_measure(unit='m')
     def validate(self, model, method, thresholds, initial_depth=0, max_depth=None, multi_processed=False):
         _, val_set, _ = model.project.load_sets()
         precs = []
@@ -250,6 +259,7 @@ class Command:
         self.__display_charts(best_f1, best_ind, best_thr, f1s, fprs, precs, recs, thresholds)
         return best_thr
 
+    @time_measure(unit='m')
     def test(self, model, method, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False):
         # Load training and test sets and cascade trees.
         project = model.project
@@ -258,7 +268,7 @@ class Command:
         all_node_ids = project.get_all_nodes()
         # all_node_ids = self.user_ids
 
-        logger.info('test set size = %d' % len(test_set))
+        logger.info('number of memes : %d' % len(test_set))
 
         if multi_processed:
             precisions, recalls, f1s, fprs, prp1_list, prp2_list = self.__test_multi_processed(test_set, method, model,
