@@ -58,6 +58,7 @@ class Timer:
         self.name = name
         self.level = level
         self.unit = unit
+        self.sum = 0
 
     def __enter__(self):
         self.start = time.time()
@@ -65,5 +66,11 @@ class Timer:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         t = time.time() - self.start
+        self.sum += t
         time_expr = time_report(t, self.unit)
         logger.log(levels[self.level], f'the code "{self.name}" executed in {time_expr}')
+
+    def report_sum(self):
+        time_expr = time_report(self.sum, self.unit)
+        logger.log(levels[self.level], f'sum of execution time of "{self.name}" = {time_expr}')
+

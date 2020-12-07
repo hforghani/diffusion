@@ -15,6 +15,7 @@ from memm.memm import MEMM, MemmException, times
 # from neo4j.models import Neo4jGraph
 import numpy as np
 from settings import logger, BASEPATH, mongodb
+from utils.time_utils import Timer
 
 MEMM_EVID_FILE_NAME = 'memm/evidence'
 
@@ -377,7 +378,11 @@ class MEMMModel():
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return:         Predicted tree
         """
-        # ptimes = [0] * 4
+        ch_timer = Timer('get children')
+        p_timer = Timer('get parents')
+        obs_timer = Timer('observations')
+        m_timer = Timer('MEMM predict')
+
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()
@@ -397,9 +402,10 @@ class MEMMModel():
 
             next_step = []
 
-            relations = mongodb.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}},
-                                               {'_id': 0, 'user_id': 1, 'children': 1})
-            children_dic = {rel['user_id']: rel['children'] for rel in relations}
+            with ch_timer:
+                relations = mongodb.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}},
+                                                   {'_id': 0, 'user_id': 1, 'children': 1})
+                children_dic = {rel['user_id']: rel['children'] for rel in relations}
 
             i = 0
             for node in cur_step:
@@ -427,39 +433,42 @@ class MEMMModel():
                             logger.debugv('%d / %d of children iterated', j, len(inact_children))
 
                 elif threshold < 1:
-                    # t = time.time()
-                    relations = mongodb.relations.find({'user_id': {'$in': children}},
-                                                       {'_id': 0, 'user_id': 1, 'parents': 1})
-                    parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
-                    # ptimes[0] += time.time() - t
+                    with p_timer:
+                        relations = mongodb.relations.find({'user_id': {'$in': children}},
+                                                           {'_id': 0, 'user_id': 1, 'parents': 1})
+                        parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
 
-                    for child_id in children:
-                        obs = observations.setdefault(child_id, 0)
-                        if child_id not in parents_dic:
-                            continue
-                        parents = parents_dic[child_id]
-                        index = parents.index(node_id)
-                        obs |= 1 << (len(parents) - index - 1)
-                        observations[child_id] = obs
+                    with obs_timer:
+                        for child_id in children:
+                            obs = observations.setdefault(child_id, 0)
+                            if child_id not in parents_dic:
+                                continue
+                            parents = parents_dic[child_id]
+                            index = parents.index(node_id)
+                            obs |= 1 << (len(parents) - index - 1)
+                            observations[child_id] = obs
 
-                    if 1000 < len(children) < 150000:
-                        self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
-                                                 next_step)
-                    else:
-                        memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
-                        act_children = test_memms(children, parents_dic, observations, active_ids, memms_i, threshold)
-                        for child_id in act_children:
-                            child = CascadeNode(child_id)
-                            node.children.append(child)
-                            next_step.append(child)
-                            active_ids.append(child_id)
+                    with m_timer:
+                        if 1000 < len(children) < 150000:
+                            self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
+                                                     next_step)
+                        else:
+                            memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
+                            act_children = test_memms(children, parents_dic, observations, active_ids, memms_i, threshold)
+                            for child_id in act_children:
+                                child = CascadeNode(child_id)
+                                node.children.append(child)
+                                next_step.append(child)
+                                active_ids.append(child_id)
 
                 i += 1
                 logger.debug('%d / %d nodes of current step done', i, len(cur_step))
-                # logger.debug('times: %s', [int(t) for t in ptimes[:4]])
 
             cur_step = next_step
             step_num += 1
+
+        for timer in [ch_timer, p_timer, obs_timer, m_timer]:
+            timer.report_sum()
 
         return tree
 
