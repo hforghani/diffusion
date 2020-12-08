@@ -449,17 +449,17 @@ class MEMMModel():
                             observations[child_id] = obs
 
                     with m_timer:
-                        if 1000 < len(children) < 150000:
-                            self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
-                                                     next_step)
-                        else:
-                            memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
-                            act_children = test_memms(children, parents_dic, observations, active_ids, memms_i, threshold)
-                            for child_id in act_children:
-                                child = CascadeNode(child_id)
-                                node.children.append(child)
-                                next_step.append(child)
-                                active_ids.append(child_id)
+                        # if 1000 < len(children) < 150000:
+                        #     self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
+                        #                              next_step)
+                        # else:
+                        memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
+                        act_children = test_memms(children, parents_dic, observations, active_ids, memms_i, threshold)
+                        for child_id in act_children:
+                            child = CascadeNode(child_id)
+                            node.children.append(child)
+                            next_step.append(child)
+                            active_ids.append(child_id)
 
                 i += 1
                 logger.debug('%d / %d nodes of current step done', i, len(cur_step))
