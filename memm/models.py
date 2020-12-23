@@ -449,7 +449,7 @@ class MEMMModel():
                             observations[child_id] = obs
 
                     with m_timer:
-                        if 1000 < len(children) < 150000:
+                        if 1000 < len(children):
                             self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
                                                      next_step)
                         else:

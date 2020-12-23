@@ -57,6 +57,7 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
         fprs = []
         f1s = []
         max_step = max_depth - initial_depth if max_depth is not None else None
+        count = 1
 
         for meme_id in meme_ids:
             with Timer('getting tree'):
@@ -67,7 +68,7 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
                 initial_tree = tree.copy(initial_depth)
 
             # Predict remaining nodes.
-            with Timer('prediction'):
+            with Timer('prediction', unit='m'):
                 logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
                 # TODO: apply max_depth for all methods.
                 if method in ['mlnprac', 'mlnalch']:
@@ -99,13 +100,14 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
                 fprs.append(fpr)
                 f1s.append(f1)
 
-                log = 'meme %s: %d outputs, %d true, precision = %.3f, recall = %.3f, , f1 = %.3f' % (
-                    meme_id, len(res_output), len(true_output), prec, rec, f1)
+                log = f'meme {meme_id} ({count}/{len(meme_ids)}): {len(res_output)} outputs, ' \
+                      f'{len(true_output)} true, precision = {prec:.3f}, recall = {rec:.3f}, f1 = {f1:.3f}'
                 if method in ['aslt', 'avg']:
                     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                 logger.info(log)
                 # Notice: This line takes too much execution time:
                 # log_trees(tree, res_tree, max_depth)
+                count += 1
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
 
