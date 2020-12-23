@@ -337,6 +337,9 @@ class MEMMModel():
         return self
 
     def __predict_multiproc(self, children, parent_node, parents_dic, observations, active_ids, threshold, next_step):
+        children_copy = children.copy()
+        random.shuffle(children_copy)
+
         process_count = multiprocessing.cpu_count() - 1
         # process_count = 4
         logger.debug('starting %d processes to predict by MEMMs', process_count)
