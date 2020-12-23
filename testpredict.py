@@ -68,7 +68,7 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
                 initial_tree = tree.copy(initial_depth)
 
             # Predict remaining nodes.
-            with Timer('prediction', unit='m'):
+            with Timer('prediction'):
                 logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
                 # TODO: apply max_depth for all methods.
                 if method in ['mlnprac', 'mlnalch']:
@@ -214,7 +214,7 @@ class Command:
 
         logger.info('command done in %.2f min' % ((time.time() - start) / 60))
 
-    @time_measure(unit='m')
+    @time_measure()
     def train(self, method, project_name):
         project = Project(project_name)
         # Create and train the model if needed.
@@ -233,7 +233,7 @@ class Command:
             raise Exception('invalid method "%s"' % method)
         return model
 
-    @time_measure(unit='m')
+    @time_measure()
     def validate(self, model, method, thresholds, initial_depth=0, max_depth=None, multi_processed=False):
         _, val_set, _ = model.project.load_sets()
         precs = []
@@ -261,7 +261,7 @@ class Command:
         self.__display_charts(best_f1, best_ind, best_thr, f1s, fprs, precs, recs, thresholds)
         return best_thr
 
-    @time_measure(unit='m')
+    @time_measure()
     def test(self, model, method, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False):
         # Load training and test sets and cascade trees.
         project = model.project
