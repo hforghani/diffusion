@@ -13,12 +13,9 @@ if __name__ == '__main__':
     logger.info('loading evidences ...')
     evidences = project.load_param(MEMM_EVID_FILE_NAME, ParamTypes.JSON)
     logger.info('preparing documents ...')
-    new_evidences = []
-    for uid, value in evidences.items():
-        sequences = [[[bin(obs_state[0]), obs_state[1]] for obs_state in seq] for seq in value[1]]
-        doc = {'user_id': uid,
-               'dimension': value[0],
-               'evidences': sequences}
-        new_evidences.append(doc)
+    evidences = [{'user_id': uid,
+                  'dimension': value[0],
+                  'evidences': [[[str(obs_state[0]), obs_state[1]] for obs_state in seq] for seq in value[1]]}
+                 for uid, value in evidences.items()]
     logger.info('inserting documents ...')
     mongodb.memm_evid.insert_many(evidences)
