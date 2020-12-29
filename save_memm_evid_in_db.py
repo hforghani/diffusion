@@ -1,8 +1,8 @@
 import argparse
 
-from ..cascade.models import Project, ParamTypes
-from .models import MEMM_EVID_FILE_NAME
-from ..settings import mongodb, logger
+from cascade.models import Project, ParamTypes
+from memm.models import MEMM_EVID_FILE_NAME
+from settings import mongodb, logger
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Insert MEMM evidences of a project into DB')
