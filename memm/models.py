@@ -414,7 +414,7 @@ class MEMMModel:
                             self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
                                                          threshold, next_step)
                         elif len(children) > 1000:
-                            self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
+                            self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids, threshold,
                                                      next_step)
                         else:
                             memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}

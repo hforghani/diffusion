@@ -8,16 +8,17 @@ class EvidenceManager:
     def get(user_id):
         if not isinstance(user_id, ObjectId):
             user_id = ObjectId(user_id)
-        res = mongodb.memm_evid.find({'user_id': user_id})
-        evidences = {
-            str(doc['user_id']):
+        doc = mongodb.memm_evid.find_one({'user_id': user_id})
+        if doc is None:
+            return None
+        else:
+            doc = doc[0]
+            evidences = [
+                doc['dimension'],
                 [
-                    doc['dimension'],
                     [
-                        [
-                            [int(obs_state[0]), obs_state[1]] for obs_state in seq
-                        ] for seq in doc['evidences']
-                    ]
-                ] for doc in res
-        }
-        return evidences
+                        [int(obs_state[0]), obs_state[1]] for obs_state in seq
+                    ] for seq in doc['evidences']
+                ]
+            ]
+            return evidences
