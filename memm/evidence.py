@@ -12,7 +12,6 @@ class EvidenceManager:
         if doc is None:
             return None
         else:
-            doc = doc[0]
             evidences = [
                 doc['dimension'],
                 [
