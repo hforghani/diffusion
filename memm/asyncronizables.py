@@ -1,0 +1,122 @@
+import multiprocessing
+import traceback
+
+from memm.memm import MEMM, MemmException
+from settings import logger
+
+
+def train_memms(evidences):
+    user_ids = list(evidences.keys())
+    p_name = multiprocessing.current_process().name
+    logger.debugv('[%s] training memms started', p_name)
+    memms = {}
+    count = 0
+    for uid in user_ids:
+        count += 1
+        ev = evidences.pop(uid)  # to free RAM
+        #    logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev[0])
+        m = MEMM()
+        try:
+            m.fit(ev)
+            memms[uid] = m
+        except MemmException:
+            logger.warn('evidences for user %s ignored due to insufficient data', uid)
+        if count % 1000 == 0:
+            logger.debug('[%s] %d memms trained', p_name, count)
+
+    logger.debugv('[%s] training memms finished', p_name)
+    return memms
+
+
+def test_memms(children, parents_dic, observations, active_ids, memms, threshold):
+    try:
+        p_name = multiprocessing.current_process().name
+        logger.debug('[%s] testing memms started', p_name)
+
+        active_children = []
+
+        j = 0
+        for child_id in children:
+            if child_id not in parents_dic:
+                continue
+            parents = parents_dic[child_id]
+            # rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
+            # if rel is None:
+            #     continue
+            # parents = rel['parents']
+
+            obs = observations[child_id]
+            # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
+            #             child_id not in active_ids, child_id in self.__memms)
+
+            if child_id not in active_ids and child_id in memms:
+                memm = memms[child_id]
+                # logger.debug('predicting cascade ...')
+                new_state = memm.predict(obs, len(parents), threshold)
+                if new_state == 1:
+                    active_children.append(child_id)
+                    active_ids.append(child_id)
+                    # logger.debug('\ta reshare predicted')
+
+            j += 1
+            if j % 100 == 0:
+                logger.debugv('[%s] %d / %d of children iterated', p_name, j, len(children))
+
+        del memms, children, parents_dic, observations, active_ids
+
+        logger.debug('[%s] testing memms finished', p_name)
+        return active_children
+    except:
+        traceback.print_exc()
+        raise
+
+
+def test_memms_eco(children, parents_dic, observations, active_ids, threshold):
+    """
+    Economical version of test_memms. Consumes less RAM by training MEMMS in-place.
+    :param children:        list of child user id's
+    :param parents_dic:     dictionary of user id's to their parent id's
+    :param observations:    dictionary of user id's to their observation vectors (int)
+    :param active_ids:      list of current active user id's
+    :param threshold:       model threshold
+    :return:                newly active user id's
+    """
+    try:
+        p_name = multiprocessing.current_process().name
+        logger.debug('[%s] testing memms started', p_name)
+
+        active_children = []
+
+        j = 0
+        for child_id in children:
+            if child_id not in parents_dic:
+                continue
+            parents = parents_dic[child_id]
+            obs = observations[child_id]
+
+            if child_id not in active_ids:
+                memm = MEMM()
+                try:
+                    # TODO: Get evidences.
+                    memm.fit(ev)
+                    # logger.debug('predicting cascade ...')
+                    new_state = memm.predict(obs, len(parents), threshold)
+                    del memm
+                    if new_state == 1:
+                        active_children.append(child_id)
+                        active_ids.append(child_id)
+                        # logger.debug('\ta reshare predicted')
+                except MemmException:
+                    logger.warn('evidences for user %s ignored due to insufficient data', child_id)
+
+            j += 1
+            if j % 100 == 0:
+                logger.debugv('[%s] %d / %d of children iterated', p_name, j, len(children))
+
+        del children, parents_dic, observations, active_ids
+
+        logger.debug('[%s] testing memms finished', p_name)
+        return active_children
+    except:
+        traceback.print_exc()
+        raise

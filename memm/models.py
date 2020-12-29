@@ -11,7 +11,8 @@ from bson.objectid import ObjectId
 from pympler.asizeof import asizeof
 
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
-from memm.memm import MEMM, MemmException, times
+from memm.asyncronizables import train_memms, test_memms, test_memms_eco
+from memm.memm import MEMM
 # from neo4j.models import Neo4jGraph
 import numpy as np
 from settings import logger, BASEPATH, mongodb
@@ -23,88 +24,7 @@ MEMM_EVID_FILE_NAME = 'memm/evidence'
 # MEMM_EVID_FILE_NAME = 'memm/evidence-5d88f41e86887707d4526076'
 
 
-def train_memms(evidences):
-    user_ids = list(evidences.keys())
-    p_name = multiprocessing.current_process().name
-    logger.debugv('[%s] training memms started', p_name)
-    memms = {}
-    count = 0
-    for uid in user_ids:
-        count += 1
-        ev = evidences.pop(uid)  # to free RAM
-        #    logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev[0])
-        m = MEMM()
-        try:
-            m.fit(ev)
-            memms[uid] = m
-        except MemmException:
-            logger.warn('evidences for user %s ignored due to insufficient data', uid)
-        if count % 1000 == 0:
-            logger.debug('[%s] %d memms trained', p_name, count)
-            # logger.debug('\n{:25}{}\n'.format('piece of code', 'time (s)') +
-            #              '{:25}{:.0f}\n'.format('all', times[0]) +
-            #              '{:25}{:.0f}\n'.format('__decrease_dim', times[1]) +
-            #              '{:25}{:.0f}\n'.format('> has_nonzero', times[6]) +
-            #              '{:25}{:.0f}\n'.format('> orig_indexes', times[7]) +
-            #              '{:25}{:.0f}\n'.format('> new_sequences', times[8]) +
-            #              '{:25}{:.0f}\n'.format('all_obs_arr', times[2]) +
-            #              '{:25}{:.0f}\n'.format('__get_related_pairs', times[3]) +
-            #              '{:25}{:.0f}\n'.format('__create_matrices', times[13]) +
-            #              '{:25}{:.0f}\n'.format('__calc_features', times[4]) +
-            #              '{:25}{:.0f}\n'.format('iteration', times[5]) +
-            #              '{:25}{:.0f}\n'.format('> __build_tpm', times[9]) +
-            #              '{:25}{:.0f}\n'.format('> __build_expectation', times[10]) +
-            #              '{:25}{:.0f}\n'.format('> __build_next_lambda', times[11]) +
-            #              '{:25}{:.0f}\n'.format('> count_nonzero', times[12]))
-
-    logger.debugv('[%s] training memms finished', p_name)
-    return memms
-
-
-def test_memms(children, parents_dic, observations, active_ids, memms, threshold):
-    try:
-        p_name = multiprocessing.current_process().name
-        logger.debug('[%s] testing memms started', p_name)
-
-        active_children = []
-
-        j = 0
-        for child_id in children:
-            if child_id not in parents_dic:
-                continue
-            parents = parents_dic[child_id]
-            # rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
-            # if rel is None:
-            #     continue
-            # parents = rel['parents']
-
-            obs = observations[child_id]
-            # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
-            #             child_id not in active_ids, child_id in self.__memms)
-
-            if child_id not in active_ids and child_id in memms:
-                memm = memms[child_id]
-                # logger.debug('predicting cascade ...')
-                new_state = memm.predict(obs, len(parents), threshold)
-                if new_state == 1:
-                    active_children.append(child_id)
-                    active_ids.append(child_id)
-                    # logger.debug('\ta reshare predicted')
-
-            j += 1
-            if j % 100 == 0:
-                logger.debugv('[%s] %d / %d of children iterated', p_name, j, len(children))
-
-        del memms, children, parents_dic, observations, active_ids
-
-        logger.debug('[%s] testing memms finished', p_name)
-        return active_children
-    except:
-        traceback.print_exc()
-        raise
-
-
-class MEMMModel():
+class MEMMModel:
     def __init__(self, project):
         self.project = project
         self.__memms = {}
@@ -154,7 +74,7 @@ class MEMMModel():
             count = 0
             new_evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances which are not saved yet.
             cascade_seqs = {}  # dictionary of user id's to the sequences of ObsPair instances for this current cascade
-            parent_sizes = {} # dictionary of user id's to number of their parents
+            parent_sizes = {}  # dictionary of user id's to number of their parents
 
             logger.info('extracting sequences from %d cascades ...', len(train_set))
 
@@ -296,8 +216,6 @@ class MEMMModel():
         :param train_set:   cascade id's in training set
         :return:            self
         """
-        t0 = time.time()
-
         # Divide evidences into some parts. Each time load a part from evidences and train the
         # corresponding MEMMS to avoid high RAM consumption.
         evidences = self.__prepare_evidences(train_set)
@@ -358,6 +276,46 @@ class MEMMModel():
             # Train a MEMM for each user.
             res = pool.apply_async(test_memms,
                                    (children_i, parents_dic_i, observations_i, active_ids, memms_i, threshold))
+            results.append(res)
+
+        del parents_dic  # to free RAM
+        pool.close()
+        pool.join()
+
+        # Collect results of the processes.
+        logger.debug('assembling multi-processed results of MEMM predictions ...')
+        for res in results:
+            act_children = res.get()
+            for child_id in act_children:
+                child = CascadeNode(child_id)
+                parent_node.children.append(child)
+                next_step.append(child)
+                active_ids.append(child_id)
+
+        logger.debug('assembling done')
+
+    def __predict_multiproc_eco(self, children, parent_node, parents_dic, observations, active_ids, threshold,
+                                next_step):
+        children_copy = children.copy()
+        random.shuffle(children_copy)
+
+        process_count = multiprocessing.cpu_count() - 1
+        # process_count = 4
+        logger.debug('starting %d processes to predict by MEMMs', process_count)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(len(children) / process_count))
+        results = []
+
+        for i in range(process_count):
+            children_i = children[i * step: (i + 1) * step]
+            parents_dic_i = {}
+            for uid in children_i:
+                parents_dic_i[uid] = parents_dic.pop(uid)  # to free RAM
+            observations_i = {uid: observations[uid] for uid in children_i}
+
+            # Train a MEMM for each user.
+            res = pool.apply_async(test_memms_eco,
+                                   (children_i, parents_dic_i, observations_i, active_ids, threshold))
             results.append(res)
 
         del parents_dic  # to free RAM
@@ -452,12 +410,16 @@ class MEMMModel():
                             observations[child_id] = obs
 
                     with m_timer:
-                        if 1000 < len(children):
+                        if len(children) > 150000:
+                            self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
+                                                         threshold, next_step)
+                        elif len(children) > 1000:
                             self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
                                                      next_step)
                         else:
                             memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
-                            act_children = test_memms(children, parents_dic, observations, active_ids, memms_i, threshold)
+                            act_children = test_memms(children, parents_dic, observations, active_ids, memms_i,
+                                                      threshold)
                             for child_id in act_children:
                                 child = CascadeNode(child_id)
                                 node.children.append(child)
