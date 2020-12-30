@@ -40,20 +40,24 @@ class MEMMManager:
         }
 
     @staticmethod
-    def insert(user_id, memm):
-        mongodb.memms.insert(MEMMManager.__get_doc(user_id, memm))
-
-    @staticmethod
-    def insert_many(memms, user_ids):
+    def insert(project, memms):
         logger.debug('creating MEMM documents ...')
-        documents = [MEMMManager.__get_doc(uid, memms[uid]) for uid in set(user_ids) & set(memms.keys())]
+        documents = [MEMMManager.__get_doc(uid, memms[uid]) for uid in memms]
         logger.debug('inserting MEMMs into db ...')
-        mongodb.memms.insert_many(documents)
+        mongodb.memms.insert_one({
+            'project_name': project.project_name,
+            'memms': documents
+        })
 
     @staticmethod
-    def fetch_all():
+    def fetch(project):
+        memms_data = mongodb.memms.find_one({'project_name': project.project_name},
+                                            {'memms': 1, '_id': 0})
+        if memms_data is None:
+            return {}
+
         memms = {}
-        for doc in mongodb.memms.find({}):
+        for doc in memms_data['memms']:
             memm = MEMM()
             memm.Lambda = doc['lambda']
             memm.TPM = pickle.loads(doc['tpm'])

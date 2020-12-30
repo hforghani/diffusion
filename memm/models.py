@@ -211,7 +211,9 @@ class MEMMModel:
                 self.__memms[uid] = memms_i.pop(uid)  # to free RAM
         logger.debug('assembling done')
 
-    def __fit_by_evidences(self, train_set, evidences):
+    def __fit_by_evidences(self, train_set):
+        evidences = self.__prepare_evidences(train_set)
+
         # Divide evidences into some parts. Each time load a part from evidences and train the
         # corresponding MEMMS to avoid high RAM consumption.
         logger.info('separating big evidences ...')
@@ -249,20 +251,16 @@ class MEMMModel:
 
     def fit(self, train_set):
         """
-        Train MEMM's for each user in training set.
+        Load MEMM's from DB if exist, otherwise train MEMM's for each user in training set.
         :param train_set:   cascade id's in training set
         :return:            self
         """
-        self.__load_memms()
+        self.__memms = self.__load_memms()
 
-        evidences = self.__prepare_evidences(train_set)
-        remaining_uids = set(evidences.keys()) - set(self.__memms.keys())
-        logger.info('%d MEMMS not trained. going to train ...', len(remaining_uids))
-        if remaining_uids:
-            evidences = {uid: value for uid, value in evidences.items() if uid in remaining_uids}
-            self.__fit_by_evidences(train_set, evidences)
-
-        self.__save_memms(remaining_uids)
+        # Train MEMMs if they are not saved in DB.
+        if not self.__memms:
+            self.__fit_by_evidences(train_set)
+            self.__save_memms(self.__memms)
 
         return self
 
@@ -450,8 +448,8 @@ class MEMMModel:
 
         return tree
 
-    def __save_memms(self, user_ids):
-        MEMMManager.insert_many(self.__memms, user_ids)
+    def __save_memms(self, memms):
+        MEMMManager.insert(self.project, memms)
 
     def __load_memms(self):
-        self.__memms = MEMMManager.fetch_all()
+        return MEMMManager.fetch(self.project)
