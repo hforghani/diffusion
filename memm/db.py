@@ -1,7 +1,6 @@
 import pickle
 
-import pymongo
-from bson import ObjectId, Binary, InvalidDocument
+from bson import ObjectId, Binary
 import numpy as np
 
 from memm.memm import MEMM
@@ -9,11 +8,13 @@ from settings import mongodb, logger
 
 
 class EvidenceManager:
-    @staticmethod
-    def get(project, user_id):
+    def __init__(self, db=None):
+        self.db = db if db is not None else mongodb
+
+    def get(self, project, user_id):
         if not isinstance(user_id, ObjectId):
             user_id = ObjectId(user_id)
-        collection = mongodb.get_collection(f'memm_evid_{project.project_name}')
+        collection = self.db.get_collection(f'memm_evid_{project.project_name}')
         doc = collection.find_one({'user_id': user_id})
         if doc is None:
             return None
@@ -28,11 +29,10 @@ class EvidenceManager:
             ]
             return evidences
 
-    @staticmethod
-    def get_many(project, user_ids):
+    def get_many(self, project, user_ids):
         user_ids = [uid if isinstance(uid, ObjectId) else ObjectId(uid) for uid in user_ids]
 
-        collection = mongodb.get_collection(f'memm_evid_{project.project_name}')
+        collection = self.db.get_collection(f'memm_evid_{project.project_name}')
         documents = collection.find({'user_id': {'$in': user_ids}})
         for doc in documents:
             evidences = [
@@ -47,8 +47,10 @@ class EvidenceManager:
 
 
 class MEMMManager:
-    @staticmethod
-    def __get_doc(user_id, memm):
+    def __init__(self, db=None):
+        self.db = db if db is not None else mongodb
+
+    def __get_doc(self, user_id, memm):
         doc = {
             'user_id': user_id,
             'lambda': memm.Lambda.tolist(),
@@ -61,17 +63,15 @@ class MEMMManager:
             doc['orig_indexes'] = sorted(list(doc['orig_indexes'].values()))
         return doc
 
-    @staticmethod
-    def insert(project, memms):
+    def insert(self, project, memms):
         logger.debug('creating MEMM documents ...')
-        documents = [MEMMManager.__get_doc(uid, memms[uid]) for uid in memms]
+        documents = [self.__get_doc(uid, memms[uid]) for uid in memms]
         logger.debug('inserting MEMMs into db ...')
-        collection = mongodb.get_collection(f'memms_{project.project_name}')
+        collection = self.db.get_collection(f'memms_{project.project_name}')
         collection.insert_many(documents)
 
-    @staticmethod
-    def fetch(project):
-        collection = mongodb.get_collection(f'memms_{project.project_name}')
+    def fetch(self, project):
+        collection = self.db.get_collection(f'memms_{project.project_name}')
         memms = {}
         for doc in collection.find():
             memm = MEMM()

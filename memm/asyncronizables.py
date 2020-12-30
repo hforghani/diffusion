@@ -1,9 +1,11 @@
 import multiprocessing
 import traceback
 
+from pymongo import MongoClient
+
 from memm.db import EvidenceManager
 from memm.memm import MEMM, MemmException
-from settings import logger
+from settings import logger, DB_NAME
 from utils.time_utils import Timer
 
 
@@ -95,7 +97,10 @@ def test_memms_eco(children, parents_dic, observations, project, active_ids, thr
 
         inactive_children = list((set(children) & set(parents_dic.keys())) - set(active_ids))
         with db_timer:
-            evidences = EvidenceManager.get_many(project, inactive_children)
+            # A new instance is created since instances of MongoClient must not be copied from
+            # a parent process to a child process.
+            db = MongoClient().get_database(DB_NAME)
+            evidences = EvidenceManager(db).get_many(project, inactive_children)
 
         j = 0
         for child_id, ev in evidences:

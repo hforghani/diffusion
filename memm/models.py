@@ -451,7 +451,7 @@ class MEMMModel:
         return tree
 
     def __save_memms(self, memms):
-        MEMMManager.insert(self.project, memms)
+        MEMMManager().insert(self.project, memms)
 
     def __load_memms(self):
-        return MEMMManager.fetch(self.project)
+        return MEMMManager().fetch(self.project)
