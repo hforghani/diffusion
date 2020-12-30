@@ -328,7 +328,7 @@ class MEMMModel:
 
             # Train a MEMM for each user.
             res = pool.apply_async(test_memms_eco,
-                                   (children_i, parents_dic_i, observations_i, active_ids, threshold))
+                                   (children_i, parents_dic_i, observations_i, self.project, active_ids, threshold))
             results.append(res)
 
         del parents_dic  # to free RAM

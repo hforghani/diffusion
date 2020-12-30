@@ -17,7 +17,7 @@ if __name__ == '__main__':
     logger.info('preparing documents ...')
     evidences = [{'user_id': ObjectId(uid),
                   'dimension': value[0],
-                  'sequences': [[[str(obs_state[0]), obs_state[1]] for obs_state in seq] for seq in value[1]]}
+                  'evidences': [[[str(obs_state[0]), obs_state[1]] for obs_state in seq] for seq in value[1]]}
                  for uid, value in evidences.items()]
 
     logger.info('inserting documents ...')

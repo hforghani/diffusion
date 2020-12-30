@@ -73,7 +73,7 @@ def test_memms(children, parents_dic, observations, active_ids, memms, threshold
         raise
 
 
-def test_memms_eco(children, parents_dic, observations, active_ids, threshold):
+def test_memms_eco(children, parents_dic, observations, project, active_ids, threshold):
     """
     Economical version of test_memms. Consumes less RAM by training MEMMS in-place.
     :param children:        list of child user id's
@@ -104,7 +104,7 @@ def test_memms_eco(children, parents_dic, observations, active_ids, threshold):
                 memm = MEMM()
                 try:
                     with db_timer:
-                        ev = EvidenceManager.get(child_id)
+                        ev = EvidenceManager.get(project, child_id)
                     if ev is not None:
                         with train_timer:
                             memm.fit(ev)

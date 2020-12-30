@@ -23,7 +23,7 @@ class EvidenceManager:
                 [
                     [
                         [int(obs_state[0]), obs_state[1]] for obs_state in seq
-                    ] for seq in doc['sequences']
+                    ] for seq in doc['evidences']
                 ]
             ]
             return evidences
