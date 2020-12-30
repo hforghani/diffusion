@@ -12,6 +12,7 @@ from pympler.asizeof import asizeof
 
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm.asyncronizables import train_memms, test_memms, test_memms_eco
+from memm.db import MEMMManager
 from memm.memm import MEMM
 # from neo4j.models import Neo4jGraph
 import numpy as np
@@ -210,16 +211,9 @@ class MEMMModel:
                 self.__memms[uid] = memms_i.pop(uid)  # to free RAM
         logger.debug('assembling done')
 
-    def fit(self, train_set):
-        """
-        Train MEMM's for each user in training set.
-        :param train_set:   cascade id's in training set
-        :return:            self
-        """
+    def __fit_by_evidences(self, train_set, evidences):
         # Divide evidences into some parts. Each time load a part from evidences and train the
         # corresponding MEMMS to avoid high RAM consumption.
-        evidences = self.__prepare_evidences(train_set)
-
         logger.info('separating big evidences ...')
         big_user_ids, notbig_user_ids = self.__separate_big_ev(evidences)
         logger.debug('%d big and %d not-big evidences considered', len(big_user_ids), len(notbig_user_ids))
@@ -252,6 +246,22 @@ class MEMMModel:
             self.__memms[uid] = memms.pop(uid)  # to free RAM
 
         logger.info('training MEMMs finished')
+
+    def fit(self, train_set):
+        """
+        Train MEMM's for each user in training set.
+        :param train_set:   cascade id's in training set
+        :return:            self
+        """
+        self.__load_memms()
+        remaining_uids = set(train_set) - set(self.__memms.keys())
+        logger.info('%d MEMMS not trained. going to train ...', len(remaining_uids))
+        if remaining_uids:
+            evidences = self.__prepare_evidences(train_set)
+            evidences = {uid: value for uid, value in evidences.items() if uid in remaining_uids}
+            self.__fit_by_evidences(train_set, evidences)
+        self.__save_memms(remaining_uids)
+
         return self
 
     def __predict_multiproc(self, children, parent_node, parents_dic, observations, active_ids, threshold, next_step):
@@ -414,8 +424,9 @@ class MEMMModel:
                             self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
                                                          threshold, next_step)
                         elif len(children) > 1000:
-                            self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids, threshold,
-                                                     next_step)
+                            self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
+                                                         threshold,
+                                                         next_step)
                         else:
                             memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
                             act_children = test_memms(children, parents_dic, observations, active_ids, memms_i,
@@ -437,46 +448,8 @@ class MEMMModel:
 
         return tree
 
-    def __save_memms(self):
-        uids = list(self.__memms.keys())
-        save_dir = os.path.join(BASEPATH, 'data', self.project.project_name, 'memm')
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
-        save_dir = os.path.join(save_dir, 'trained')
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
-        lambda_all = {uid: self.__memms[uid].Lambda for uid in uids}
-        np.savez(os.path.join(save_dir, 'lambda.npz'), **lambda_all)
-        tpm_all = {uid: self.__memms[uid].TPM for uid in uids}
-        np.savez(os.path.join(save_dir, 'tpm.npz'), **tpm_all)
-        obs_arr_all = {uid: self.__memms[uid].all_obs_arr for uid in uids}
-        np.savez(os.path.join(save_dir, 'all_obs_arr.npz'), **obs_arr_all)
-        map_obs_index_all = {uid: self.__memms[uid].map_obs_index for uid in uids}
-        with open(os.path.join(save_dir, 'map_obs_index.json'), 'w') as f:
-            json.dump(map_obs_index_all, f)
-        orig_indexes_all = {uid: self.__memms[uid].orig_indexes for uid in uids}
-        with open(os.path.join(save_dir, 'orig_indexes.json'), 'w') as f:
-            json.dump(orig_indexes_all, f)
+    def __save_memms(self, user_ids):
+        MEMMManager.insert_many(self.__memms, user_ids)
 
     def __load_memms(self):
-        self.__memms = {}
-        load_dir = os.path.join(BASEPATH, 'data', self.project.project_name, 'memm', 'trained')
-        lambda_all = np.load(os.path.join(load_dir, 'labmda.npz'))
-        for uid in lambda_all:
-            memm = MEMM()
-            memm.Lambda = lambda_all[uid]
-            self.__memms[uid] = memm
-        tpm_all = np.load(os.path.join(load_dir, 'tpm.npz'))
-        for uid in tpm_all:
-            self.__memms[uid].TPM = tpm_all[uid]
-        obs_arr_all = np.load(os.path.join(load_dir, 'all_obs_arr.npz'))
-        for uid in obs_arr_all:
-            self.__memms[uid].all_obs_arr = obs_arr_all[uid]
-        with open(os.path.join(load_dir, 'map_obs_index.json')) as f:
-            map_obs_index_all = json.load(f)
-        for uid in map_obs_index_all:
-            self.__memms[uid].map_obs_index = map_obs_index_all[uid]
-        with open(os.path.join(load_dir, 'orig_indexes.json')) as f:
-            orig_indexes_all = json.load(f)
-        for uid in orig_indexes_all:
-            self.__memms[uid].orig_indexes = orig_indexes_all[uid]
+        self.__memms = MEMMManager.fetch_all()
