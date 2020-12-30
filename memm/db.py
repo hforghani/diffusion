@@ -36,7 +36,7 @@ class MEMMManager:
             'lambda': memm.Lambda.tolist(),
             'tpm': Binary(pickle.dumps(memm.TPM, protocol=2)),
             'all_obs_arr': Binary(pickle.dumps(memm.all_obs_arr, protocol=2)),
-            'map_obs_index': memm.map_obs_index,
+            'map_obs_index': {str(key): value for key, value in memm.map_obs_index.items()},
             'orig_indexes': memm.orig_indexes
         }
         logger.debug('doc = %s', doc)
@@ -65,7 +65,7 @@ class MEMMManager:
             memm.Lambda = np.fromiter(doc['lambda'], np.float64)
             memm.TPM = pickle.loads(doc['tpm'])
             memm.all_obs_arr = pickle.loads(doc['all_obs_arr'])
-            memm.map_obs_index = doc['map_obs_index']
+            memm.map_obs_index = {int(key): value for key, value in doc['map_obs_index'].items()}
             memm.orig_indexes = doc['orig_indexes']
             memms[doc['user_id']] = memm
         return memms
