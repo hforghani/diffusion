@@ -10,10 +10,11 @@ from settings import mongodb, logger
 
 class EvidenceManager:
     @staticmethod
-    def get(user_id):
+    def get(project, user_id):
         if not isinstance(user_id, ObjectId):
             user_id = ObjectId(user_id)
-        doc = mongodb.memm_evid.find_one({'user_id': user_id})
+        collection = mongodb.get_collection(f'memm_evid_{project.project_name}')
+        doc = collection.find_one({'user_id': user_id})
         if doc is None:
             return None
         else:
@@ -22,7 +23,7 @@ class EvidenceManager:
                 [
                     [
                         [int(obs_state[0]), obs_state[1]] for obs_state in seq
-                    ] for seq in doc['evidences']
+                    ] for seq in doc['sequences']
                 ]
             ]
             return evidences
@@ -46,10 +47,8 @@ class MEMMManager:
         documents = [MEMMManager.__get_doc(uid, memms[uid]) for uid in memms]
         logger.debug('inserting MEMMs into db ...')
         try:
-            mongodb.memms.insert_one({
-                'project_name': project.project_name,
-                'memms': documents
-            })
+            collection = mongodb.get_collection(f'memms_{project.project_name}')
+            collection.insert_many(documents)
         except InvalidDocument:
             logger.debug('error while inserting all documents!')
             for i in range(10):
@@ -62,19 +61,15 @@ class MEMMManager:
                         try:
                             mongodb.memms.insert_one({key: value})
                         except InvalidDocument:
-                            logger.debug('error while inserting key %s of MEMM of user %s', key,
+                            logger.debug('error while inserting key %s in MEMM of user %s', key,
                                          documents[i]['user_id'])
             raise
 
     @staticmethod
     def fetch(project):
-        memms_data = mongodb.memms.find_one({'project_name': project.project_name},
-                                            {'memms': 1, '_id': 0})
-        if memms_data is None:
-            return {}
-
+        collection = mongodb.get_collection(f'memms_{project.project_name}')
         memms = {}
-        for doc in memms_data['memms']:
+        for doc in collection.find():
             memm = MEMM()
             memm.Lambda = np.fromiter(doc['lambda'], np.float64)
             memm.TPM = pickle.loads(doc['tpm'])
