@@ -2,6 +2,7 @@ import pickle
 
 import pymongo
 from bson import ObjectId, Binary
+import numpy as np
 
 from memm.memm import MEMM
 from settings import mongodb, logger
@@ -32,7 +33,7 @@ class MEMMManager:
     def __get_doc(user_id, memm):
         doc = {
             'user_id': user_id,
-            'lambda': memm.Lambda,
+            'lambda': memm.Lambda.tolist(),
             'tpm': Binary(pickle.dumps(memm.TPM, protocol=2)),
             'all_obs_arr': Binary(pickle.dumps(memm.all_obs_arr, protocol=2)),
             'map_obs_index': memm.map_obs_index,
@@ -61,7 +62,7 @@ class MEMMManager:
         memms = {}
         for doc in memms_data['memms']:
             memm = MEMM()
-            memm.Lambda = doc['lambda']
+            memm.Lambda = np.fromiter(doc['lambda'], np.float64)
             memm.TPM = pickle.loads(doc['tpm'])
             memm.all_obs_arr = pickle.loads(doc['all_obs_arr'])
             memm.map_obs_index = doc['map_obs_index']
