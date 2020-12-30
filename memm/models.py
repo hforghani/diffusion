@@ -213,10 +213,6 @@ class MEMMModel:
 
     def __fit_by_evidences(self, train_set):
         evidences = self.__prepare_evidences(train_set)
-        # TODO: Remove these lines:
-        key, value = evidences.popitem()
-        memms = train_memms({key: value})
-        self.__save_memms(memms)
 
         # Divide evidences into some parts. Each time load a part from evidences and train the
         # corresponding MEMMS to avoid high RAM consumption.
