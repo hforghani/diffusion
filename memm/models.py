@@ -240,6 +240,10 @@ class MEMMModel:
             logger.info("training %d MEMM's related to part %d of users ...", len(part_j), j + 1)
             self.__fit_multiproc(evidences_j)
 
+            #TODO: Remove these lines:
+            logger.info('inserting MEMMs into db ...')
+            self.__save_memms(self.__memms)
+
         # Train big evidences sequentially.
         logger.info('training %d big MEMMs sequentially', len(big_ev))
         memms = train_memms(big_ev)
@@ -262,6 +266,7 @@ class MEMMModel:
         if not self.__memms:
             logger.info('MEMMs do not exist in db. They will be trained')
             self.__fit_by_evidences(train_set)
+            logger.info('inserting MEMMs into db ...')
             self.__save_memms(self.__memms)
 
         return self

@@ -1,7 +1,7 @@
 import pickle
 
 import pymongo
-from bson import ObjectId, Binary
+from bson import ObjectId, Binary, InvalidDocument
 import numpy as np
 
 from memm.memm import MEMM
@@ -45,10 +45,15 @@ class MEMMManager:
         logger.debug('creating MEMM documents ...')
         documents = [MEMMManager.__get_doc(uid, memms[uid]) for uid in memms]
         logger.debug('inserting MEMMs into db ...')
-        mongodb.memms.insert_one({
-            'project_name': project.project_name,
-            'memms': documents
-        })
+        try:
+            mongodb.memms.insert_one({
+                'project_name': project.project_name,
+                'memms': documents
+            })
+        except InvalidDocument:
+            for i in range(10):
+                logger.debug(documents[i])
+            raise
 
     @staticmethod
     def fetch(project):
