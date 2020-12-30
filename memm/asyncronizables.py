@@ -93,44 +93,42 @@ def test_memms_eco(children, parents_dic, observations, project, active_ids, thr
 
         active_children = []
 
+        inactive_children = list((set(children) & set(parents_dic.keys())) - set(active_ids))
+        with db_timer:
+            evidences = EvidenceManager.get_many(project, inactive_children)
+
         j = 0
-        for child_id in children:
-            if child_id not in parents_dic:
-                continue
+        for child_id, ev in evidences:
             parents = parents_dic[child_id]
             obs = observations[child_id]
 
-            if child_id not in active_ids:
-                memm = MEMM()
-                try:
-                    with db_timer:
-                        ev = EvidenceManager.get(project, child_id)
-                    if ev is not None:
-                        with train_timer:
-                            memm.fit(ev)
-                        # logger.debug('predicting cascade ...')
-                        with test_timer:
-                            new_state = memm.predict(obs, len(parents), threshold)
-                        del memm
-                        if new_state == 1:
-                            active_children.append(child_id)
-                            active_ids.append(child_id)
-                            # logger.debug('\ta reshare predicted')
-                    else:
-                        logger.warn('no evidence for user %s', child_id)
-                except MemmException:
-                    logger.warn('evidences for user %s ignored due to insufficient data', child_id)
+            memm = MEMM()
+            try:
+                with train_timer:
+                    memm.fit(ev)
+                # logger.debug('predicting cascade ...')
+                with test_timer:
+                    new_state = memm.predict(obs, len(parents), threshold)
+                del memm
+                if new_state == 1:
+                    active_children.append(child_id)
+                    active_ids.append(child_id)
+                    # logger.debug('\ta reshare predicted')
+            except MemmException:
+                logger.warn('evidences for user %s ignored due to insufficient data', child_id)
 
             j += 1
             if j % 100 == 0:
-                logger.debug('[%s] %d / %d of children iterated', p_name, j, len(children))
-                for timer in [db_timer, train_timer, test_timer]:
-                    timer.report_sum()
+                logger.debug('[%s] %d / %d of children iterated', p_name, j, len(inactive_children))
 
         del children, parents_dic, observations, active_ids
 
+        for timer in [db_timer, train_timer, test_timer]:
+            timer.report_sum()
+
         logger.debug('[%s] testing memms finished', p_name)
         return active_children
+
     except:
         traceback.print_exc()
         raise

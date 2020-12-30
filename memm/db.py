@@ -28,6 +28,23 @@ class EvidenceManager:
             ]
             return evidences
 
+    @staticmethod
+    def get_many(project, user_ids):
+        user_ids = [uid if isinstance(uid, ObjectId) else ObjectId(uid) for uid in user_ids]
+
+        collection = mongodb.get_collection(f'memm_evid_{project.project_name}')
+        documents = collection.find({'user_id': {'$in': user_ids}})
+        for doc in documents:
+            evidences = [
+                doc['dimension'],
+                [
+                    [
+                        [int(obs_state[0]), obs_state[1]] for obs_state in seq
+                    ] for seq in doc['evidences']
+                ]
+            ]
+            yield doc['user_id'], evidences
+
 
 class MEMMManager:
     @staticmethod
