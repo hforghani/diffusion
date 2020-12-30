@@ -240,10 +240,6 @@ class MEMMModel:
             logger.info("training %d MEMM's related to part %d of users ...", len(part_j), j + 1)
             self.__fit_multiproc(evidences_j)
 
-            #TODO: Remove these lines:
-            logger.info('inserting MEMMs into db ...')
-            self.__save_memms(self.__memms)
-
         # Train big evidences sequentially.
         logger.info('training %d big MEMMs sequentially', len(big_ev))
         memms = train_memms(big_ev)
@@ -431,6 +427,7 @@ class MEMMModel:
                             self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
                                                          threshold, next_step)
                         elif len(children) > 1000:
+                            # TODO: Change it to __predict_multiproc
                             self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
                                                          threshold,
                                                          next_step)
