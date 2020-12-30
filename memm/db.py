@@ -32,7 +32,7 @@ class EvidenceManager:
 class MEMMManager:
     @staticmethod
     def __get_doc(user_id, memm):
-        return {
+        doc = {
             'user_id': user_id,
             'lambda': memm.Lambda.tolist(),
             'tpm': Binary(pickle.dumps(memm.TPM, protocol=2)),
@@ -40,6 +40,9 @@ class MEMMManager:
             'map_obs_index': {str(key): value for key, value in memm.map_obs_index.items()},
             'orig_indexes': memm.orig_indexes
         }
+        if isinstance(doc['orig_indexes'], dict):
+            doc['orig_indexes'] = sorted(list(doc['orig_indexes'].values()))
+        return doc
 
     @staticmethod
     def insert(project, memms):
