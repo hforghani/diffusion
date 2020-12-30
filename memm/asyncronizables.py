@@ -99,14 +99,17 @@ def test_memms_eco(children, parents_dic, observations, active_ids, threshold):
                 memm = MEMM()
                 try:
                     ev = EvidenceManager.get(child_id)
-                    memm.fit(ev)
-                    # logger.debug('predicting cascade ...')
-                    new_state = memm.predict(obs, len(parents), threshold)
-                    del memm
-                    if new_state == 1:
-                        active_children.append(child_id)
-                        active_ids.append(child_id)
-                        # logger.debug('\ta reshare predicted')
+                    if ev is not None:
+                        memm.fit(ev)
+                        # logger.debug('predicting cascade ...')
+                        new_state = memm.predict(obs, len(parents), threshold)
+                        del memm
+                        if new_state == 1:
+                            active_children.append(child_id)
+                            active_ids.append(child_id)
+                            # logger.debug('\ta reshare predicted')
+                    else:
+                        logger.warn('no evidence for user %s', child_id)
                 except MemmException:
                     logger.warn('evidences for user %s ignored due to insufficient data', child_id)
 
