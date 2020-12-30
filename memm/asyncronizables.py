@@ -1,7 +1,7 @@
 import multiprocessing
 import traceback
 
-from memm.evidence import EvidenceManager
+from memm.db import EvidenceManager
 from memm.memm import MEMM, MemmException
 from settings import logger
 from utils.time_utils import Timer
