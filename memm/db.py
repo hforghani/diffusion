@@ -1,7 +1,7 @@
 import pickle
 
 import pymongo
-from bson import ObjectId
+from bson import ObjectId, Binary
 
 from memm.memm import MEMM
 from settings import mongodb, logger
@@ -33,8 +33,8 @@ class MEMMManager:
         return {
             'user_id': user_id,
             'lambda': memm.Lambda,
-            'tpm': pymongo.binary.Binary(pickle.dumps(memm.TPM, protocol=2)),
-            'all_obs_arr': pymongo.binary.Binary(pickle.dumps(memm.all_obs_arr, protocol=2)),
+            'tpm': Binary(pickle.dumps(memm.TPM, protocol=2)),
+            'all_obs_arr': Binary(pickle.dumps(memm.all_obs_arr, protocol=2)),
             'map_obs_index': memm.map_obs_index,
             'orig_indexes': memm.orig_indexes
         }
