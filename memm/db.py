@@ -46,7 +46,7 @@ class MEMMManager:
     @staticmethod
     def insert_many(memms, user_ids):
         logger.debug('creating MEMM documents ...')
-        documents = [MEMMManager.__get_doc(uid, memms[uid]) for uid in user_ids]
+        documents = [MEMMManager.__get_doc(uid, memms[uid]) for uid in set(user_ids) & set(memms.keys())]
         logger.debug('inserting MEMMs into db ...')
         mongodb.memms.insert_many(documents)
 
