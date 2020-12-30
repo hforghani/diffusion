@@ -51,18 +51,17 @@ class MEMMManager:
             collection.insert_many(documents)
         except InvalidDocument:
             logger.debug('error while inserting all documents!')
-            for i in range(10):
-                logger.debug('document: %s', documents[i])
+            for doc in documents:
                 try:
-                    mongodb.memms.insert_one(documents[i])
+                    collection.insert_one(doc)
                 except InvalidDocument:
-                    logger.debug('error while inserting this document')
-                    for key, value in documents[i].items():
+                    logger.debug('error while inserting this document:')
+                    logger.debug('document: %s', doc)
+                    for key, value in doc.items():
                         try:
-                            mongodb.memms.insert_one({key: value})
+                            collection.insert_one({key: value})
                         except InvalidDocument:
-                            logger.debug('error while inserting key %s in MEMM of user %s', key,
-                                         documents[i]['user_id'])
+                            logger.debug('error while inserting key %s in MEMM of user %s', key, doc['user_id'])
             raise
 
     @staticmethod
