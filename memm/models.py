@@ -254,12 +254,14 @@ class MEMMModel:
         :return:            self
         """
         self.__load_memms()
-        remaining_uids = set(train_set) - set(self.__memms.keys())
+
+        evidences = self.__prepare_evidences(train_set)
+        remaining_uids = set(evidences.keys()) - set(self.__memms.keys())
         logger.info('%d MEMMS not trained. going to train ...', len(remaining_uids))
         if remaining_uids:
-            evidences = self.__prepare_evidences(train_set)
             evidences = {uid: value for uid, value in evidences.items() if uid in remaining_uids}
             self.__fit_by_evidences(train_set, evidences)
+
         self.__save_memms(remaining_uids)
 
         return self
