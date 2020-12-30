@@ -46,23 +46,20 @@ class MEMMManager:
         logger.debug('creating MEMM documents ...')
         documents = [MEMMManager.__get_doc(uid, memms[uid]) for uid in memms]
         logger.debug('inserting MEMMs into db ...')
-        try:
-            collection = mongodb.get_collection(f'memms_{project.project_name}')
-            collection.insert_many(documents)
-        except InvalidDocument:
-            logger.debug('error while inserting all documents!')
-            for doc in documents:
-                try:
-                    collection.insert_one(doc)
-                except InvalidDocument:
-                    logger.debug('error while inserting this document:')
-                    logger.debug('document: %s', doc)
-                    for key, value in doc.items():
-                        try:
-                            collection.insert_one({key: value})
-                        except InvalidDocument:
-                            logger.debug('error while inserting key %s in MEMM of user %s', key, doc['user_id'])
-            raise
+        collection = mongodb.get_collection(f'memms_{project.project_name}')
+        # collection.insert_many(documents)
+        for doc in documents:
+            try:
+                collection.insert_one(doc)
+            except InvalidDocument as e:
+                logger.debug('error while inserting this document:')
+                logger.debug('document: %s', doc)
+                for key, value in doc.items():
+                    try:
+                        collection.insert_one({key: value})
+                    except InvalidDocument:
+                        logger.debug('error while inserting key %s in MEMM of user %s', key, doc['user_id'])
+                raise e
 
     @staticmethod
     def fetch(project):
