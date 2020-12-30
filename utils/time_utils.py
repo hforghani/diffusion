@@ -76,10 +76,11 @@ def time_measure(level='info', unit=None):
 
 
 class Timer:
-    def __init__(self, name, level='info', unit=None):
+    def __init__(self, name, level='info', unit=None, silent=False):
         self.name = name
         self.level = level
         self.unit = unit
+        self.silent = silent
         self.sum = 0
 
     def __enter__(self):
@@ -89,8 +90,9 @@ class Timer:
     def __exit__(self, exc_type, exc_val, exc_tb):
         t = time.time() - self.start
         self.sum += t
-        time_expr = time_report(t, self.unit)
-        logger.log(levels[self.level], f'the code "{self.name}" executed in {time_expr}')
+        if not self.silent:
+            time_expr = time_report(t, self.unit)
+            logger.log(levels[self.level], f'the code "{self.name}" executed in {time_expr}')
 
     def report_sum(self):
         time_expr = time_report(self.sum, self.unit)

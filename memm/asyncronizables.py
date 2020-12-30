@@ -4,6 +4,7 @@ import traceback
 from memm.evidence import EvidenceManager
 from memm.memm import MEMM, MemmException
 from settings import logger
+from utils.time_utils import Timer
 
 
 def train_memms(evidences):
@@ -83,6 +84,10 @@ def test_memms_eco(children, parents_dic, observations, active_ids, threshold):
     :return:                newly active user id's
     """
     try:
+        db_timer = Timer('getting evidence', silent=True)
+        train_timer = Timer('training memm in eco mode', silent=True)
+        test_timer = Timer('testing memm in eco mode', silent=True)
+
         p_name = multiprocessing.current_process().name
         logger.debug('[%s] testing memms started', p_name)
 
@@ -98,11 +103,14 @@ def test_memms_eco(children, parents_dic, observations, active_ids, threshold):
             if child_id not in active_ids:
                 memm = MEMM()
                 try:
-                    ev = EvidenceManager.get(child_id)
+                    with db_timer:
+                        ev = EvidenceManager.get(child_id)
                     if ev is not None:
-                        memm.fit(ev)
+                        with train_timer:
+                            memm.fit(ev)
                         # logger.debug('predicting cascade ...')
-                        new_state = memm.predict(obs, len(parents), threshold)
+                        with test_timer:
+                            new_state = memm.predict(obs, len(parents), threshold)
                         del memm
                         if new_state == 1:
                             active_children.append(child_id)
@@ -116,6 +124,8 @@ def test_memms_eco(children, parents_dic, observations, active_ids, threshold):
             j += 1
             if j % 100 == 0:
                 logger.debug('[%s] %d / %d of children iterated', p_name, j, len(children))
+                for timer in [db_timer, train_timer, test_timer]:
+                    timer.report_sum()
 
         del children, parents_dic, observations, active_ids
 
