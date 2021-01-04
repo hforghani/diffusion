@@ -76,8 +76,8 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
                 elif method in ['aslt', 'avg']:
                     res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, user_ids=user_ids,
                                              users_map=users_map)
-                else:
-                    res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step)
+                elif method == 'memm':
+                    res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, multiprocessed=False)
 
             # Evaluate the results.
             with Timer('evaluating results'):

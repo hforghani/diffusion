@@ -347,7 +347,7 @@ class MEMMModel:
 
         logger.debug('assembling done')
 
-    def predict(self, initial_tree, threshold=None, max_step=None):
+    def predict(self, initial_tree, threshold=None, max_step=None, multiprocessed=True):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return:         Predicted tree
@@ -423,10 +423,10 @@ class MEMMModel:
                             observations[child_id] = obs
 
                     with m_timer:
-                        if len(children) > 150000:
+                        if len(children) > 150000 and multiprocessed:
                             self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
                                                          threshold, next_step)
-                        elif len(children) > 1000:
+                        elif len(children) > 1000 and multiprocessed:
                             self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
                                                      next_step)
                         else:
