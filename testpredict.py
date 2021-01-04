@@ -112,7 +112,7 @@ def test_meme(meme_ids, method, model, threshold, initial_depth, max_depth, tree
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
 
     except:
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
         raise
 
 
