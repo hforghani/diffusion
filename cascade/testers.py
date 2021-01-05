@@ -171,8 +171,8 @@ class MultiProcTester(ProjectTester):
         """
         Create a process pool to distribute the prediction.
         """
-        process_count = multiprocessing.cpu_count() - 1
-        # process_count = 4
+        # process_count = multiprocessing.cpu_count() - 1
+        process_count = min(8, multiprocessing.cpu_count() - 1)
         pool = Pool(processes=process_count)
         step = int(math.ceil(float(len(test_set)) / process_count))
         results = []
