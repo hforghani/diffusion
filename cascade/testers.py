@@ -20,6 +20,9 @@ class ProjectTester(abc.ABC):
             logger.info('creating dictionary of user ids to their sorted index ...')
             self.user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
             self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
+        else:
+            self.user_ids = None
+            self.users_map = None
 
     @abc.abstractmethod
     def run(self, thresholds, initial_depth, max_depth):
@@ -174,8 +177,7 @@ class MultiProcTester(ProjectTester):
             meme_ids = test_set[j: j + step]
             res = pool.apply_async(test_memes_multiproc,
                                    (meme_ids, self.method, self.project, threshold, initial_depth, max_depth, trees,
-                                    all_node_ids,
-                                    self.user_ids, self.users_map))
+                                    all_node_ids, self.user_ids, self.users_map))
             results.append(res)
 
         pool.close()
