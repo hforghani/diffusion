@@ -1,9 +1,6 @@
-import os
 import numpy as np
 import scipy
 import time
-from cascade.models import ParamTypes
-from settings import logger
 
 times = [0] * 15
 
