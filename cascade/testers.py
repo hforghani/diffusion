@@ -1,5 +1,6 @@
 import abc
 import math
+import multiprocessing
 from multiprocessing import Pool
 
 import numpy as np
@@ -170,8 +171,8 @@ class MultiProcTester(ProjectTester):
         """
         Create a process pool to distribute the prediction.
         """
-        # process_count = multiprocessing.cpu_count()
-        process_count = 4
+        process_count = multiprocessing.cpu_count() - 1
+        # process_count = 4
         pool = Pool(processes=process_count)
         step = int(math.ceil(float(len(test_set)) / process_count))
         results = []
