@@ -8,7 +8,7 @@ import time
 from bson.objectid import ObjectId
 
 import settings
-from settings import mongodb
+from memm.db import DBManager
 
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('memedepths')
@@ -69,10 +69,11 @@ class Command:
                        tree_nodes.items()}, f, indent=4)
 
     def calc_depths(self, do_continue=False):
-        count = mongodb.reshares.count()
+        db = DBManager().db
+        count = db.reshares.count()
         logger.info('number of all reshares: {}'.format(count))
 
-        reshares = mongodb.reshares.find({},
+        reshares = db.reshares.find({},
             {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1},
             no_cursor_timeout=True).sort('datetime')
 
@@ -93,9 +94,9 @@ class Command:
 
             if src_uid != dest_uid:
                 ref_memes = {m['meme_id'] for m in
-                             mongodb.postmemes.find({'post_id': resh['reshared_post_id']}, {'meme_id': 1})}
+                             db.postmemes.find({'post_id': resh['reshared_post_id']}, {'meme_id': 1})}
                 memes = {m['meme_id'] for m in
-                         mongodb.postmemes.find({'post_id': resh['post_id']}, {'meme_id': 1})}
+                         db.postmemes.find({'post_id': resh['post_id']}, {'meme_id': 1})}
                 common_memes = ref_memes & memes
 
                 for meme_id in common_memes:
@@ -138,10 +139,10 @@ class Command:
 
         logger.info('saving non-zero depths ...')
         for meme_id, depth in depths.items():
-            mongodb.memes.find_one_and_update({'_id': meme_id}, {'$set': {'depth': depth}})
+            db.memes.find_one_and_update({'_id': meme_id}, {'$set': {'depth': depth}})
 
         logger.info('saving zero depths ...')
-        mongodb.memes.update_many({'depth': None}, {'$set': {'depth': 0}})
+        db.memes.update_many({'depth': None}, {'$set': {'depth': 0}})
 
 
 if __name__ == '__main__':

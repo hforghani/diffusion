@@ -1,15 +1,23 @@
 import pickle
 
+import pymongo
 from bson import ObjectId, Binary
 import numpy as np
 
 from memm.memm import MEMM
-from settings import mongodb, logger
+from settings import logger, MONGO_URL, DB_NAME
+
+
+class DBManager:
+    def __init__(self):
+        mongo_client = pymongo.MongoClient(MONGO_URL)
+        self.db = mongo_client[DB_NAME]
 
 
 class EvidenceManager:
-    def __init__(self, db=None):
-        self.db = db if db is not None else mongodb
+    def __init__(self):
+        mongo_client = pymongo.MongoClient(MONGO_URL)
+        self.db = mongo_client[DB_NAME]
 
     def get(self, project, user_id):
         if not isinstance(user_id, ObjectId):
@@ -47,8 +55,9 @@ class EvidenceManager:
 
 
 class MEMMManager:
-    def __init__(self, db=None):
-        self.db = db if db is not None else mongodb
+    def __init__(self):
+        mongo_client = pymongo.MongoClient(MONGO_URL)
+        self.db = mongo_client[DB_NAME]
 
     def __get_doc(self, user_id, memm):
         doc = {

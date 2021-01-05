@@ -12,11 +12,11 @@ from pympler.asizeof import asizeof
 
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm.asyncronizables import train_memms, test_memms, test_memms_eco
-from memm.db import MEMMManager
+from memm.db import MEMMManager, DBManager
 from memm.memm import MEMM
 # from neo4j.models import Neo4jGraph
 import numpy as np
-from settings import logger, BASEPATH, mongodb
+from settings import logger
 from utils.time_utils import Timer
 
 MEMM_EVID_FILE_NAME = 'memm/evidence'
@@ -65,6 +65,8 @@ class MEMMModel:
         :param train_set: list of training cascade id's
         :return: a dictionary of user id's to instances of MemmEvidence
         """
+        db = DBManager().db
+
         act_seqs = self.project.load_or_extract_act_seq()
 
         try:
@@ -87,13 +89,13 @@ class MEMMModel:
                 i = 0
                 logger.info('cascade %d with %d users ...', count + 1, len(act_seq.users))
 
-                # relations = mongodb.relations.find({'user_id': {'$in': act_seq.users}})
+                # relations = db.relations.find({'user_id': {'$in': act_seq.users}})
                 # rel_dic = {rel['user_id']: rel for rel in relations}
 
                 for uid in act_seq.users:  # Notice users are sorted by activation time.
                     activated.add(uid)
                     # parents_count = len(rel_dic[uid]['parents'])
-                    rel = mongodb.relations.find_one({'user_id': uid}, {'_id': 0, 'children': 1, 'parents': 1})
+                    rel = db.relations.find_one({'user_id': uid}, {'_id': 0, 'children': 1, 'parents': 1})
                     parents_count = len(rel['parents']) if rel is not None else 0
                     parent_sizes[uid] = parents_count
                     logger.debug('extracting children ...')
@@ -112,7 +114,7 @@ class MEMMModel:
                     if children:
                         logger.debug('iterating on %d children ...', len(children))
 
-                    # relations = mongodb.relations.find({'user_id': {'$in': cur_step}}, {'_id':0, 'user_id':1, 'parents':1})
+                    # relations = db.relations.find({'user_id': {'$in': cur_step}}, {'_id':0, 'user_id':1, 'parents':1})
                     # parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
 
                     # Set the related coefficient of the children observations equal to 1.
@@ -121,7 +123,7 @@ class MEMMModel:
                         # if child not in parents_dic:
                         #     continue
                         # child_parents = parents_dic[child]
-                        rel = mongodb.relations.find_one({'user_id': child}, {'_id': 0, 'parents': 1})
+                        rel = db.relations.find_one({'user_id': child}, {'_id': 0, 'parents': 1})
                         if rel is None:
                             continue
                         child_parents = rel['parents']
@@ -352,6 +354,7 @@ class MEMMModel:
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return:         Predicted tree
         """
+        db = DBManager().db
         ch_timer = Timer('get children')
         p_timer = Timer('get parents')
         obs_timer = Timer('observations')
@@ -377,7 +380,7 @@ class MEMMModel:
             next_step = []
 
             with ch_timer:
-                relations = mongodb.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}},
+                relations = db.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}},
                                                    {'_id': 0, 'user_id': 1, 'children': 1})
                 children_dic = {rel['user_id']: rel['children'] for rel in relations}
 
@@ -385,7 +388,7 @@ class MEMMModel:
             for node in cur_step:
                 node_id = node.user_id
                 children = children_dic.pop(node_id, [])  # to get and free RAM
-                # rel = mongodb.relations.find_one({'user_id': node_id}, {'_id': 0, 'children': 1})
+                # rel = db.relations.find_one({'user_id': node_id}, {'_id': 0, 'children': 1})
                 # children = rel['children'] if rel is not None else []
 
                 if not children:
@@ -408,7 +411,7 @@ class MEMMModel:
 
                 elif threshold < 1:
                     with p_timer:
-                        relations = mongodb.relations.find({'user_id': {'$in': children}},
+                        relations = db.relations.find({'user_id': {'$in': children}},
                                                            {'_id': 0, 'user_id': 1, 'parents': 1})
                         parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
 

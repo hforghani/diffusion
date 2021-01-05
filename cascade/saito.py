@@ -3,7 +3,8 @@ import numpy as np
 from scipy import sparse
 from sklearn.preprocessing import normalize
 from cascade.models import AsLT, ParamTypes
-from settings import logger, mongodb
+from memm.db import DBManager
+from settings import logger
 
 
 class Saito(AsLT):
@@ -26,7 +27,8 @@ class Saito(AsLT):
 
         # Create maps from users and memes db id's to their matrix id's.
         logger.info('creating user and meme id maps ...')
-        user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
+        db = DBManager().db
+        user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
         user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
         meme_map = {str(train_set[i]): i for i in range(len(train_set))}
 

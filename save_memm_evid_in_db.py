@@ -3,10 +3,12 @@ import argparse
 from bson import ObjectId
 
 from cascade.models import Project, ParamTypes
+from memm.db import DBManager
 from memm.models import MEMM_EVID_FILE_NAME
-from settings import mongodb, logger
+from settings import logger
 
 if __name__ == '__main__':
+    db = DBManager().db
     parser = argparse.ArgumentParser(description='Insert MEMM evidences of a project into DB')
     parser.add_argument("-p", "--project", type=str, dest="project",
                         help="project name or multiple comma-separated project names")
@@ -21,5 +23,5 @@ if __name__ == '__main__':
                  for uid, value in evidences.items()]
 
     logger.info('inserting documents ...')
-    collection = mongodb.get_collection(f'memm_evid_{project.project_name}')
+    collection = db.get_collection(f'memm_evid_{project.project_name}')
     collection.insert_many(evidences)

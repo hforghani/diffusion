@@ -1,7 +1,5 @@
-import logging
 import os
 from datetime import datetime
-import pymongo
 from local_settings import *
 
 LOG_FORMAT = '[%(levelname)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s'
@@ -14,6 +12,3 @@ logger.addHandler(file_handler)
 logger.setLevel(LOG_LEVEL)
 
 BASEPATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '')
-
-mongo_client = pymongo.MongoClient("mongodb://localhost:27017/")
-mongodb = mongo_client[DB_NAME]

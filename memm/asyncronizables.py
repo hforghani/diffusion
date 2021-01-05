@@ -99,8 +99,7 @@ def test_memms_eco(children, parents_dic, observations, project, active_ids, thr
         with db_timer:
             # A new instance is created since instances of MongoClient must not be copied from
             # a parent process to a child process.
-            db = MongoClient().get_database(DB_NAME)
-            evidences = EvidenceManager(db).get_many(project, inactive_children)
+            evidences = EvidenceManager().get_many(project, inactive_children)
 
         j = 0
         for child_id, ev in evidences:

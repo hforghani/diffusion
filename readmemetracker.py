@@ -11,7 +11,7 @@ from bson.objectid import ObjectId
 import pygtrie
 from pymongo.operations import UpdateOne
 
-from settings import mongodb
+from memm.db import DBManager
 import settings
 from utils.time_utils import str_to_datetime
 
@@ -81,14 +81,16 @@ class Command:
             if not path:
                 raise Exception('file argument not specified')
 
+            db = DBManager().db
+
             # Delete all data.
             if args.clear and not args.set_attributes:
                 logger.info('======== deleting data ...')
-                mongodb.postmemes.delete_many()
-                mongodb.reshares.delete_many()
-                mongodb.posts.delete_many()
-                mongodb.memes.delete_many()
-                mongodb.users.delete_many()
+                db.postmemes.delete_many()
+                db.reshares.delete_many()
+                db.posts.delete_many()
+                db.memes.delete_many()
+                db.users.delete_many()
 
             # Create instances of non-relation entities.
             if (args.entities or not args.relations) and not args.set_attributes:
@@ -119,6 +121,7 @@ class Command:
         urls = {}
         memes = set()
         i = 0
+        db = DBManager().db
 
         logger.info('reading urls and memes from dataset ...')
         with open(path, encoding="utf8") as f:
@@ -146,8 +149,8 @@ class Command:
 
         logger.info('extracting new memes ...')
         step = 3 * 10 ** 6
-        m_count = mongodb.memes.count()
-        cursor = mongodb.memes.find({}, {'_id': 0, 'text': 1}, no_cursor_timeout=True)
+        m_count = db.memes.count()
+        cursor = db.memes.find({}, {'_id': 0, 'text': 1}, no_cursor_timeout=True)
         i = 0
         for m in cursor:
             i += 1
@@ -163,21 +166,21 @@ class Command:
             meme_entities.append({'text': text})
             i += 1
             if i % 100000 == 0:
-                mongodb.memes.insert_many(meme_entities)
+                db.memes.insert_many(meme_entities)
                 logger.info('%d memes created' % i)
                 meme_entities = []
 
         if meme_entities:
-            mongodb.memes.insert_many(meme_entities)
+            db.memes.insert_many(meme_entities)
         logger.info('%d memes created' % len(meme_entities))
         del memes
         del meme_entities
 
         logger.info('extracting new urls ...')
         step = 10 ** 7
-        p_count = mongodb.posts.count()
+        p_count = db.posts.count()
         for i in range(0, p_count, step):
-            cursor = mongodb.posts.find({}, {'_id': 0, 'url': 1}, no_cursor_timeout=True)
+            cursor = db.posts.find({}, {'_id': 0, 'url': 1}, no_cursor_timeout=True)
             existing_urls = {p['url'] for p in cursor.skip(i).limit(step)}
             cursor.close()
             for url in existing_urls:
@@ -187,7 +190,7 @@ class Command:
         logger.info('{} new urls extracted'.format(len(urls)))
 
         logger.info('loading existing usernames ...')
-        existing_usernames = {u['username'] for u in mongodb.users.find({}, {'_id': 0, 'username': 1})}
+        existing_usernames = {u['username'] for u in db.users.find({}, {'_id': 0, 'username': 1})}
         usernames = set([self.get_username(url) for url in urls]) - existing_usernames - {None}
         del existing_usernames
 
@@ -198,17 +201,17 @@ class Command:
             users.append({'username': uname})
             i += 1
             if i % 100000 == 0:
-                mongodb.users.insert_many(users)
+                db.users.insert_many(users)
                 logger.info('{:.0f}% done'.format(i / len(usernames) * 100))
                 users = []
 
         if users:
-            mongodb.users.insert_many(users)
+            db.users.insert_many(users)
         logger.info('%d users created' % len(users))
         del usernames
         del users
         logger.info('loading user ids ...')
-        users = mongodb.users.find()
+        users = db.users.find()
         users_map = {user['username']: user['_id'] for user in users}
         del users
 
@@ -229,20 +232,22 @@ class Command:
                     logger.info("a post ignored having url with non-utf8 encoding")
             i += 1
             if i % 10000 == 0:
-                mongodb.posts.insert_many(posts)
+                db.posts.insert_many(posts)
                 posts = []
             if i % 100000 == 0:
                 logger.info('{:.0f}% done ({:.1f} s)'.format(i / len(urls) * 100, (time.time() - t0)))
                 t0 = time.time()
 
         if posts:
-            mongodb.posts.insert_many(posts)
+            db.posts.insert_many(posts)
         logger.info('100% done ({:.1f} s)'.format(time.time() - t0))
 
         del posts, urls, users_map
 
     # @profile
     def create_relations(self, temp_data_path, start_index):
+        db = DBManager().db
+
         # Count the number of lines.
         logger.info('counting main posts ...')
         posts_count = 0
@@ -285,8 +290,8 @@ class Command:
                         logger.info(
                             'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
                         if post_memes or reshares:
-                            mongodb.postmemes.insert_many(post_memes)
-                            mongodb.reshares.insert_many(reshares)
+                            db.postmemes.insert_many(post_memes)
+                            db.reshares.insert_many(reshares)
                             post_memes = []
                             reshares = []
                             logger.info('time : %d s' % (time.time() - t0))
@@ -345,16 +350,18 @@ class Command:
         # Save the remaining relations.
         logger.info(
             'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-        mongodb.postmemes.insert_many(post_memes)
-        mongodb.reshares.insert_many(reshares)
+        db.postmemes.insert_many(post_memes)
+        db.reshares.insert_many(reshares)
 
     # @profile
     def get_post_rels(self, post_id, datetime, meme_ids, source_ids):
         """
         Create PostMeme and Reshare instances for the referenced links. Just create the instances not inserting in the db.
         """
+        db = DBManager().db
+
         # Create the post.
-        post = mongodb.posts.find_one({'_id': post_id})
+        post = db.posts.find_one({'_id': post_id})
         if post is None:
             raise Exception('post does not exist with id {}'.format(post_id))
 
@@ -365,7 +372,7 @@ class Command:
         reshares = []
         src_ids = set(source_ids) - {post_id}
         if src_ids:
-            src_posts = mongodb.posts.find({'_id': {'$in': list(src_ids)}})
+            src_posts = db.posts.find({'_id': {'$in': list(src_ids)}})
             count = src_posts.count()
             src_posts.rewind()
             if count != len(src_ids):  # Raise an error if some of link posts do not exist.
@@ -379,9 +386,11 @@ class Command:
         return post_memes, reshares
 
     def create_temp(self, path, temp_path):
+        db = DBManager().db
+
         # Replace meme texts with meme ids and create temporary data files.
         from_path = path
-        memes_count = mongodb.memes.count()
+        memes_count = db.memes.count()
         step = 10 ** 7
         i = 0
         t0 = time.time()
@@ -400,7 +409,7 @@ class Command:
             t0 = time.time()
 
         # Replace post urls with post ids and create temporary data files.
-        posts_count = mongodb.posts.count()
+        posts_count = db.posts.count()
         step = 10 ** 7
         i = 0
         t0 = time.time()
@@ -459,6 +468,7 @@ class Command:
         Get map of meme texts to meme id's.
         :return:
         """
+        db = DBManager().db
         memes_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
         pipelines = [{'$sort': SON([('_id', 1)])},
                      {'$project': {'_id': 1, 'text': 1}}]
@@ -466,7 +476,7 @@ class Command:
             pipelines.append({'$skip': offset})
             if limit is not None:
                 pipelines.append({'$limit': limit})
-        memes = mongodb.memes.aggregate(pipelines)
+        memes = db.memes.aggregate(pipelines)
         for meme in memes:
             memes_map[meme['text']] = meme['_id']
         return memes_map
@@ -476,6 +486,7 @@ class Command:
         Get map of post urls to post id's
         :return:
         """
+        db = DBManager().db
         posts_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
         pipelines = [{'$sort': SON([('_id', 1)])},
                      {'$project': {'_id': 1, 'url': 1}}]
@@ -484,18 +495,19 @@ class Command:
             if limit is not None:
                 pipelines.append({'$limit': limit})
 
-        posts = mongodb.posts.aggregate(pipelines)
+        posts = db.posts.aggregate(pipelines)
         for post in posts:
             posts_map[post['url']] = post['_id']
         return posts_map
 
     def calc_memes_values(self):
-        count = mongodb.memes.count()
+        db = DBManager().db
+        count = db.memes.count()
         save_step = 10 ** 6
 
         logger.info('query of meme counts ...')
-        meme_counts = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
-                                                  allowDiskUse=True)
+        meme_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
+                                             allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
@@ -504,14 +516,14 @@ class Command:
             operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'count': doc['count']}}))
             i += 1
             if i % save_step == 0:
-                mongodb.memes.bulk_write(operations)
+                db.memes.bulk_write(operations)
                 operations = []
                 logger.info('%d%% done', i * 100 / count)
-        mongodb.memes.bulk_write(operations)
+        db.memes.bulk_write(operations)
 
         logger.info('query of first times ...')
-        first_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}],
-                                                  allowDiskUse=True)
+        first_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}],
+                                             allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
@@ -520,14 +532,14 @@ class Command:
             operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'first_time': doc['first']}}))
             i += 1
             if i % save_step == 0:
-                mongodb.memes.bulk_write(operations)
+                db.memes.bulk_write(operations)
                 operations = []
                 logger.info('%d%% done', i * 100 / count)
-        mongodb.memes.bulk_write(operations)
+        db.memes.bulk_write(operations)
 
         logger.info('query of last times ...')
-        last_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}],
-                                                 allowDiskUse=True)
+        last_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}],
+                                            allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
@@ -536,10 +548,10 @@ class Command:
             operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'last_time': doc['last']}}))
             i += 1
             if i % save_step == 0:
-                mongodb.memes.bulk_write(operations)
+                db.memes.bulk_write(operations)
                 operations = []
                 logger.info('%d%% done', i * 100 / count)
-        mongodb.memes.bulk_write(operations)
+        db.memes.bulk_write(operations)
 
     def get_username(self, url):
         """

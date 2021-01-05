@@ -8,9 +8,9 @@ from networkx import DiGraph, write_adjlist
 from pymongo.errors import BulkWriteError
 from pymongo.operations import UpdateOne
 
-from settings import mongodb
+from memm.db import DBManager
 import settings
-from utils.time_utils import str_to_datetime
+from utils.time_utils import str_to_datetime, time_measure
 
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('weibo')
@@ -26,6 +26,7 @@ def create_roots(path):
     post_memes = []
     memes_map = {}
     i = 0
+    db = DBManager().db
 
     with open(path, encoding='utf-8', errors='ignore') as f:
         line = f.readline()
@@ -41,7 +42,7 @@ def create_roots(path):
                 content = [int(index) for index in line.split(' ') if index]
                 post_id_obj = ObjectId('{:024d}'.format(int(post_id)))
                 posts.append({'_id': post_id_obj})
-                meme_id = mongodb.memes.insert_one({'text': content}).inserted_id
+                meme_id = db.memes.insert_one({'text': content}).inserted_id
                 post_memes.append({'post_id': post_id_obj, 'meme_id': meme_id})
                 memes_map[post_id] = meme_id
                 post_id = None
@@ -50,8 +51,8 @@ def create_roots(path):
                 if i % 10000 == 0:
                     logger.info('%d posts read' % i)
                 if i % 100000 == 0:
-                    mongodb.posts.insert_many(posts)
-                    mongodb.postmemes.insert_many(post_memes)
+                    db.posts.insert_many(posts)
+                    db.postmemes.insert_many(post_memes)
                     logger.info('%d memes and their original posts created' % i)
                     posts = []
                     post_memes = []
@@ -59,8 +60,8 @@ def create_roots(path):
             line = f.readline()
 
     if posts:
-        mongodb.posts.insert_many(posts)
-        mongodb.postmemes.insert_many(post_memes)
+        db.posts.insert_many(posts)
+        db.postmemes.insert_many(post_memes)
         logger.info('%d memes and their original posts created' % i)
 
     return memes_map
@@ -82,8 +83,9 @@ def create_users(paths):
     :returns map of usernames to user ids
     """
     users = []
-    user_ids = {u['_id'] for u in mongodb.users.find({}, ['_id'])}
-    users_map = {u['username']: u['_id'] for u in mongodb.users.find({}, ['_id', 'username'])}
+    db = DBManager().db
+    user_ids = {u['_id'] for u in db.users.find({}, ['_id'])}
+    users_map = {u['username']: u['_id'] for u in db.users.find({}, ['_id', 'username'])}
     i = 0
 
     for path in paths:
@@ -117,7 +119,7 @@ def create_users(paths):
                         if i % 10000 == 0:
                             logger.info('%d users read' % i)
                         if i % 100000 == 0:
-                            mongodb.users.insert_many(users)
+                            db.users.insert_many(users)
                             logger.info('%d users created' % i)
                             users = []
 
@@ -129,7 +131,7 @@ def create_users(paths):
                     raise
 
         if users:
-            mongodb.users.insert_many(users)
+            db.users.insert_many(users)
             logger.info('%d users created' % i)
             users = []
 
@@ -139,7 +141,8 @@ def create_users(paths):
 def create_retweets(path, start_index, users_map, user_ids, memes_map):
     i = 0
     t0 = time.time()
-    memes_count = mongodb.memes.count()
+    db = DBManager().db
+    memes_count = db.memes.count()
     post_memes = []
     reshares = []
 
@@ -162,8 +165,8 @@ def create_retweets(path, start_index, users_map, user_ids, memes_map):
                 logger.info(
                     'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
                 if post_memes or reshares:
-                    mongodb.postmemes.insert_many(post_memes)
-                    mongodb.reshares.insert_many(reshares)
+                    db.postmemes.insert_many(post_memes)
+                    db.reshares.insert_many(reshares)
                     post_memes = []
                     reshares = []
                     logger.info('time : %d s' % (time.time() - t0))
@@ -184,12 +187,13 @@ def create_retweets(path, start_index, users_map, user_ids, memes_map):
     # Save the remaining relations.
     logger.info(
         'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-    mongodb.postmemes.insert_many(post_memes)
-    mongodb.reshares.insert_many(reshares)
+    db.postmemes.insert_many(post_memes)
+    db.reshares.insert_many(reshares)
 
 
 def read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring=False):
     # Read root post data.
+    db = DBManager().db
     line = None
     while line is None or line == '\n':
         line = f.readline()
@@ -202,13 +206,13 @@ def read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring=False):
     original_time = str_to_datetime(original_time, '%Y-%m-%d-%H:%M:%S')
 
     if original_uid not in user_ids:
-        mongodb.users.insert_one({'_id': original_uid, 'username': None})
+        db.users.insert_one({'_id': original_uid, 'username': None})
         user_ids.append(original_uid)
 
     if not ignoring:
-        mongodb.posts.update_one({'_id': original_pid},
+        db.posts.update_one({'_id': original_pid},
                                  {'$set': {'datetime': original_time, 'author_id': original_uid}})
-        mongodb.postmemes.update_one({'post_id': original_pid}, {'$set': {'datetime': original_time}})
+        db.postmemes.update_one({'post_id': original_pid}, {'$set': {'datetime': original_time}})
     meme_id = memes_map[str(original_pid)]
 
     # Read retweets number.
@@ -229,6 +233,8 @@ def read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring=False):
 
 
 def read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignoring=False):
+    db = DBManager().db
+
     # Read retweet data.
     line = None
     while line is None or line == '\n':
@@ -263,7 +269,7 @@ def read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignorin
             if uname in users_map:
                 uid_list.append(users_map[uname])
             else:
-                user_id = mongodb.users.insert_one({'username': uname}).inserted_id
+                user_id = db.users.insert_one({'username': uname}).inserted_id
                 uid_list.append(user_id)
 
         uid_list.append(retweet_uid)
@@ -293,9 +299,9 @@ def read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignorin
 
             if i == len(uid_list) - 1:
                 post_id = retweet_pid
-                mongodb.posts.insert_one({'_id': post_id, 'author_id': dst, 'datetime': resh_dt})
+                db.posts.insert_one({'_id': post_id, 'author_id': dst, 'datetime': resh_dt})
             else:
-                post_id = mongodb.posts.insert_one({'author_id': dst, 'datetime': resh_dt}).inserted_id
+                post_id = db.posts.insert_one({'author_id': dst, 'datetime': resh_dt}).inserted_id
 
             resh = {'post_id': post_id, 'reshared_post_id': resh_post_id, 'datetime': resh_dt,
                     'user_id': dst, 'ref_user_id': src, 'ref_datetime': resh_post['datetime']}
@@ -308,11 +314,12 @@ def read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignorin
 
 
 def calc_memes_values():
-    count = mongodb.memes.count()
+    db = DBManager().db
+    count = db.memes.count()
     save_step = 10 ** 6
 
     logger.info('query of meme counts ...')
-    meme_counts = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
+    meme_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
                                               allowDiskUse=True)
 
     logger.info('saving ...')
@@ -322,13 +329,13 @@ def calc_memes_values():
         operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'count': doc['count']}}))
         i += 1
         if i % save_step == 0:
-            mongodb.memes.bulk_write(operations)
+            db.memes.bulk_write(operations)
             operations = []
             logger.info('%d%% done', i * 100 / count)
-    mongodb.memes.bulk_write(operations)
+    db.memes.bulk_write(operations)
 
     logger.info('query of first times ...')
-    first_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}],
+    first_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}],
                                               allowDiskUse=True)
 
     logger.info('saving ...')
@@ -338,13 +345,13 @@ def calc_memes_values():
         operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'first_time': doc['first']}}))
         i += 1
         if i % save_step == 0:
-            mongodb.memes.bulk_write(operations)
+            db.memes.bulk_write(operations)
             operations = []
             logger.info('%d%% done', i * 100 / count)
-    mongodb.memes.bulk_write(operations)
+    db.memes.bulk_write(operations)
 
     logger.info('query of last times ...')
-    last_times = mongodb.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}],
+    last_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}],
                                              allowDiskUse=True)
 
     logger.info('saving ...')
@@ -354,10 +361,10 @@ def calc_memes_values():
         operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'last_time': doc['last']}}))
         i += 1
         if i % save_step == 0:
-            mongodb.memes.bulk_write(operations)
+            db.memes.bulk_write(operations)
             operations = []
             logger.info('%d%% done', i * 100 / count)
-    mongodb.memes.bulk_write(operations)
+    db.memes.bulk_write(operations)
 
 
 def read_uidlist(uidlist_file):
@@ -373,8 +380,9 @@ def read_uidlist(uidlist_file):
     return uid_list
 
 
+@time_measure()
 def extract_relations(relations_file, uidlist_file, user_ids=None):
-    t0 = time.time()
+    db = DBManager().db
 
     uid_list = read_uidlist(uidlist_file)
     uid_list_map = {uid_list[i]: i for i in range(len(uid_list))}
@@ -408,15 +416,13 @@ def extract_relations(relations_file, uidlist_file, user_ids=None):
             i += 1
             if i % 10000 == 0:
                 logger.info('%d lines read. saving ...' % i)
-                mongodb.relations.insert_many(edges)
+                db.relations.insert_many(edges)
                 logger.info('%d new relations saved' % len(edges))
                 edges = []
 
             line = f.readline()
 
     if edges:
-        mongodb.relations.insert_many(edges)
+        db.relations.insert_many(edges)
         logger.info('%d edges saved' % len(edges))
-
-    logger.info('graph extraction time: %.2f min', (time.time() - t0) / 60.0)
 

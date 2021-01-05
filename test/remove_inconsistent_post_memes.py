@@ -1,5 +1,6 @@
 import logging
-from settings import mongodb
+
+from memm.db import DBManager
 import settings
 
 logging.basicConfig(format=settings.LOG_FORMAT)
@@ -8,12 +9,13 @@ logger.setLevel(settings.LOG_LEVEL)
 
 i = 0
 logger.info('counting posts ...')
-count = mongodb.posts.find({'datetime': None}).count()
+db = DBManager().db
+count = db.posts.find({'datetime': None}).count()
 logger.info('removing inconsistent posts ...')
 
-cursor = mongodb.posts.find({'datetime': None}, ['_id'], no_cursor_timeout=True)
+cursor = db.posts.find({'datetime': None}, ['_id'], no_cursor_timeout=True)
 for p in cursor:
-    mongodb.postmemes.remove({'post_id': p['_id']})
+    db.postmemes.remove({'post_id': p['_id']})
     i += 1
     if i % 10000 == 0:
         logger.info('%d posts done: %.1f%%', i, i / count * 100)

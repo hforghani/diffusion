@@ -8,7 +8,7 @@ import numpy as np
 from bson import ObjectId
 
 from cascade.models import Project
-from settings import mongodb, logger, BASE_PATH
+from settings import logger, BASE_PATH
 
 
 class Command:
@@ -62,6 +62,8 @@ class Command:
             if project_name is None:
                 raise Exception('project not specified')
 
+            db = DBManager().db
+
             if args.sample_num:
                 # if args.users_num:
                 #     # Sample a limited number of user id's and get their memes. Then sample memes from this set.
@@ -94,7 +96,7 @@ class Command:
 
                 selected = np.load(os.path.join(BASE_PATH, 'data/weibo_meme_labels2.npy'))
                 logger.info('fetching all meme ids ...')
-                cursor = mongodb.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
+                cursor = db.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
                 all_meme_ids = [m['_id'] for m in cursor]
                 cursor.close()
                 selected_memes = np.array([str(mid) for mid in all_meme_ids])[selected]
@@ -103,7 +105,7 @@ class Command:
                 if args.min_depth:
                     query['depth'] = {'$gte': args.min_depth}
                 logger.info('sampling memes ...')
-                meme_ids = [m['_id'] for m in mongodb.memes.aggregate([
+                meme_ids = [m['_id'] for m in db.memes.aggregate([
                     {'$match': query},
                     {'$sample': {'size': args.sample_num}},
                     {'$project': {'_id': 1}}
@@ -116,7 +118,7 @@ class Command:
                 query = {}
                 if args.min_depth:
                     query = {'depth': {'$gte': args.min_depth}}
-                meme_ids = [m['_id'] for m in mongodb.memes.find(query, ['_id'])]
+                meme_ids = [m['_id'] for m in db.memes.find(query, ['_id'])]
                 shuffle(meme_ids)
 
             if not meme_ids:

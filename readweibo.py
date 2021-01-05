@@ -4,7 +4,7 @@ import logging
 import traceback
 import time
 
-from settings import mongodb
+from memm.db import DBManager
 import settings
 from cascade.weibo import create_users, create_roots, create_retweets, extract_relations, calc_memes_values
 
@@ -53,15 +53,16 @@ class Command:
     def handle(self, args):
         try:
             start = time.time()
+            db = DBManager().db
 
             # Delete all data.
             if args.clear and not args.set_attributes:
                 logger.info('======== deleting data ...')
-                mongodb.postmemes.delete_many({})
-                mongodb.reshares.delete_many({})
-                mongodb.posts.delete_many({})
-                mongodb.memes.delete_many({})
-                mongodb.users.delete_many({})
+                db.postmemes.delete_many({})
+                db.reshares.delete_many({})
+                db.posts.delete_many({})
+                db.memes.delete_many({})
+                db.users.delete_many({})
 
             if not args.set_attributes:
                 # Create users.
@@ -70,7 +71,7 @@ class Command:
                     users_map, user_ids = create_users(args.users_files)
                 elif args.retweets_file:
                     logger.info('collecting users map ...')
-                    users = mongodb.users.find({}, ['_id', 'username'])
+                    users = db.users.find({}, ['_id', 'username'])
                     users_map = {u['username']: u['_id'] for u in users if
                                  u['username'] is not None and u['username'] != ''}
                     users.rewind()
@@ -82,7 +83,7 @@ class Command:
                     memes_map = create_roots(args.roots_file)
                 elif args.retweets_file:
                     logger.info('collecting posts map ...')
-                    postmemes = mongodb.postmemes.find({}, ['post_id', 'meme_id'])
+                    postmemes = db.postmemes.find({}, ['post_id', 'meme_id'])
                     memes_map = {str(pm['post_id']): pm['meme_id'] for pm in postmemes}
 
                 # Create retweet data and complete original posts fields.

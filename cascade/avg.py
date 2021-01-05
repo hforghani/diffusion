@@ -1,7 +1,8 @@
 import numpy as np
 from scipy import sparse
 
-from settings import logger, mongodb
+from memm.db import DBManager
+from settings import logger
 from cascade.models import AsLT, ParamTypes
 
 
@@ -20,8 +21,9 @@ class LTAvg(AsLT):
         train_set, _, _ = self.project.load_sets()
 
         logger.info('querying posts of the memes ...')
+        db = DBManager().db
         posts_ids = [pm['post_id'] for pm in
-                     mongodb.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
+                     db.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
 
         if calc_weights or not calc_delays:
             self.calc_weights(posts_ids)
@@ -30,7 +32,8 @@ class LTAvg(AsLT):
 
     def calc_weights(self, posts_ids):
         logger.info('counting reshares of users ...')
-        resh_counts = mongodb.reshares.aggregate([
+        db = DBManager().db
+        resh_counts = db.reshares.aggregate([
             {'$match': {'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}}},
             {'$group': {'_id': {'user_id': '$user_id', 'ref_user_id': '$ref_user_id'}, 'count': {'$sum': 1}}},
             {'$project': {'user_id': '$_id.user_id', 'ref_user_id': '$_id.ref_user_id', 'count': '$count', '_id': 0}}
@@ -38,20 +41,20 @@ class LTAvg(AsLT):
 
         logger.info('getting users related to the reshares ...')
         users = []
-        resh_users = mongodb.reshares.find({'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}},
+        resh_users = db.reshares.find({'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}},
                                            {'user_id': 1, 'ref_user_id': 1, '_id': 0})
         for ru in resh_users:
             users.extend([ru['user_id'], ru['ref_user_id']])
         users = list(set(users))
 
         logger.info('counting posts of users ...')
-        post_counts = mongodb.posts.aggregate([
+        post_counts = db.posts.aggregate([
             {'$match': {'author_id': {'$in': users}}},
             {'$group': {'_id': '$author_id', 'count': {'$sum': 1}}}])
         post_counts = {obj['_id']: obj['count'] for obj in post_counts}
 
         logger.info('getting user ids ...')
-        user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
+        user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
         users_count = len(user_ids)
         users_map = {user_ids[i]: i for i in range(users_count)}
 
@@ -78,8 +81,9 @@ class LTAvg(AsLT):
 
     def calc_delays(self, posts_ids, continue_prev):
         logger.info('collecting user ids ...')
+        db = DBManager().db
 
-        user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
+        user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
         user_map = {user_ids[i]: i for i in range(len(user_ids))}
         u_count = len(user_ids)
 
@@ -105,7 +109,7 @@ class LTAvg(AsLT):
 
         # Iterate on reshares. Average on the delays of reshares between each pair of users. Save it as diffusion delay
         # between them.
-        reshares = mongodb.reshares.find({'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}},
+        reshares = db.reshares.find({'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}},
                                          {'_id': 0, 'datetime': 1, 'ref_datetime': 1, 'user_id': 1})
         j = 0
         for resh in reshares:

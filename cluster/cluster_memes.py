@@ -3,17 +3,20 @@ import os
 from bson import ObjectId
 from sklearn.cluster import SpectralClustering, DBSCAN
 from sklearn.preprocessing.data import normalize
-from settings import mongodb, logger, BASEPATH
+
+from memm.db import DBManager
+from settings import logger, BASEPATH
 import numpy as np
 from matplotlib import pyplot as plt
 
 
 def get_users(meme_id):
+    db = DBManager().db
     #logger.info('querying posts ...')
-    posts = [pm['post_id'] for pm in mongodb.postmemes.find({'meme_id': ObjectId(meme_id)}, {'post_id': 1, '_id': 0})]
+    posts = [pm['post_id'] for pm in db.postmemes.find({'meme_id': ObjectId(meme_id)}, {'post_id': 1, '_id': 0})]
     #logger.info('size of posts: {}'.format(len(posts)))
     #logger.info('querying users ...')
-    users = [p['author_id'] for p in mongodb.posts.find({'_id': {'$in': posts}}, {'author_id': 1, '_id': 0})]
+    users = [p['author_id'] for p in db.posts.find({'_id': {'$in': posts}}, {'author_id': 1, '_id': 0})]
     return list({str(u) for u in users})
 
 
@@ -141,7 +144,8 @@ def main():
     clust_num = 4
 
     # Extract the top cascades.
-    memes = [str(m['_id']) for m in mongodb.memes.find({}, ['_id']).sort('count', -1)[:count]]
+    db = DBManager().db
+    memes = [str(m['_id']) for m in db.memes.find({}, ['_id']).sort('count', -1)[:count]]
 
     # Extract user sets of top cascades
     users = load_or_extract_users(memes)

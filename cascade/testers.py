@@ -6,7 +6,8 @@ import numpy as np
 from matplotlib import pyplot
 
 from cascade.asynchroizables import train_memes, test_memes, test_memes_multiproc
-from settings import logger, mongodb
+from memm.db import DBManager
+from settings import logger
 from utils.time_utils import time_measure
 
 
@@ -18,7 +19,8 @@ class ProjectTester(abc.ABC):
         if method in ['aslt', 'avg']:
             # Create dictionary of user id's to their sorted index.
             logger.info('creating dictionary of user ids to their sorted index ...')
-            self.user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
+            db = DBManager().db
+            self.user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
             self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
         else:
             self.user_ids = None

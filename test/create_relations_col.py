@@ -3,11 +3,12 @@ import os
 import time
 from pymongo import UpdateOne
 from cascade.weibo import read_uidlist
-from settings import logger, mongodb
+from memm.db import DBManager
+from settings import logger
 import settings
 
 
-def create_raltions(relations_file, uidlist_file):
+def create_relations(relations_file, uidlist_file):
     t0 = time.time()
 
     uid_list = read_uidlist(uidlist_file)
@@ -37,6 +38,8 @@ def create_raltions(relations_file, uidlist_file):
             line = f.readline()
     logger.info('%d lines read', i)
 
+    db = DBManager().db
+
     i = 0
     rel_to_insert = []
     for user_id in relations:
@@ -45,17 +48,17 @@ def create_raltions(relations_file, uidlist_file):
         i += 1
         if i % 10000 == 0:
             logger.info('saving ...')
-            mongodb.relations.insert_many(rel_to_insert)
+            db.relations.insert_many(rel_to_insert)
             logger.info('%d / %d relations saved', i, len(relations))
             rel_to_insert = []
 
     if rel_to_insert:
         logger.info('saving ...')
-        mongodb.relations.insert_many(rel_to_insert)
+        db.relations.insert_many(rel_to_insert)
         logger.info('%d / %d relations saved', i, len(relations))
         rel_to_insert = []        
 
     logger.info('command done in %.2f min', (time.time() - t0) / 60.0)
 
 if __name__ == '__main__':
-    create_raltions(settings.WEIBO_FOLLOWERS_PATH, settings.WEIBO_UIDLIST_PATH)
+    create_relations(settings.WEIBO_FOLLOWERS_PATH, settings.WEIBO_UIDLIST_PATH)

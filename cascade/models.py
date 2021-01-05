@@ -12,10 +12,11 @@ import numpy as np
 from pymongo.errors import CursorNotFound
 
 import settings
-from settings import logger, mongodb
+from memm.db import DBManager
+from settings import logger
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.os_utils import mkdir_rec
-from utils.time_utils import str_to_datetime, DT_FORMAT
+from utils.time_utils import str_to_datetime, DT_FORMAT, Timer, time_measure
 
 
 class CascadeNode(object):
@@ -97,68 +98,65 @@ class CascadeTree(object):
 
     @classmethod
     def extract_cascade(cls, meme_id):
-        t1 = time.time()
+        with Timer('TREE: fetching posts', 'debug'):
+            # Fetch posts related to the meme and reshares.
+            if isinstance(meme_id, str):
+                meme_id = ObjectId(meme_id)
+            db = DBManager().db
+            post_ids = db.postmemes.distinct('post_id', {'meme_id': meme_id})
+            posts = db.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
 
-        # Fetch posts related to the meme and reshares.
-        if isinstance(meme_id, str):
-            meme_id = ObjectId(meme_id)
-        post_ids = mongodb.postmemes.distinct('post_id', {'meme_id': meme_id})
-        posts = mongodb.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
+            user_ids = list(set([p['author_id'] for p in posts]))
+            reshares = db.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
+                .sort('datetime')
 
-        user_ids = list(set([p['author_id'] for p in posts]))
-        reshares = mongodb.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
-            .sort('datetime')
-        logger.debug('TREE: time 1 = %.2f' % (time.time() - t1))
+        with Timer('TREE: creating nodes', 'debug'):
+            # Create nodes for the users.
+            nodes = {}
+            visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
+            for user_id in user_ids:
+                nodes[user_id] = CascadeNode(user_id)
 
-        # Create nodes for the users.
-        t1 = time.time()
-        nodes = {}
-        visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
-        for user_id in user_ids:
-            nodes[user_id] = CascadeNode(user_id)
-        logger.debug('TREE: time 2 = %.2f' % (time.time() - t1))
+        with Timer('TREE: creating difussion edges'):
+            # Create diffusion edge if a user reshares to another for the first time. Note that reshares are sorted by time.
+            logger.debug('TREE: reshares count = %d' % reshares.count())
+            roots = []
+            for reshare in reshares:
+                child_id = reshare['user_id']
+                parent_id = reshare['ref_user_id']
+                if child_id == parent_id:
+                    continue  # Continue if the reshare is between same users.
+                parent = nodes[parent_id]
 
-        # Create diffusion edge if a user reshares to another for the first time. Note that reshares are sorted by time.
-        t1 = time.time()
-        logger.debug('TREE: reshares count = %d' % reshares.count())
-        roots = []
-        for reshare in reshares:
-            child_id = reshare['user_id']
-            parent_id = reshare['ref_user_id']
-            if child_id == parent_id:
-                continue  # Continue if the reshare is between same users.
-            parent = nodes[parent_id]
+                if not visited[parent_id]:  # It is a root
+                    parent.post_id = reshare['reshared_post_id']
+                    parent.datetime = reshare['ref_datetime'].strftime(DT_FORMAT) if reshare['ref_datetime'] else None
+                    visited[parent_id] = True
+                    roots.append(parent)
 
-            if not visited[parent_id]:  # It is a root
-                parent.post_id = reshare['reshared_post_id']
-                parent.datetime = reshare['ref_datetime'].strftime(DT_FORMAT) if reshare['ref_datetime'] else None
-                visited[parent_id] = True
-                roots.append(parent)
+                if not visited[child_id]:  # Any other node
+                    child = nodes[child_id]
+                    parent.children.append(child)
+                    child.parent_id = parent_id
+                    child.post_id = reshare['post_id']
+                    child.datetime = reshare['datetime'].strftime(DT_FORMAT)
+                    visited[child_id] = True
 
-            if not visited[child_id]:  # Any other node
-                child = nodes[child_id]
-                parent.children.append(child)
-                child.parent_id = parent_id
-                child.post_id = reshare['post_id']
-                child.datetime = reshare['datetime'].strftime(DT_FORMAT)
-                visited[child_id] = True
-        logger.debug('TREE: time 3 = %.2f' % (time.time() - t1))
+        with Timer('TREE: Adding single nodes'):
+            # Add users with no diffusion edges as single nodes.
+            t1 = time.time()
+            first_posts = {}
+            posts.rewind()
 
-        # Add users with no diffusion edges as single nodes.
-        t1 = time.time()
-        first_posts = {}
-        posts.rewind()
-
-        for post in posts:
-            if post['author_id'] not in first_posts:
-                first_posts[post['author_id']] = post
-        for uid, node in nodes.items():
-            if not visited[uid]:
-                post = first_posts[uid]
-                node.datetime = post['datetime'].strftime(DT_FORMAT) if post['datetime'] else None
-                node.post_id = post['_id']
-                roots.append(node)
-        logger.debug('TREE: time 4 = %.2f' % (time.time() - t1))
+            for post in posts:
+                if post['author_id'] not in first_posts:
+                    first_posts[post['author_id']] = post
+            for uid, node in nodes.items():
+                if not visited[uid]:
+                    post = first_posts[uid]
+                    node.datetime = post['datetime'].strftime(DT_FORMAT) if post['datetime'] else None
+                    node.post_id = post['_id']
+                    roots.append(node)
 
         return cls(roots)
 
@@ -335,9 +333,10 @@ class AsLT(object):
         cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         activated = tree.nodes()
         self.probabilities = {}
+        db = DBManager().db
 
         if user_ids is None or users_map is None:
-            user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
+            user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
             users_map = {user_ids[i]: i for i in range(len(user_ids))}
         self.user_ids = user_ids
         self.users_map = users_map
@@ -444,7 +443,8 @@ class IC(object):
         activated = tree.nodes()
         if self.user_map is None:
             if user_ids is None:
-                user_ids = [u['_id'] for u in mongodb.users.find({}, ['_id']).sort('_id')]
+                db = DBManager().db
+                user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
             self.user_map = {user_ids[i]: i for i in range(len(user_ids))}
         logger.debug('time1 = %.2f' % (time.time() - t0))
 
@@ -695,12 +695,12 @@ class Project(object):
 
         return graph, sequences
 
+    @time_measure()
     def __get_memes_post_ids(self, meme_ids):
         logger.info('querying posts ids ...')
-        t0 = time.time()
+        db = DBManager().db
         post_ids = [pm['post_id'] for pm in
-                    mongodb.postmemes.find({'meme_id': {'$in': meme_ids}}, {'_id': 0, 'post_id': 1})]
-        logger.info('time: %.2f min' % ((time.time() - t0) / 60.0))
+                    db.postmemes.find({'meme_id': {'$in': meme_ids}}, {'_id': 0, 'post_id': 1})]
         return post_ids
 
     def __extract_act_seq(self, posts_ids, meme_ids, seq_fname):
@@ -717,17 +717,19 @@ class Project(object):
         users = {m: [] for m in meme_ids}
         times = {m: [] for m in meme_ids}
 
+        db = DBManager().db
+
         # Iterate on posts to extract activation sequences.
         i = 0
         while True:
-            posts = mongodb.posts.find({'_id': {'$in': posts_ids}}, ['author_id', 'datetime'], no_cursor_timeout=True) \
+            posts = db.posts.find({'_id': {'$in': posts_ids}}, ['author_id', 'datetime'], no_cursor_timeout=True) \
                 .sort('datetime').skip(i)
 
             try:
                 for post in posts:
                     if post['datetime'] is not None:
-                        for pm in mongodb.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': meme_ids}},
-                                                         {'_id': 0, 'meme_id': 1}):
+                        for pm in db.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': meme_ids}},
+                                                    {'_id': 0, 'meme_id': 1}):
                             meme_id = pm['meme_id']
                             if post['author_id'] not in users[meme_id]:
                                 users[meme_id].append(post['author_id'])
@@ -743,7 +745,7 @@ class Project(object):
         logger.info('setting relative times and max times ...')
         max_t = {}
         i = 0
-        for meme in mongodb.memes.find({'_id': {'$in': meme_ids}}, ['last_time', 'first_time']):
+        for meme in db.memes.find({'_id': {'$in': meme_ids}}, ['last_time', 'first_time']):
             mid = meme['_id']
             times[mid] = [(t - meme['first_time']).total_seconds() / (3600.0 * 24) for t in
                           times[mid]]  # number of days
@@ -783,7 +785,8 @@ class Project(object):
         t0 = time.time()
 
         logger.info('querying reshares ...')
-        reshares = mongodb.reshares.find(
+        db = DBManager().db
+        reshares = db.reshares.find(
             {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
             {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
         resh_count = reshares.count()
@@ -801,9 +804,9 @@ class Project(object):
             ref_user_id = resh['ref_user_id']
             if user_id != ref_user_id:
                 src_meme_ids = {pm['meme_id'] for pm in
-                                mongodb.postmemes.find({'post_id': resh['reshared_post_id']}, {'_id': 0, 'meme_id': 1})}
+                                db.postmemes.find({'post_id': resh['reshared_post_id']}, {'_id': 0, 'meme_id': 1})}
                 dest_meme_ids = {pm['meme_id'] for pm in
-                                 mongodb.postmemes.find({'post_id': resh['post_id']}, {'_id': 0, 'meme_id': 1})}
+                                 db.postmemes.find({'post_id': resh['post_id']}, {'_id': 0, 'meme_id': 1})}
                 common_memes = meme_ids & src_meme_ids & dest_meme_ids
                 if common_memes:
                     edges.append((ref_user_id, user_id))

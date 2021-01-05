@@ -7,8 +7,7 @@ import traceback
 
 import settings
 from cascade.models import Project
-from settings import mongodb
-from matplotlib import pyplot
+from memm.db import DBManager
 import numpy as np
 
 logging.basicConfig(format=settings.LOG_FORMAT)
@@ -59,7 +58,8 @@ class Command:
                 else:
                     query['size'] = {'$lte': args.max}
             logger.debug('query: %s', query)
-            memes = list(mongodb.memes.find(query, ['_id']))
+            db = DBManager().db
+            memes = list(db.memes.find(query, ['_id']))
             memes = [m['_id'] for m in memes]
 
             if len(memes) < args.number:

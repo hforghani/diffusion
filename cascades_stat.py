@@ -5,7 +5,7 @@ import time
 import traceback
 
 import settings
-from settings import mongodb
+from memm.db import DBManager
 from matplotlib import pyplot
 import numpy as np
 
@@ -41,7 +41,7 @@ class Command:
     def handle(self, args):
         try:
             start = time.time()
-            memes = list(mongodb.memes.find({}, ['_id', 'count']).sort('count', -1))
+            memes = list(DBManager().db.memes.find({}, ['_id', 'count']).sort('count', -1))
             mcounts = np.array([m['count'] for m in memes])
             min_count, max_count = min(mcounts), max(mcounts)
             print(f'min of all: {min_count}')
