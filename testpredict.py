@@ -5,6 +5,7 @@ import time
 from cascade.models import Project
 import settings
 from cascade.testers import MultiProcTester, DefaultTester
+from settings import logger
 
 
 class Command:
