@@ -83,7 +83,7 @@ class ProjectTester(abc.ABC):
         :return:
         """
 
-    def __get_mean_results(self, f1s, fprs, precisions, prp1_list, prp2_list, recalls):
+    def _get_mean_results(self, f1s, fprs, precisions, prp1_list, prp2_list, recalls):
         mean_prec = np.array(precisions).mean()
         mean_rec = np.array(recalls).mean()
         mean_fpr = np.array(fprs).mean()
@@ -143,7 +143,7 @@ class DefaultTester(ProjectTester):
                                                                           all_node_ids, self.user_ids,
                                                                           self.users_map)
 
-        return self.__get_mean_results(f1s, fprs, precisions, prp1_list, prp2_list, recalls)
+        return self._get_mean_results(f1s, fprs, precisions, prp1_list, prp2_list, recalls)
 
 
 class MultiProcTester(ProjectTester):
@@ -164,7 +164,7 @@ class MultiProcTester(ProjectTester):
         precisions, recalls, f1s, fprs, prp1_list, prp2_list \
             = self.__test_multi_processed(test_set, threshold, initial_depth, max_depth, trees, all_node_ids)
 
-        return self.__get_mean_results(f1s, fprs, precisions, prp1_list, prp2_list, recalls)
+        return self._get_mean_results(f1s, fprs, precisions, prp1_list, prp2_list, recalls)
 
     def __test_multi_processed(self, test_set, threshold, initial_depth, max_depth, trees, all_node_ids):
         """
