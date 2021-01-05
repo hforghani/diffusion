@@ -59,8 +59,13 @@ def train_memes(method, project):
 
 def test_memes_multiproc(meme_ids, method, project, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
                          users_map):
-    model = train_memes(method, project)
-    test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids, users_map)
+    try:
+        model = train_memes(method, project)
+        test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
+                   users_map)
+    except:
+        logger.error(traceback.format_exc())
+        raise
 
 
 def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids, users_map):
