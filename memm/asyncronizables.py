@@ -11,8 +11,7 @@ from utils.time_utils import Timer
 
 def train_memms(evidences):
     user_ids = list(evidences.keys())
-    p_name = multiprocessing.current_process().name
-    logger.debugv('[%s] training memms started', p_name)
+    logger.debugv('training memms started')
     memms = {}
     count = 0
     for uid in user_ids:
@@ -26,16 +25,15 @@ def train_memms(evidences):
         except MemmException:
             logger.warn('evidences for user %s ignored due to insufficient data', uid)
         if count % 1000 == 0:
-            logger.debug('[%s] %d memms trained', p_name, count)
+            logger.debug('%d memms trained', count)
 
-    logger.debugv('[%s] training memms finished', p_name)
+    logger.debugv('training memms finished')
     return memms
 
 
 def test_memms(children, parents_dic, observations, active_ids, memms, threshold):
     try:
-        p_name = multiprocessing.current_process().name
-        logger.debug('[%s] testing memms started', p_name)
+        logger.debug('testing memms started')
 
         active_children = []
 
@@ -64,11 +62,11 @@ def test_memms(children, parents_dic, observations, active_ids, memms, threshold
 
             j += 1
             if j % 100 == 0:
-                logger.debugv('[%s] %d / %d of children iterated', p_name, j, len(children))
+                logger.debugv('%d / %d of children iterated', j, len(children))
 
         del memms, children, parents_dic, observations, active_ids
 
-        logger.debug('[%s] testing memms finished', p_name)
+        logger.debug('testing memms finished')
         return active_children
     except:
         traceback.print_exc()
@@ -90,8 +88,7 @@ def test_memms_eco(children, parents_dic, observations, project, active_ids, thr
         train_timer = Timer('training memm in eco mode', silent=True)
         test_timer = Timer('testing memm in eco mode', silent=True)
 
-        p_name = multiprocessing.current_process().name
-        logger.debug('[%s] testing memms started', p_name)
+        logger.debug('testing memms started')
 
         active_children = []
 
@@ -123,14 +120,14 @@ def test_memms_eco(children, parents_dic, observations, project, active_ids, thr
 
             j += 1
             if j % 100 == 0:
-                logger.debug('[%s] %d / %d of children iterated', p_name, j, len(inactive_children))
+                logger.debug('%d / %d of children iterated', j, len(inactive_children))
 
         del children, parents_dic, observations, active_ids
 
         for timer in [db_timer, train_timer, test_timer]:
             timer.report_sum()
 
-        logger.debug('[%s] testing memms finished', p_name)
+        logger.debug('testing memms finished')
         return active_children
 
     except:
