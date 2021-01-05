@@ -119,9 +119,9 @@ class ProjectTester(abc.ABC):
 
 class DefaultTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
-        model = self.train(self.method)
-        thr = self.validate(self.method, thresholds, initial_depth, max_depth, model)
-        return self.test(self.method, thr, initial_depth, max_depth, model)
+        model = self.train()
+        thr = self.validate(thresholds, initial_depth, max_depth, model)
+        return self.test(thr, initial_depth, max_depth, model)
 
     @time_measure()
     def test(self, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False, model=None):
@@ -143,8 +143,8 @@ class DefaultTester(ProjectTester):
 
 class MultiProcTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
-        thr = self.validate(self.method, thresholds, initial_depth, max_depth)
-        return self.test(self.method, thr, initial_depth, max_depth)
+        thr = self.validate(thresholds, initial_depth, max_depth)
+        return self.test(thr, initial_depth, max_depth)
 
     @time_measure()
     def test(self, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False, model=None):
