@@ -13,6 +13,7 @@ from pympler.asizeof import asizeof
 from cascade.models import CascadeNode, CascadeTree, ParamTypes
 from memm.asyncronizables import train_memms, test_memms, test_memms_eco
 from memm.db import MEMMManager, DBManager
+from memm.decorators import graceful_auto_reconnect
 from memm.memm import MEMM
 # from neo4j.models import Neo4jGraph
 import numpy as np
@@ -381,7 +382,7 @@ class MEMMModel:
 
             with ch_timer:
                 relations = db.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}},
-                                                   {'_id': 0, 'user_id': 1, 'children': 1})
+                                              {'_id': 0, 'user_id': 1, 'children': 1})
                 children_dic = {rel['user_id']: rel['children'] for rel in relations}
 
             i = 0
@@ -411,9 +412,7 @@ class MEMMModel:
 
                 elif threshold < 1:
                     with p_timer:
-                        relations = db.relations.find({'user_id': {'$in': children}},
-                                                           {'_id': 0, 'user_id': 1, 'parents': 1})
-                        parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+                        parents_dic = self.__get_parents_dic(children, db)
 
                     with obs_timer:
                         for child_id in children:
@@ -452,6 +451,13 @@ class MEMMModel:
             timer.report_sum()
 
         return tree
+
+    @graceful_auto_reconnect
+    def __get_parents_dic(self, children, db):
+        relations = db.relations.find({'user_id': {'$in': children}},
+                                      {'_id': 0, 'user_id': 1, 'parents': 1})
+        parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+        return parents_dic
 
     def __save_memms(self, memms):
         MEMMManager().insert(self.project, memms)
