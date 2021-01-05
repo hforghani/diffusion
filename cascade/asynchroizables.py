@@ -60,9 +60,12 @@ def train_memes(method, project):
 def test_memes_multiproc(meme_ids, method, project, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
                          users_map):
     try:
+        logger.debug('training project %s with method %s', project.project_name, method)
         model = train_memes(method, project)
+        logger.debug('going to test a part of cascades ...')
         test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
                    users_map)
+        logger.debug('testing a part of cascades done')
     except:
         logger.error(traceback.format_exc())
         raise
