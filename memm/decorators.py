@@ -1,9 +1,11 @@
 import functools
+import os
 import random
 import time
 
 import pymongo
 
+from memm.db import DBManager
 from settings import logger
 
 MAX_AUTO_RECONNECT_ATTEMPTS = 5
@@ -20,6 +22,15 @@ def graceful_auto_reconnect(mongo_op_func):
             except pymongo.errors.AutoReconnect as e:
                 if attempt == MAX_AUTO_RECONNECT_ATTEMPTS - 1:
                     raise
+
+                # Check mongod is down. Try to start it if down.
+                try:
+                    DBManager().db.client.server_info()
+                except pymongo.errors.ServerSelectionTimeoutError:
+                    logger.info('mongod is down. starting mongod service ...')
+                    os.system('sudo service mongod start')
+                    logger.info('mongod started')
+
                 wait_t = (0.5 + random.random() * 0.2 - 0.1) * pow(2, attempt)  # exponential back off
                 logger.warning("PyMongo auto-reconnecting... %s. Waiting %.1f seconds.", str(e), wait_t)
                 time.sleep(wait_t)
