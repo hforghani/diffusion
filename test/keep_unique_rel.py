@@ -1,4 +1,4 @@
-from memm.db import DBManager
+from utils.db import DBManager
 
 
 def main():

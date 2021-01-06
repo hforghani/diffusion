@@ -5,7 +5,7 @@ import time
 import traceback
 
 import settings
-from memm.db import DBManager
+from utils.db import DBManager
 from matplotlib import pyplot
 import numpy as np
 

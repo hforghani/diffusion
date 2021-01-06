@@ -1,14 +1,12 @@
 import logging
 import time
-import os
 
 from bson.objectid import ObjectId
 from datetime import timedelta
-from networkx import DiGraph, write_adjlist
 from pymongo.errors import BulkWriteError
 from pymongo.operations import UpdateOne
 
-from memm.db import DBManager
+from utils.db import DBManager
 import settings
 from utils.time_utils import str_to_datetime, time_measure
 

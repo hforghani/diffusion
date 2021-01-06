@@ -1,10 +1,10 @@
 import json
 import os
 from bson import ObjectId
-from sklearn.cluster import SpectralClustering, DBSCAN
+from sklearn.cluster import SpectralClustering
 from sklearn.preprocessing.data import normalize
 
-from memm.db import DBManager
+from utils.db import DBManager
 from settings import logger, BASEPATH
 import numpy as np
 from matplotlib import pyplot as plt

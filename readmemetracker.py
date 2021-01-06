@@ -11,7 +11,7 @@ from bson.objectid import ObjectId
 import pygtrie
 from pymongo.operations import UpdateOne
 
-from memm.db import DBManager
+from utils.db import DBManager
 import settings
 from utils.time_utils import str_to_datetime
 

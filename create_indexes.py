@@ -4,7 +4,7 @@ import pymongo
 from pymongo import IndexModel
 
 import settings
-from memm.db import DBManager
+from utils.db import DBManager
 
 
 def handle(logger):

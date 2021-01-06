@@ -1,7 +1,7 @@
 from scipy import sparse
 import numpy as np
 
-from memm.db import DBManager
+from utils.db import DBManager
 from settings import logger
 from utils.numpy_utils import save_sparse
 

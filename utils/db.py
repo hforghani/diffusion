@@ -1,4 +1,8 @@
 import pickle
+import functools
+import os
+import random
+import time
 
 import pymongo
 from bson import ObjectId, Binary
@@ -91,3 +95,33 @@ class MEMMManager:
             memm.orig_indexes = doc['orig_indexes']
             memms[doc['user_id']] = memm
         return memms
+
+
+MAX_AUTO_RECONNECT_ATTEMPTS = 5
+
+
+def graceful_auto_reconnect(mongo_op_func):
+    """Gracefully handle a reconnection event."""
+
+    @functools.wraps(mongo_op_func)
+    def wrapper(*args, **kwargs):
+        for attempt in range(MAX_AUTO_RECONNECT_ATTEMPTS):
+            try:
+                return mongo_op_func(*args, **kwargs)
+            except pymongo.errors.AutoReconnect as e:
+                if attempt == MAX_AUTO_RECONNECT_ATTEMPTS - 1:
+                    raise
+
+                # Check mongod is down. Try to start it if down.
+                try:
+                    DBManager().db.client.server_info()
+                except pymongo.errors.ServerSelectionTimeoutError:
+                    logger.info('mongod is down. starting mongod service ...')
+                    os.system('service mongod start')
+                    logger.info('mongod started')
+
+                wait_t = (0.5 + random.random() * 0.2 - 0.1) * pow(2, attempt)  # exponential back off
+                logger.warning("PyMongo auto-reconnecting... %s. Waiting %.1f seconds.", str(e), wait_t)
+                time.sleep(wait_t)
+
+    return wrapper

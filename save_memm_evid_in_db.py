@@ -3,7 +3,7 @@ import argparse
 from bson import ObjectId
 
 from cascade.models import Project, ParamTypes
-from memm.db import DBManager
+from utils.db import DBManager
 from memm.models import MEMM_EVID_FILE_NAME
 from settings import logger
 

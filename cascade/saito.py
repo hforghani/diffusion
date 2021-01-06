@@ -3,7 +3,7 @@ import numpy as np
 from scipy import sparse
 from sklearn.preprocessing import normalize
 from cascade.models import AsLT, ParamTypes
-from memm.db import DBManager
+from utils.db import DBManager
 from settings import logger
 
 

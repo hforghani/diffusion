@@ -1,9 +1,6 @@
-import csv
-import os
 import time
-from pymongo import UpdateOne
 from cascade.weibo import read_uidlist
-from memm.db import DBManager
+from utils.db import DBManager
 from settings import logger
 import settings
 

@@ -7,7 +7,7 @@ import numpy as np
 from matplotlib import pyplot
 
 from cascade.asynchroizables import train_memes, test_memes, test_memes_multiproc
-from memm.db import DBManager
+from utils.db import DBManager
 from settings import logger
 from utils.time_utils import time_measure
 

@@ -4,7 +4,7 @@ import logging
 import traceback
 import time
 
-from memm.db import DBManager
+from utils.db import DBManager
 import settings
 from cascade.weibo import create_users, create_roots, create_retweets, extract_relations, calc_memes_values
 

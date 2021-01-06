@@ -1,6 +1,6 @@
 import logging
 
-from memm.db import DBManager
+from utils.db import DBManager
 import settings
 
 logging.basicConfig(format=settings.LOG_FORMAT)

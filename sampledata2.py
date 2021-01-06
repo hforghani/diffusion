@@ -1,5 +1,4 @@
 import argparse
-import json
 import logging
 import random
 import time
@@ -7,7 +6,7 @@ import traceback
 
 import settings
 from cascade.models import Project
-from memm.db import DBManager
+from utils.db import DBManager
 import numpy as np
 
 logging.basicConfig(format=settings.LOG_FORMAT)
