@@ -1,4 +1,5 @@
 import functools
+import random
 import time
 
 import pymongo
@@ -17,7 +18,9 @@ def graceful_auto_reconnect(mongo_op_func):
             try:
                 return mongo_op_func(*args, **kwargs)
             except pymongo.errors.AutoReconnect as e:
-                wait_t = 0.5 * pow(2, attempt)  # exponential back off
+                if attempt == MAX_AUTO_RECONNECT_ATTEMPTS - 1:
+                    raise
+                wait_t = (0.5 + random.random() * 0.2 - 0.1) * pow(2, attempt)  # exponential back off
                 logger.warning("PyMongo auto-reconnecting... %s. Waiting %.1f seconds.", str(e), wait_t)
                 time.sleep(wait_t)
 
