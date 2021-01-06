@@ -120,7 +120,7 @@ def graceful_auto_reconnect(mongo_op_func):
                     os.system('service mongod start')
                     logger.info('mongod started')
 
-                wait_t = (0.5 + random.random() * 0.2 - 0.1) * pow(2, attempt)  # exponential back off
+                wait_t = 0.5 * pow(2, attempt)  # exponential back off
                 logger.warning("PyMongo auto-reconnecting... %s. Waiting %.1f seconds.", str(e), wait_t)
                 time.sleep(wait_t)
 
