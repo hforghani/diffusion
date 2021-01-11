@@ -97,7 +97,7 @@ class MEMMManager:
         return memms
 
 
-MAX_AUTO_RECONNECT_ATTEMPTS = 5
+MAX_AUTO_RECONNECT_ATTEMPTS = 10
 
 
 def graceful_auto_reconnect(mongo_op_func):

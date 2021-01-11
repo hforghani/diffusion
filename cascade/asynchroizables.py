@@ -121,7 +121,7 @@ def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, tre
                 f1s.append(f1)
 
                 log = f'meme {meme_id} ({count}/{len(meme_ids)}): {len(res_output)} outputs, ' \
-                      f'{len(true_output)} true, precision = {prec:.3f}, recall = {rec:.3f}, f1 = {f1:.3f}'
+                          f'{len(true_output)} true, precision = {prec:.3f}, recall = {rec:.3f}, f1 = {f1:.3f}'
                 if method in ['aslt', 'avg']:
                     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                 logger.info(log)

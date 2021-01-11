@@ -385,54 +385,52 @@ class MEMMModel:
                 # rel = db.relations.find_one({'user_id': node_id}, {'_id': 0, 'children': 1})
                 # children = rel['children'] if rel is not None else []
 
-                if not children:
-                    continue
+                if children:
+                    logger.debug('num of children of %s : %d', node_id, len(children))
 
-                logger.debug('num of children of %s : %d', node_id, len(children))
+                    # Add all children if threshold is 0.
+                    if threshold == 0:
+                        j = 0
+                        inact_children = set(children) - set(active_ids)
+                        for child_id in inact_children:
+                            child = CascadeNode(child_id)
+                            node.children.append(child)
+                            next_step.append(child)
+                            active_ids.append(child_id)
+                            j += 1
+                            if j % 100 == 0:
+                                logger.debugv('%d / %d of children iterated', j, len(inact_children))
 
-                # Add all children if threshold is 0.
-                if threshold == 0:
-                    j = 0
-                    inact_children = set(children) - set(active_ids)
-                    for child_id in inact_children:
-                        child = CascadeNode(child_id)
-                        node.children.append(child)
-                        next_step.append(child)
-                        active_ids.append(child_id)
-                        j += 1
-                        if j % 100 == 0:
-                            logger.debugv('%d / %d of children iterated', j, len(inact_children))
+                    elif threshold < 1:
+                        with p_timer:
+                            parents_dic = self.__get_parents_dic(children, db)
 
-                elif threshold < 1:
-                    with p_timer:
-                        parents_dic = self.__get_parents_dic(children, db)
+                        with obs_timer:
+                            for child_id in children:
+                                obs = observations.setdefault(child_id, 0)
+                                if child_id not in parents_dic:
+                                    continue
+                                parents = parents_dic[child_id]
+                                index = parents.index(node_id)
+                                obs |= 1 << (len(parents) - index - 1)
+                                observations[child_id] = obs
 
-                    with obs_timer:
-                        for child_id in children:
-                            obs = observations.setdefault(child_id, 0)
-                            if child_id not in parents_dic:
-                                continue
-                            parents = parents_dic[child_id]
-                            index = parents.index(node_id)
-                            obs |= 1 << (len(parents) - index - 1)
-                            observations[child_id] = obs
-
-                    with m_timer:
-                        if len(children) > 150000 and multiprocessed:
-                            self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
-                                                         threshold, next_step)
-                        elif len(children) > 1000 and multiprocessed:
-                            self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
-                                                     next_step)
-                        else:
-                            memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
-                            act_children = test_memms(children, parents_dic, observations, active_ids, memms_i,
-                                                      threshold)
-                            for child_id in act_children:
-                                child = CascadeNode(child_id)
-                                node.children.append(child)
-                                next_step.append(child)
-                                active_ids.append(child_id)
+                        with m_timer:
+                            if len(children) > 150000 and multiprocessed:
+                                self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
+                                                             threshold, next_step)
+                            elif len(children) > 1000 and multiprocessed:
+                                self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
+                                                         next_step)
+                            else:
+                                memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
+                                act_children = test_memms(children, parents_dic, observations, active_ids, memms_i,
+                                                          threshold)
+                                for child_id in act_children:
+                                    child = CascadeNode(child_id)
+                                    node.children.append(child)
+                                    next_step.append(child)
+                                    active_ids.append(child_id)
 
                 i += 1
                 logger.debug('%d / %d nodes of current step done', i, len(cur_step))
