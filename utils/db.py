@@ -80,11 +80,11 @@ class MEMMManager:
         logger.debug('creating MEMM documents ...')
         documents = [self.__get_doc(uid, memms[uid]) for uid in memms]
         logger.debug('inserting MEMMs into db ...')
-        collection = self.db.get_collection(f'memms_{project.project_name}')
+        collection = self.db.get_collection(f'memm_{project.project_name}')
         collection.insert_many(documents)
 
     def fetch(self, project):
-        collection = self.db.get_collection(f'memms_{project.project_name}')
+        collection = self.db.get_collection(f'memm_{project.project_name}')
         memms = {}
         for doc in collection.find():
             memm = MEMM()
