@@ -14,17 +14,18 @@ def create_relations():
             parent = resh['ref_user_id']
             child = resh['user_id']
             if child is not None and parent is not None:
-                relations.setdefault(parent, {'parents': [], 'children': []})
-                relations[parent]['children'].append(child)
-                relations.setdefault(child, {'parents': [], 'children': []})
-                relations[child]['parents'].append(parent)
+                relations.setdefault(parent, {'parents': set(), 'children': set()})
+                relations[parent]['children'].add(child)
+                relations.setdefault(child, {'parents': set(), 'children': set()})
+                relations[child]['parents'].add(parent)
         i += 1
         if i % 1000 == 0:
             logger.info('%d reshares done', i)
 
     logger.info('creating %d relations ...', len(relations))
-    relations = [{'user_id': uid, 'parents': data['parents'], 'children': data['children']} for uid, data in
-                 relations.items()]
+    relations = [{'user_id': uid,
+                  'parents': list(data['parents']),
+                  'children': list(data['children'])} for uid, data in relations.items()]
     db.relations.insert_many(relations)
     logger.info('done')
 
