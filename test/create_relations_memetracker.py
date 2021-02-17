@@ -19,7 +19,7 @@ def create_relations():
                 relations.setdefault(child, {'parents': set(), 'children': set()})
                 relations[child]['parents'].add(parent)
         i += 1
-        if i % 1000 == 0:
+        if i % 100000 == 0:
             logger.info('%d reshares done', i)
 
     logger.info('creating %d relations ...', len(relations))
