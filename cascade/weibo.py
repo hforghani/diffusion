@@ -6,7 +6,7 @@ from datetime import timedelta
 from pymongo.errors import BulkWriteError
 from pymongo.operations import UpdateOne
 
-from utils.db import DBManager
+from db.managers import DBManager
 import settings
 from utils.time_utils import str_to_datetime, time_measure
 

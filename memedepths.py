@@ -8,7 +8,7 @@ import time
 from bson.objectid import ObjectId
 
 import settings
-from utils.db import DBManager
+from db.managers import DBManager
 
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('memedepths')

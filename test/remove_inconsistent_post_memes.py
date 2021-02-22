@@ -1,6 +1,6 @@
 import logging
 
-from utils.db import DBManager
+from db.managers import DBManager
 import settings
 
 logging.basicConfig(format=settings.LOG_FORMAT)

@@ -5,7 +5,7 @@ import time
 import traceback
 
 import settings
-from utils.db import DBManager
+from db.managers import DBManager
 from matplotlib import pyplot
 import numpy as np
 

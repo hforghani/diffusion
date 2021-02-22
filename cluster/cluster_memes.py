@@ -4,7 +4,7 @@ from bson import ObjectId
 from sklearn.cluster import SpectralClustering
 from sklearn.preprocessing.data import normalize
 
-from utils.db import DBManager
+from db.managers import DBManager
 from settings import logger, BASEPATH
 import numpy as np
 from matplotlib import pyplot as plt

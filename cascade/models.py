@@ -12,7 +12,7 @@ import numpy as np
 from pymongo.errors import CursorNotFound
 
 import settings
-from utils.db import DBManager
+from db.managers import DBManager
 from settings import logger
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
 from utils.os_utils import mkdir_rec

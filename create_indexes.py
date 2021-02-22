@@ -4,7 +4,7 @@ import pymongo
 from pymongo import IndexModel
 
 import settings
-from utils.db import DBManager
+from db.managers import DBManager
 
 
 def handle(logger):
@@ -12,15 +12,15 @@ def handle(logger):
     logger.info('creating an index for memes ...')
     db.memes.create_index('depth')
     logger.info('creating indexes for postmemes ...')
-    db.postmemes.create_indexes([IndexModel('meme_id'), IndexModel('post_id'), IndexModel('datetime')])
+    db.postmemes.create_index([IndexModel('meme_id'), IndexModel('post_id'), IndexModel('datetime')])
     logger.info('creating indexes for posts ...')
-    db.posts.create_indexes([IndexModel('author_id'), IndexModel('datetime')])
+    db.posts.create_index([IndexModel('author_id'), IndexModel('datetime')])
     logger.info('creating indexes for reshares ...')
-    db.reshares.create_indexes([IndexModel('post_id'), IndexModel('reshared_post_id'), IndexModel('datetime'),
-                                     IndexModel(
+    db.reshares.create_index([IndexModel('post_id'), IndexModel('reshared_post_id'), IndexModel('datetime'),
+                              IndexModel(
                                          [('user_id', pymongo.ASCENDING), ('ref_user_id', pymongo.ASCENDING)])])
     logger.info('creating indexes for relations ...')
-    db.relations.create_indexes([IndexModel('user_id')])
+    db.relations.create_index([IndexModel('user_id')])
 
 
 if __name__ == '__main__':

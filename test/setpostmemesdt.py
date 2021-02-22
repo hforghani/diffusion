@@ -1,4 +1,4 @@
-from utils.db import DBManager
+from db.managers import DBManager
 from settings import logger
 
 db = DBManager().db

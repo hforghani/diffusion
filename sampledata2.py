@@ -6,7 +6,7 @@ import traceback
 
 import settings
 from cascade.models import Project
-from utils.db import DBManager
+from db.managers import DBManager
 import numpy as np
 
 logging.basicConfig(format=settings.LOG_FORMAT)

@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import sparse
 
-from utils.db import DBManager
+from db.managers import DBManager
 from settings import logger
 from cascade.models import AsLT, ParamTypes
 

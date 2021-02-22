@@ -1,6 +1,6 @@
 import time
 from cascade.weibo import read_uidlist
-from utils.db import DBManager
+from db.managers import DBManager
 from settings import logger
 import settings
 

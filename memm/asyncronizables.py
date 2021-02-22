@@ -1,6 +1,6 @@
 import traceback
 
-from utils.db import EvidenceManager
+from db.managers import EvidenceManager
 from memm.memm import MEMM, MemmException
 from settings import logger
 from utils.time_utils import Timer
@@ -93,7 +93,7 @@ def test_memms_eco(children, parents_dic, observations, project, active_ids, thr
         with db_timer:
             # A new instance is created since instances of MongoClient must not be copied from
             # a parent process to a child process.
-            evidences = EvidenceManager().get_many(project, inactive_children)
+            evidences = EvidenceManager().get_many_generator(project, inactive_children)
 
         j = 0
         for child_id, ev in evidences:

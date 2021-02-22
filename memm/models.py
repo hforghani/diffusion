@@ -3,12 +3,13 @@ import multiprocessing
 import random
 from multiprocessing.pool import Pool
 
-from bson.objectid import ObjectId
 from pympler.asizeof import asizeof
 
-from cascade.models import CascadeNode, CascadeTree, ParamTypes
+from cascade.models import CascadeNode, CascadeTree
 from memm.asyncronizables import train_memms, test_memms, test_memms_eco
-from utils.db import MEMMManager, DBManager, graceful_auto_reconnect
+from db.exceptions import DataDoesNotExist
+from db.managers import MEMMManager, DBManager, EvidenceManager
+from db.decorators import graceful_auto_reconnect
 # from neo4j.models import Neo4jGraph
 from settings import logger
 from utils.time_utils import Timer
@@ -24,54 +25,26 @@ class MEMMModel:
         self.project = project
         self.__memms = {}
 
-    def __save_evidences(self, evidences):
-        logger.info('saving MEMM evidences ...')
-        evidences = {str(key): value for key, value in evidences.items()}
-        self.project.save_param(evidences, MEMM_EVID_FILE_NAME, ParamTypes.JSON)
-        logger.info('done')
-
-    def __load_evidences(self):
-        logger.info('loading MEMM evidences ...')
-        evidences = self.project.load_param(MEMM_EVID_FILE_NAME, ParamTypes.JSON)
-        evidences = {ObjectId(uid): evidences[uid] for uid in evidences}
-        return evidences
-
-    def __add_and_save_evidences(self, new_evidences):
-        try:
-            evidences = self.__load_evidences()
-        except FileNotFoundError:
-            evidences = {}
-
-        if new_evidences:
-            logger.info('integrating MEMM evidences ...')
-            for uid in new_evidences:
-                if uid not in evidences:
-                    evidences[uid] = new_evidences[uid]
-                else:
-                    evidences[uid][1].extend(new_evidences[uid][1])
-            self.__save_evidences(evidences)
-
-        return evidences
-
     def __prepare_evidences(self, train_set):
         """
         Prepare the sequence of observations and states to train the MEMM models.
         :param train_set: list of training cascade id's
         :return: a dictionary of user id's to instances of MemmEvidence
         """
-        db = DBManager().db
+        evid_manager = EvidenceManager()
 
         act_seqs = self.project.load_or_extract_act_seq()
 
         try:
-            evidences = self.__load_evidences()
+            evidences = evid_manager.get_many(self.project)
 
-        except FileNotFoundError:
+        except DataDoesNotExist:
             logger.info('no evidences found! extraction started')
             count = 0
-            new_evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances which are not saved yet.
+            evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
             cascade_seqs = {}  # dictionary of user id's to the sequences of ObsPair instances for this current cascade
             parent_sizes = {}  # dictionary of user id's to number of their parents
+            db = DBManager().db
 
             logger.info('extracting sequences from %d cascades ...', len(train_set))
 
@@ -146,15 +119,19 @@ class MEMMModel:
                 for uid in cascade_seqs:
                     # dim = len(rel_dic[uid]['parents'])
                     dim = parent_sizes[uid]
-                    new_evidences.setdefault(uid, [dim, []])
-                    new_evidences[uid][1].append(cascade_seqs[uid])
+                    evidences.setdefault(uid, {
+                        'dimension': dim,
+                        'sequences': []
+                    })
+                    evidences[uid]['sequences'].append(cascade_seqs[uid])
                 cascade_seqs = {}
 
-                if len(act_seq.users) > 1000:
-                    self.__add_and_save_evidences(new_evidences)
-                    new_evidences = {}
+                # if len(act_seq.users) > 1000 and new_evidences:
+                #     evid_manager.insert(self.project, new_evidences)
+                #     new_evidences = {}
 
-            evidences = self.__add_and_save_evidences(new_evidences)
+            evid_manager.insert(self.project, evidences)
+            evid_manager.create_index(self.project)
 
         return evidences
 
@@ -420,7 +397,8 @@ class MEMMModel:
                                 self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
                                                              threshold, next_step)
                             elif len(children) > 1000 and multiprocessed:
-                                self.__predict_multiproc(children, node, parents_dic, observations, active_ids, threshold,
+                                self.__predict_multiproc(children, node, parents_dic, observations, active_ids,
+                                                         threshold,
                                                          next_step)
                             else:
                                 memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}

@@ -1,5 +1,5 @@
 from settings import logger
-from utils.db import DBManager
+from db.managers import DBManager
 from utils.time_utils import time_measure
 
 
