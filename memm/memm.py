@@ -42,7 +42,7 @@ class MEMM():
         :return:            self
         """
         t0 = t_start = time.time()
-        dim, sequences = evidence[0], evidence[1]
+        dim, sequences = evidence['dimension'], evidence['sequences']
         new_sequences, self.orig_indexes = self.__decrease_dim(sequences, dim)
         new_dim = len(self.orig_indexes)
         times[1] += time.time() - t0
