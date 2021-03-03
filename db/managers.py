@@ -1,5 +1,6 @@
 import pickle
 
+import gridfs
 import pymongo
 from bson import ObjectId, Binary
 import numpy as np
@@ -130,8 +131,18 @@ class EvidenceManager:
             } for seq in evid['sequences']])
 
         logger.info('inserting %d documents for %d users ...', len(docs), len(evidences))
-        collection = self._get_collection(project)
-        collection.insert_many(docs)
+        # collection = self._get_collection(project)
+        # collection.insert_many(docs)
+        mongo_client = pymongo.MongoClient(MONGO_URL)
+        evid_db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
+        fs = gridfs.GridFS(evid_db)
+
+        i = 0
+        for doc in docs:
+            fs.put(str(doc['sequence']), user_id=doc['user_id'], dimension=doc['dimension'])
+            i += 1
+            if i % 10000 == 0:
+                logger.info('%d documents inserted', i)
 
     def create_index(self, project):
         """
