@@ -42,25 +42,34 @@ class EvidenceManager:
         return evidences
 
     def __find_by_user_ids(self, project, user_ids):
-        collection = self._get_collection(project)
+        # collection = self._get_collection(project)
+        #
+        # if user_ids:
+        #     user_ids = [uid if isinstance(uid, ObjectId) else ObjectId(uid) for uid in user_ids]
+        #
+        #     documents = collection.aggregate([
+        #         {'$match': {'user_id': {'$in': user_ids}}},
+        #         {'$group': {
+        #             '_id': {'user_id': '$user_id', 'dimension': '$dimension'},
+        #             'sequences': {'$push': '$sequence'}
+        #         }}
+        #     ])
+        # else:
+        #     documents = collection.aggregate([
+        #         {'$group': {
+        #             '_id': {'user_id': '$user_id', 'dimension': '$dimension'},
+        #             'sequences': {'$push': '$sequence'}
+        #         }}
+        #     ])
+        mongo_client = pymongo.MongoClient(MONGO_URL)
+        evid_db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
+        fs = gridfs.GridFS(evid_db)
 
         if user_ids:
-            user_ids = [uid if isinstance(uid, ObjectId) else ObjectId(uid) for uid in user_ids]
-
-            documents = collection.aggregate([
-                {'$match': {'user_id': {'$in': user_ids}}},
-                {'$group': {
-                    '_id': {'user_id': '$user_id', 'dimension': '$dimension'},
-                    'sequences': {'$push': '$sequence'}
-                }}
-            ])
+            documents = fs.find({'user_id': {'$in': user_ids}})
         else:
-            documents = collection.aggregate([
-                {'$group': {
-                    '_id': {'user_id': '$user_id', 'dimension': '$dimension'},
-                    'sequences': {'$push': '$sequence'}
-                }}
-            ])
+            documents = fs.find()
+
         return documents
 
     def get_many(self, project, user_ids=None):
@@ -74,14 +83,21 @@ class EvidenceManager:
         """
         documents = self.__find_by_user_ids(project, user_ids)
 
+        # return {
+        #     doc['user_id']: {
+        #         'dimension': doc['dimension'],
+        #         'sequences': [
+        #             [
+        #                 (int(obs_state[0]), obs_state[1]) for obs_state in seq
+        #             ] for seq in doc['sequences']
+        #         ]
+        #     }
+        #     for doc in documents
+        # }
         return {
-            doc['user_id']: {
-                'dimension': doc['dimension'],
-                'sequences': [
-                    [
-                        (int(obs_state[0]), obs_state[1]) for obs_state in seq
-                    ] for seq in doc['sequences']
-                ]
+            doc.user_id: {
+                'dimension': doc.dimension,
+                'sequences': eval(doc.read())
             }
             for doc in documents
         }
@@ -98,13 +114,17 @@ class EvidenceManager:
 
         if documents.count():
             for doc in documents:
+                # evidences = {
+                #     'dimension': doc['dimension'],
+                #     'sequences': [
+                #         [
+                #             (int(obs_state[0]), obs_state[1]) for obs_state in seq
+                #         ] for seq in doc['sequences']
+                #     ]
+                # }
                 evidences = {
-                    'dimension': doc['dimension'],
-                    'sequences': [
-                        [
-                            (int(obs_state[0]), obs_state[1]) for obs_state in seq
-                        ] for seq in doc['sequences']
-                    ]
+                    'dimension': doc.dimension,
+                    'sequences': eval(doc.read())
                 }
                 yield doc['user_id'], evidences
         else:
@@ -121,25 +141,27 @@ class EvidenceManager:
             <p>sequences : list of (obs, state) sequences.</p>
         :return:
         """
-        docs = []
-        for uid, evid in evidences.items():
-            dim = evid['dimension']
-            docs.extend([{
-                'user_id': ObjectId(uid),
-                'dimension': dim,
-                'sequence': [[str(obs_state[0]), obs_state[1]] for obs_state in seq]
-            } for seq in evid['sequences']])
+        # docs = []
+        # for uid, evid in evidences.items():
+        #     docs.extend([{
+        #         'user_id': ObjectId(uid),
+        #         'dimension': evid['dimension'],
+        #         'sequence': [[str(obs_state[0]), obs_state[1]] for obs_state in seq]
+        #     } for seq in evid['sequences']])
 
-        logger.info('inserting %d documents for %d users ...', len(docs), len(evidences))
+        # logger.info('inserting %d documents for %d users ...', len(docs), len(evidences))
         # collection = self._get_collection(project)
         # collection.insert_many(docs)
         mongo_client = pymongo.MongoClient(MONGO_URL)
         evid_db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
         fs = gridfs.GridFS(evid_db)
 
+        logger.info('inserting %d MEMM evidence documents ...', len(evidences))
         i = 0
-        for doc in docs:
-            fs.put(str(doc['sequence']), user_id=doc['user_id'], dimension=doc['dimension'])
+        for uid in evidences:
+            fs.put(bytes(str(evidences[uid]['sequences']), encoding='utf8'),
+                   user_id=ObjectId(uid),
+                   dimension=evidences['dimension'])
             i += 1
             if i % 10000 == 0:
                 logger.info('%d documents inserted', i)
