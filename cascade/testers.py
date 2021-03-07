@@ -1,6 +1,7 @@
 import abc
 import math
 import multiprocessing
+import os
 from multiprocessing import Pool
 
 import numpy as np
@@ -68,7 +69,7 @@ class ProjectTester(abc.ABC):
 
         logger.info(f'F1 max = {best_f1} in threshold = {best_thr}')
 
-        self.__display_charts(best_f1, best_ind, best_thr, f1s, fprs, precs, recs, thresholds)
+        self.__save_charts(best_f1, best_ind, best_thr, f1s, fprs, precs, recs, thresholds)
         return best_thr
 
     @abc.abstractmethod
@@ -97,8 +98,7 @@ class ProjectTester(abc.ABC):
         # return meas
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
-    @staticmethod
-    def __display_charts(best_f1, best_ind, best_thres, f1s, fprs, precs, recs, thresholds):
+    def __save_charts(self, best_f1, best_ind, best_thres, f1s, fprs, precs, recs, thresholds):
         pyplot.figure(1)
         pyplot.subplot(221)
         pyplot.plot(thresholds, precs)
@@ -120,7 +120,8 @@ class ProjectTester(abc.ABC):
         pyplot.scatter([fprs[best_ind]], [recs[best_ind]], c='r', marker='o')
         pyplot.title('ROC curve')
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
-        pyplot.show()
+        pyplot.savefig(os.path.join(self.project.project_path, 'validation_results.png'))
+        # pyplot.show()
 
 
 class DefaultTester(ProjectTester):
