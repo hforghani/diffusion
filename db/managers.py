@@ -161,7 +161,7 @@ class EvidenceManager:
         for uid in evidences:
             fs.put(bytes(str(evidences[uid]['sequences']), encoding='utf8'),
                    user_id=ObjectId(uid),
-                   dimension=evidences['dimension'])
+                   dimension=evidences[uid]['dimension'])
             i += 1
             if i % 10000 == 0:
                 logger.info('%d documents inserted', i)

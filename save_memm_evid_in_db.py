@@ -16,7 +16,7 @@ if __name__ == '__main__':
     logger.info('preparing documents ...')
     evidences = {uid: {
         'dimension': value[0],
-        'sequences': [[[str(obs_state[0]), obs_state[1]] for obs_state in seq] for seq in value[1]]
+        'sequences': value[1]
     } for uid, value in evidences.items()}
 
     manager = EvidenceManager()
