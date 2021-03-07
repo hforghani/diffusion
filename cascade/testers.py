@@ -127,8 +127,8 @@ class ProjectTester(abc.ABC):
 class DefaultTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
         model = self.train()
-        thr = self.validate(thresholds, initial_depth, max_depth, model)
-        return self.test(thr, initial_depth, max_depth, model)
+        thr = self.validate(thresholds, initial_depth, max_depth, model=model)
+        return self.test(thr, initial_depth, max_depth, model=model)
 
     @time_measure()
     def test(self, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False, model=None):
