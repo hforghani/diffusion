@@ -7,6 +7,7 @@ from multiprocessing import Pool
 import numpy as np
 from matplotlib import pyplot
 
+import settings
 from cascade.asynchroizables import train_memes, test_memes, test_memes_multiproc
 from db.managers import DBManager
 from settings import logger
@@ -172,10 +173,8 @@ class MultiProcTester(ProjectTester):
         """
         Create a process pool to distribute the prediction.
         """
-        # process_count = multiprocessing.cpu_count() - 1
-        process_count = min(8, multiprocessing.cpu_count() - 1)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(float(len(test_set)) / process_count))
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(float(len(test_set)) / settings.PROCESS_COUNT))
         results = []
         for j in range(0, len(test_set), step):
             meme_ids = test_set[j: j + step]

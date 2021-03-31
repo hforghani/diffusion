@@ -5,6 +5,7 @@ from multiprocessing.pool import Pool
 
 from pympler.asizeof import asizeof
 
+import settings
 from cascade.models import CascadeNode, CascadeTree
 from memm.asyncronizables import train_memms, test_memms, test_memms_eco
 from db.exceptions import DataDoesNotExist
@@ -154,14 +155,12 @@ class MEMMModel:
         """
         user_ids = list(evidences.keys())
         random.shuffle(user_ids)
-        # process_count = multiprocessing.cpu_count()
-        process_count = min(8, multiprocessing.cpu_count())
-        logger.debug('starting %d processes to train MEMMs', process_count)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(len(evidences) / process_count))
+        logger.debug('starting %d processes to train MEMMs', settings.PROCESS_COUNT)
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(len(evidences) / settings.PROCESS_COUNT))
         results = []
 
-        for i in range(process_count):
+        for i in range(settings.PROCESS_COUNT):
             user_ids_i = user_ids[i * step: (i + 1) * step]
             evidences_i = {}
             for uid in user_ids_i:
