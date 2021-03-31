@@ -23,3 +23,5 @@ THRESHOLDS = {
     'aslt': (0, 1),
     'avg': (0, 1),
 }
+
+PROCESS_COUNT = multiprocessing.cpu_count() - 1
