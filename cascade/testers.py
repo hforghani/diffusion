@@ -39,16 +39,16 @@ class ProjectTester(abc.ABC):
         return model
 
     @time_measure()
-    def validate(self, thresholds, initial_depth=0, max_depth=None, multi_processed=False, model=None):
+    def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, multi_processed=False, model=None):
         """
         :param model: trained model, if None the model is trained in test method
+        :param val_set: validation set. list of cascade id's
         :param thresholds: list of validation thresholds
         :param initial_depth: depth of initial nodes of tree
         :param max_depth: maximum depth of tree to which we want to predict
         :param multi_processed: If True, run multi-processing for each cascade or for each MEMM if MEMM method is used.
         :return:
         """
-        _, val_set, _ = self.project.load_sets()
         precs = []
         recs = []
         f1s = []
@@ -128,8 +128,9 @@ class ProjectTester(abc.ABC):
 class DefaultTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
         model = self.train()
-        thr = self.validate(thresholds, initial_depth, max_depth, model=model)
-        return self.test(thr, initial_depth, max_depth, model=model)
+        _, val_set, test_set = self.project.load_sets()
+        thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=model)
+        return self.test(test_set, thr, initial_depth, max_depth, model=model)
 
     @time_measure()
     def test(self, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False, model=None):
@@ -151,8 +152,9 @@ class DefaultTester(ProjectTester):
 
 class MultiProcTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
-        thr = self.validate(thresholds, initial_depth, max_depth)
-        return self.test(thr, initial_depth, max_depth)
+        _, val_set, test_set = self.project.load_sets()
+        thr = self.validate(val_set, thresholds, initial_depth, max_depth)
+        return self.test(test_set, thr, initial_depth, max_depth)
 
     @time_measure()
     def test(self, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False, model=None):
