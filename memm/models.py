@@ -337,6 +337,8 @@ class MEMMModel:
         # Find initially activated nodes.
         cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         active_ids = initial_tree.node_ids()
+        logger.debugv('active_ids: %s', active_ids)
+        logger.debugv('len(active_ids) = %d', len(active_ids))
         step_num = 1
 
         # Create dictionary of current observations of the nodes.
@@ -353,6 +355,7 @@ class MEMMModel:
                 relations = db.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}},
                                               {'_id': 0, 'user_id': 1, 'children': 1})
                 children_dic = {rel['user_id']: rel['children'] for rel in relations}
+                logger.debugv('children_dic = %s', children_dic)
 
             i = 0
             for node in cur_step:
@@ -362,7 +365,7 @@ class MEMMModel:
                 # children = rel['children'] if rel is not None else []
 
                 if children:
-                    logger.debug('num of children of %s : %d', node_id, len(children))
+                    logger.debugv('num of children of %s : %d', node_id, len(children))
 
                     # Add all children if threshold is 0.
                     if threshold == 0:
@@ -380,6 +383,7 @@ class MEMMModel:
                     elif threshold < 1:
                         with p_timer:
                             parents_dic = self.__get_parents_dic(children, db)
+                            logger.debugv('parents_dic = %s', parents_dic)
 
                         with obs_timer:
                             for child_id in children:
