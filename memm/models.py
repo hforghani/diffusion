@@ -333,7 +333,7 @@ class MEMMModel:
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()
-        logger.debugv('len(initial_tree.roots) = %d', len(tree.roots))
+        logger.debugv(logger.debugv(tree.render(digest=True)))
 
         # Find initially activated nodes.
         cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
