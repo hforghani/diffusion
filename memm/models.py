@@ -359,7 +359,8 @@ class MEMMModel:
                 logger.debugv('children_dic:')
                 logger.debugv(f"{'uid':30}\t{'count':5}\tchildren")
                 for uid in children_dic:
-                    logger.debugv(f'{str(uid):30}\t{len(children_dic[uid]):5}\t{children_dic[uid]}')
+                    logger.debugv(
+                        f'{str(uid):30}\t{len(children_dic[uid]):5}\t{[str(cid) for cid in children_dic[uid]]}')
 
             i = 0
             for node in cur_step:
@@ -390,7 +391,8 @@ class MEMMModel:
                             logger.debugv('parents_dic:')
                             logger.debugv(f"{'uid':30}\t{'count':5}\tparents")
                             for uid in parents_dic:
-                                logger.debugv(f'{str(uid):30}\t{len(parents_dic[uid]):5}\t{parents_dic[uid]}')
+                                logger.debugv(
+                                    f'{str(uid):30}\t{len(parents_dic[uid]):5}\t{[str(pid) for pid in parents_dic[uid]]}')
 
                         with obs_timer:
                             for child_id in children:
@@ -401,6 +403,7 @@ class MEMMModel:
                                 index = parents.index(node_id)
                                 obs |= 1 << (len(parents) - index - 1)
                                 observations[child_id] = obs
+                                logger.debugv('obs of %s : %d', str(child_id), bin(obs))
 
                         with m_timer:
                             if len(children) > 150000 and multiprocessed:
@@ -412,6 +415,10 @@ class MEMMModel:
                                                          next_step)
                             else:
                                 memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
+                                logger.debugv('len(memms_i) = %d', len(memms_i))
+                                if len(memms_i) != len(children):
+                                    logger.debugv('children not in MEMMs: %s',
+                                                  {str(cid) for cid in set(children) - set(self.__memms)})
                                 act_children = test_memms(children, parents_dic, observations, active_ids, memms_i,
                                                           threshold)
                                 for child_id in act_children:

@@ -37,6 +37,7 @@ def test_memms(children, parents_dic, observations, active_ids, memms, threshold
         j = 0
         for child_id in children:
             if child_id not in parents_dic:
+                logger.debugv('child id %s not in parents_dic', str(child_id))
                 continue
             parents = parents_dic[child_id]
             # rel = mongodb.relations.find_one({'user_id': child_id}, {'_id': 0, 'parents': 1})
