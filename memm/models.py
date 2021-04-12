@@ -333,7 +333,7 @@ class MEMMModel:
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()
-        logger.debugv(logger.debugv(tree.render(digest=True)))
+        # logger.debugv('\n' + tree.render(digest=True))
 
         # Find initially activated nodes.
         cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
@@ -356,7 +356,10 @@ class MEMMModel:
                 relations = db.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}},
                                               {'_id': 0, 'user_id': 1, 'children': 1})
                 children_dic = {rel['user_id']: rel['children'] for rel in relations}
-                logger.debugv('children_dic = %s', children_dic)
+                logger.debugv('children_dic:')
+                logger.debugv(f"{'uid':30}\t{'count':5}\tchildren")
+                for uid in children_dic:
+                    logger.debugv(f'{str(uid):30}\t{len(children_dic[uid]):5}\t{children_dic[uid]}')
 
             i = 0
             for node in cur_step:
@@ -384,7 +387,10 @@ class MEMMModel:
                     elif threshold < 1:
                         with p_timer:
                             parents_dic = self.__get_parents_dic(children, db)
-                            logger.debugv('parents_dic = %s', parents_dic)
+                            logger.debugv('parents_dic:')
+                            logger.debugv(f"{'uid':30}\t{'count':5}\tparents")
+                            for uid in parents_dic:
+                                logger.debugv(f'{str(uid):30}\t{len(parents_dic[uid]):5}\t{parents_dic[uid]}')
 
                         with obs_timer:
                             for child_id in children:

@@ -85,7 +85,7 @@ def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, tre
 
             # Copy roots in a new tree.
             with Timer('copying tree'):
-                logger.debugv(tree.render(digest=True))
+                # logger.debugv('\n' + tree.render(digest=True))
                 initial_tree = tree.copy(initial_depth)
 
             # Predict remaining nodes.
