@@ -143,7 +143,7 @@ class MEMMModel:
         notbig_userids = []
         big_threshold = 60000
         for uid in evidences:
-            if asizeof(evidences[uid][1]) > big_threshold:
+            if asizeof(evidences[uid]['sequences']) > big_threshold:
                 big_userids.append(uid)
             else:
                 notbig_userids.append(uid)
