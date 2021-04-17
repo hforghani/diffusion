@@ -269,6 +269,9 @@ class MEMMModel:
         for uid in big_user_ids:
             self.__memms[uid] = memms.pop(uid)  # to free RAM
 
+        for uid in test_userids:
+            logger.debugv('%s in MEMMs: %s', uid, ObjectId(uid) in self.__memms)
+
         logger.info('training MEMMs finished')
 
     def fit(self, train_set):
