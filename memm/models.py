@@ -38,6 +38,7 @@ class MEMMModel:
         act_seqs = self.project.load_or_extract_act_seq()
 
         try:
+            logger.info('loading MEMM evidences ...')
             evidences = evid_manager.get_many(self.project)
 
         except DataDoesNotExist:
@@ -232,8 +233,8 @@ class MEMMModel:
          '5c5d7d0c86887710a8fab861', '5c5d7cf186887710a8eebff9'
         ]
 
-        for uid in test_userids:
-            logger.debugv('%s in evidences: %s', uid, ObjectId(uid) in evidences)
+        # for uid in test_userids:
+        #     logger.debugv('%s in evidences: %s', uid, ObjectId(uid) in evidences)
 
         # Divide evidences into some parts. Each time load a part from evidences and train the
         # corresponding MEMMS to avoid high RAM consumption.
@@ -284,8 +285,9 @@ class MEMMModel:
         if not self.__memms:
             logger.info('MEMMs do not exist in db. They will be trained')
             self.__fit_by_evidences(train_set)
-            logger.info('inserting MEMMs into db ...')
-            self.__save_memms(self.__memms)
+            # TODO: uncomment theses lines:
+            # logger.info('inserting MEMMs into db ...')
+            # self.__save_memms(self.__memms)
 
         return self
 
