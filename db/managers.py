@@ -173,11 +173,10 @@ class EvidenceManager:
         :return:
         """
         collection = self._get_collection(project)
-        has_index = False
         for _, value in collection.index_information():
             if value['key'][0] == 'user_id':
-                has_index = True
-        if not has_index:
+                break
+        else:
             collection.create_index('user_id')
 
 
