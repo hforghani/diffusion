@@ -185,7 +185,7 @@ class MEMMManager:
         # return memms
 
         mongo_client = pymongo.MongoClient(MONGO_URL)
-        memm_db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
+        memm_db = mongo_client[f'{DB_NAME}_memm_{project.project_name}']
         fs = gridfs.GridFS(memm_db)
         memms = {}
         for doc in fs.find():
