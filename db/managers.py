@@ -42,25 +42,6 @@ class EvidenceManager:
         return evidences
 
     def __find_by_user_ids(self, project, user_ids):
-        # collection = self._get_collection(project)
-        #
-        # if user_ids:
-        #     user_ids = [uid if isinstance(uid, ObjectId) else ObjectId(uid) for uid in user_ids]
-        #
-        #     documents = collection.aggregate([
-        #         {'$match': {'user_id': {'$in': user_ids}}},
-        #         {'$group': {
-        #             '_id': {'user_id': '$user_id', 'dimension': '$dimension'},
-        #             'sequences': {'$push': '$sequence'}
-        #         }}
-        #     ])
-        # else:
-        #     documents = collection.aggregate([
-        #         {'$group': {
-        #             '_id': {'user_id': '$user_id', 'dimension': '$dimension'},
-        #             'sequences': {'$push': '$sequence'}
-        #         }}
-        #     ])
         mongo_client = pymongo.MongoClient(MONGO_URL)
         evid_db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
         fs = gridfs.GridFS(evid_db)
@@ -83,17 +64,6 @@ class EvidenceManager:
         """
         documents = self.__find_by_user_ids(project, user_ids)
 
-        # return {
-        #     doc['user_id']: {
-        #         'dimension': doc['dimension'],
-        #         'sequences': [
-        #             [
-        #                 (int(obs_state[0]), obs_state[1]) for obs_state in seq
-        #             ] for seq in doc['sequences']
-        #         ]
-        #     }
-        #     for doc in documents
-        # }
         return {
             doc.user_id: {
                 'dimension': doc.dimension,
@@ -114,14 +84,6 @@ class EvidenceManager:
 
         if documents.count():
             for doc in documents:
-                # evidences = {
-                #     'dimension': doc['dimension'],
-                #     'sequences': [
-                #         [
-                #             (int(obs_state[0]), obs_state[1]) for obs_state in seq
-                #         ] for seq in doc['sequences']
-                #     ]
-                # }
                 evidences = {
                     'dimension': doc.dimension,
                     'sequences': eval(doc.read())
@@ -141,17 +103,6 @@ class EvidenceManager:
             <p>sequences : list of (obs, state) sequences.</p>
         :return:
         """
-        # docs = []
-        # for uid, evid in evidences.items():
-        #     docs.extend([{
-        #         'user_id': ObjectId(uid),
-        #         'dimension': evid['dimension'],
-        #         'sequence': [[str(obs_state[0]), obs_state[1]] for obs_state in seq]
-        #     } for seq in evid['sequences']])
-
-        # logger.info('inserting %d documents for %d users ...', len(docs), len(evidences))
-        # collection = self._get_collection(project)
-        # collection.insert_many(docs)
         mongo_client = pymongo.MongoClient(MONGO_URL)
         evid_db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
         fs = gridfs.GridFS(evid_db)
@@ -181,13 +132,13 @@ class EvidenceManager:
 
 
 class MEMMManager:
-    def __init__(self):
-        mongo_client = pymongo.MongoClient(MONGO_URL)
-        self.db = mongo_client[DB_NAME]
+    # def __init__(self):
+    #     mongo_client = pymongo.MongoClient(MONGO_URL)
+    #     self.db = mongo_client[DB_NAME]
 
-    def __get_doc(self, user_id, memm):
+    @staticmethod
+    def __get_doc(memm):
         doc = {
-            'user_id': user_id,
             'lambda': memm.Lambda.tolist(),
             'tpm': Binary(pickle.dumps(memm.TPM, protocol=2)),
             'all_obs_arr': Binary(pickle.dumps(memm.all_obs_arr, protocol=2)),
@@ -198,22 +149,52 @@ class MEMMManager:
             doc['orig_indexes'] = sorted(list(doc['orig_indexes'].values()))
         return doc
 
-    def insert(self, project, memms):
-        logger.debug('creating MEMM documents ...')
-        documents = [self.__get_doc(uid, memms[uid]) for uid in memms]
-        logger.debug('inserting MEMMs into db ...')
-        collection = self.db.get_collection(f'memm_{project.project_name}')
-        collection.insert_many(documents)
+    @staticmethod
+    def insert(project, memms):
+        # logger.debug('creating MEMM documents ...')
+        # documents = [self.__get_doc(uid, memms[uid]) for uid in memms]
+        # logger.debug('inserting MEMMs into db ...')
+        # collection = self.db.get_collection(f'memm_{project.project_name}')
+        # collection.insert_many(documents)
 
-    def fetch(self, project):
-        collection = self.db.get_collection(f'memm_{project.project_name}')
+        mongo_client = pymongo.MongoClient(MONGO_URL)
+        memm_db = mongo_client[f'{DB_NAME}_memm_{project.project_name}']
+        fs = gridfs.GridFS(memm_db)
+
+        logger.info('inserting %d MEMM documents ...', len(memms))
+        i = 0
+        for uid in memms:
+            doc = MEMMManager.__get_doc(memms[uid])
+            fs.put(bytes(str(doc), encoding='utf8'), user_id=uid)
+            i += 1
+            if i % 10000 == 0:
+                logger.info('%d documents inserted', i)
+
+    @staticmethod
+    def fetch(project):
+        # collection = self.db.get_collection(f'memm_{project.project_name}')
+        # memms = {}
+        # for doc in collection.find():
+        #     memm = MEMM()
+        #     memm.Lambda = np.fromiter(doc['lambda'], np.float64)
+        #     memm.TPM = pickle.loads(doc['tpm'])
+        #     memm.all_obs_arr = pickle.loads(doc['all_obs_arr'])
+        #     memm.map_obs_index = {int(key): value for key, value in doc['map_obs_index'].items()}
+        #     memm.orig_indexes = doc['orig_indexes']
+        #     memms[doc['user_id']] = memm
+        # return memms
+
+        mongo_client = pymongo.MongoClient(MONGO_URL)
+        memm_db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
+        fs = gridfs.GridFS(memm_db)
         memms = {}
-        for doc in collection.find():
+        for doc in fs.find():
+            memm_data = eval(doc.read())
             memm = MEMM()
-            memm.Lambda = np.fromiter(doc['lambda'], np.float64)
-            memm.TPM = pickle.loads(doc['tpm'])
-            memm.all_obs_arr = pickle.loads(doc['all_obs_arr'])
-            memm.map_obs_index = {int(key): value for key, value in doc['map_obs_index'].items()}
-            memm.orig_indexes = doc['orig_indexes']
-            memms[doc['user_id']] = memm
+            memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
+            memm.TPM = pickle.loads(memm_data['tpm'])
+            memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr'])
+            memm.map_obs_index = {int(key): value for key, value in memm_data['map_obs_index'].items()}
+            memm.orig_indexes = memm_data['orig_indexes']
+            memms[doc.user_id] = memm
         return memms

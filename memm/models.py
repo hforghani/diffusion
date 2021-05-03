@@ -3,6 +3,7 @@ import multiprocessing
 import random
 from multiprocessing.pool import Pool
 
+from bson import ObjectId
 from pympler.asizeof import asizeof
 
 import settings
@@ -428,7 +429,7 @@ class MEMMModel:
         return parents_dic
 
     def __save_memms(self, memms):
-        MEMMManager().insert(self.project, memms)
+        MEMMManager.insert(self.project, memms)
 
     def __load_memms(self):
-        return MEMMManager().fetch(self.project)
+        return MEMMManager.fetch(self.project)
