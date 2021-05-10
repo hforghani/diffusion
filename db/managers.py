@@ -190,7 +190,6 @@ class MEMMManager:
         memms = {}
         for doc in fs.find():
             memm_data = eval(doc.read())
-            logger.debugv('memm_data = %s', memm_data)
             memm = MEMM()
             memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
             memm.TPM = pickle.loads(memm_data['tpm'])
