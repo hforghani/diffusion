@@ -280,17 +280,15 @@ class MEMMModel:
         :param train_set:   cascade id's in training set
         :return:            self
         """
-        # TODO: uncomment theses lines:
-        # logger.info('loading MEMMs from db ...')
-        # self.__memms = self.__load_memms()
+        logger.info('loading MEMMs from db ...')
+        self.__memms = self.__load_memms()
 
         # Train MEMMs if they are not saved in DB.
         if not self.__memms:
             logger.info('MEMMs do not exist in db. They will be trained')
             self.__fit_by_evidences(train_set)
-            # TODO: uncomment theses lines:
-            # logger.info('inserting MEMMs into db ...')
-            # self.__save_memms(self.__memms)
+            logger.info('inserting MEMMs into db ...')
+            self.__save_memms(self.__memms)
 
         return self
 
