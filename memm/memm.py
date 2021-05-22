@@ -2,6 +2,8 @@ import numpy as np
 import scipy
 import time
 
+from settings import logger
+
 times = [0] * 15
 
 
@@ -133,19 +135,19 @@ class MEMM():
         :param dim:     dimension of observation vector
         :return:        predicted next state
         """
-        #logger.debug('running MEMM predict method ...')
+        logger.debugv('running MEMM predict method ...')
         new_obs = self.__decrease_dim_by_indexes(obs, dim, self.orig_indexes)
         new_dim = len(self.orig_indexes)
         if new_obs in self.map_obs_index:
             index = self.map_obs_index[new_obs]
-            #logger.debug('obs found. prob = %f', self.TPM[index][1])
+            logger.debugv('obs found. prob = %f', self.TPM[index][1])
         else:
             #return 0
             new_obs_vec = obs_to_array(new_obs, new_dim)
             obs_num = self.all_obs_arr.shape[0]
             sim = np.sum(self.all_obs_arr == np.tile(new_obs_vec, (obs_num, 1)), axis=1)
             index = np.argmax(sim)
-            #logger.debug('obs not found. sim = %f. prob = %f', np.max(sim) / new_dim, self.TPM[index][1])
+            logger.debugv('obs not found. sim = %f. prob = %f', np.max(sim) / new_dim, self.TPM[index][1])
         if threshold is None:
             threshold = 0.5
 
