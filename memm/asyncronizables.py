@@ -46,17 +46,17 @@ def test_memms(children, parents_dic, observations, active_ids, memms, threshold
             # parents = rel['parents']
 
             obs = observations[child_id]
-            # logger.debug('child_id not in active_ids: %s, child_id in self.__memms: %s',
-            #             child_id not in active_ids, child_id in self.__memms)
+            logger.debug('child_id not in active_ids: %s, child_id in memms: %s',
+                        child_id not in active_ids, child_id in memms)
 
             if child_id not in active_ids and child_id in memms:
                 memm = memms[child_id]
-                # logger.debug('predicting cascade ...')
+                logger.debug('predicting cascade ...')
                 new_state = memm.predict(obs, len(parents), threshold)
                 if new_state == 1:
                     active_children.append(child_id)
                     active_ids.append(child_id)
-                    # logger.debug('\ta reshare predicted')
+                    logger.debug('\ta reshare predicted')
 
             j += 1
             if j % 100 == 0:
