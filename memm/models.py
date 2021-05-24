@@ -456,7 +456,7 @@ class MEMMModel:
                                 index = parents.index(node_id)
                                 obs |= 1 << (len(parents) - index - 1)
                                 observations[child_id] = obs
-                                logger.debugv('obs of %s : %d', str(child_id), bin(obs))
+                                logger.debugv('obs of %s : %s', str(child_id), bin(obs))
 
                         with m_timer:
                             if len(children) > 150000 and multiprocessed:
