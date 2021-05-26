@@ -135,7 +135,7 @@ class MEMM():
         :param dim:     dimension of observation vector
         :return:        predicted next state
         """
-        logger.debugv('running MEMM predict method ...')
+        logger.debugv('obs = %s', bin(obs))
         new_obs = self.__decrease_dim_by_indexes(obs, dim, self.orig_indexes)
         new_dim = len(self.orig_indexes)
         if new_obs in self.map_obs_index:
@@ -147,7 +147,8 @@ class MEMM():
             obs_num = self.all_obs_arr.shape[0]
             sim = np.sum(self.all_obs_arr == np.tile(new_obs_vec, (obs_num, 1)), axis=1)
             index = np.argmax(sim)
-            logger.debugv('obs not found. sim = %f. prob = %f', np.max(sim) / new_dim, self.TPM[index][1])
+            logger.debugv('obs not found. this is used instead: %s', array_to_obs(self.all_obs_arr[index]))
+            logger.debugv('sim = %f. prob = %f', np.max(sim) / new_dim, self.TPM[index][1])
         if threshold is None:
             threshold = 0.5
 
