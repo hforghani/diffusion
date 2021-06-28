@@ -49,6 +49,7 @@ def train_memes(method, project):
         train_set, _, _ = project.load_sets()
         model = MEMMModel(project).fit(train_set)
     elif method == 'aslt':
+        logger.debug('now creating Saito object ...')
         model = Saito(project)
     elif method == 'avg':
         model = LTAvg(project)
