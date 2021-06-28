@@ -327,6 +327,8 @@ class AsLT(object):
         """
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be a CascadeTree')
+        if not hasattr(self, 'w') or not hasattr(self, 'r'):
+            raise Exception('No w and r parameters found. Train the AsLT first.')
         tree = initial_tree.copy()
 
         # Initialize values.
