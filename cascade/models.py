@@ -98,7 +98,7 @@ class CascadeTree(object):
 
     @classmethod
     def extract_cascade(cls, meme_id):
-        with Timer('TREE: fetching posts', 'debug'):
+        with Timer('TREE: fetching posts'):
             # Fetch posts related to the meme and reshares.
             if isinstance(meme_id, str):
                 meme_id = ObjectId(meme_id)
@@ -110,7 +110,7 @@ class CascadeTree(object):
             reshares = db.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
                 .sort('datetime')
 
-        with Timer('TREE: creating nodes', 'debug'):
+        with Timer('TREE: creating nodes'):
             # Create nodes for the users.
             nodes = {}
             visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
@@ -144,7 +144,6 @@ class CascadeTree(object):
 
         with Timer('TREE: Adding single nodes'):
             # Add users with no diffusion edges as single nodes.
-            t1 = time.time()
             first_posts = {}
             posts.rewind()
 
@@ -305,6 +304,7 @@ class AsLT(object):
         self.users_map = None
 
         self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
+        logger.debug('w loaded from : %s', self.w_param_name)
         # logger.info('sum of columns:')
         # for i in range(self.w.shape[1]):
         #     if self.w[:, i].nnz:
