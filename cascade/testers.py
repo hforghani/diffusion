@@ -127,7 +127,9 @@ class ProjectTester(abc.ABC):
 
 class DefaultTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
+        logger.debug('training ...')
         model = self.train()
+        logger.debug('training done')
         _, val_set, test_set = self.project.load_sets()
         thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=model)
         return self.test(test_set, thr, initial_depth, max_depth, model=model)
