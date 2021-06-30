@@ -742,7 +742,7 @@ class Project(object):
                 posts.close()
                 break
             except CursorNotFound:
-                logger.info('Lost cursor! retrying with skip ...')
+                logger.info('Lost cursor! retrying with skipping %d first posts ...', i)
 
         logger.info('setting relative times and max times ...')
         max_t = {}
