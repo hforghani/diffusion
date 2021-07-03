@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 import time
 import traceback
 
@@ -18,22 +19,10 @@ class Command:
     help = 'Show statistics of the cascades between a min and max user count'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            '--min',
-            type=int,
-            default=0,
-            help='min user count',
-        )
-        parser.add_argument(
-            '--max',
-            type=int,
-            help='max user count',
-        )
-        parser.add_argument(
-            '--out',
-            type=str,
-            help='file path in which we want to output the list of meme ids',
-        )
+        parser.add_argument('--min', type=int, default=0, help='min user count')
+        parser.add_argument('--max', type=int, help='max user count')
+        parser.add_argument('--idout', type=str, help='output file path for list of meme ids')
+        parser.add_argument('--pltout', type=str, required=True, help='output file path for plot image')
 
     def __init__(self):
         super(Command, self).__init__()
@@ -53,11 +42,12 @@ class Command:
                 print(f'{bins[i]} - {bins[i + 1]} : {counts[i]}')
             print(f'count between {args.min} and {max_count}: {sum(counts)}')
 
-            if args.out:
-                self.output_memeids(args.out, memes, args.min, range_max)
+            if args.idout:
+                self.output_memeids(args.idout, memes, args.min, range_max)
 
             pyplot.bar(bins[:-1], counts, width=(range_max - args.min) / bins_num)
-            pyplot.show()
+            pyplot.savefig(args.pltout)
+            # pyplot.show()
             logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:
             logger.error(traceback.format_exc())
