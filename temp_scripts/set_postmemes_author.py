@@ -7,9 +7,12 @@ from settings import logger
 
 if __name__ == '__main__':
     db = DBManager().db
+    logger.info('extracting postmemes without author ...')
     post_ids = db.postmemes.find({'author': None}, {'post_id': 1, '_id': 0})
     post_ids_done = set()
     count = post_ids.count()
+    logger.info('done')
+    logger.info('setting authors ...')
     i = 0
 
     for p in post_ids:
