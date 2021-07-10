@@ -2,11 +2,11 @@ import sys
 
 sys.path.append('.')
 
-from db import managers
+from db.managers import DBManager
 from settings import logger
 
 if __name__ == '__main__':
-    db = managers.DBManager().db
+    db = DBManager().db
     post_ids = db.postmemes.find({'author': None}, {'post_id': 1, '_id': 0})
     post_ids_done = set()
     count = post_ids.count()
