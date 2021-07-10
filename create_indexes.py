@@ -10,7 +10,7 @@ from db.managers import DBManager
 def handle(logger):
     db = DBManager().db
     logger.info('creating an index for memes ...')
-    db.memes.create_index('depth')
+    db.memes.create_index([IndexModel('depth'), IndexModel('size')])
     logger.info('creating indexes for postmemes ...')
     db.postmemes.create_index([IndexModel('meme_id'), IndexModel('post_id'), IndexModel('datetime')])
     logger.info('creating indexes for posts ...')
