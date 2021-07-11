@@ -366,7 +366,10 @@ class Command:
             raise Exception('post does not exist with id {}'.format(post_id))
 
         # Assign the memes to the post.
-        post_memes = [{'post_id': post_id, 'meme_id': mid, 'datetime': datetime} for mid in meme_ids]
+        post_memes = [{'post_id': post_id,
+                       'meme_id': mid,
+                       'datetime': datetime,
+                       'author_id': post['author_id']} for mid in meme_ids]
 
         # Create reshares if the post is reshared.
         reshares = []
@@ -505,7 +508,24 @@ class Command:
         count = db.memes.count()
         save_step = 10 ** 6
 
-        logger.info('query of meme counts ...')
+        logger.info('query of meme sizes (number of users) ...')
+        meme_sizes = db.postmemes.aggregate([{'$group': {'_id': {'meme_id': '$meme_id', 'user_id': '$author_id'}}},
+                                             {'$group': {'_id': '$meme_id', 'size': {'$sum': 1}}}],
+                                            allowDiskUse=True)
+
+        logger.info('saving ...')
+        operations = []
+        i = 0
+        for doc in meme_sizes:
+            operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'size': doc['count']}}))
+            i += 1
+            if i % save_step == 0:
+                db.memes.bulk_write(operations)
+                operations = []
+                logger.info('%d%% done', i * 100 / count)
+        db.memes.bulk_write(operations)
+
+        logger.info('query of number of posts of memes ...')
         meme_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
                                              allowDiskUse=True)
 

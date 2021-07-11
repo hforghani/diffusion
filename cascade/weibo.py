@@ -135,6 +135,7 @@ def create_users(paths):
 
     return users_map, user_ids
 
+
 # @profile
 def create_retweets(path, start_index, users_map, user_ids, memes_map):
     i = 0
@@ -209,8 +210,9 @@ def read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring=False):
 
     if not ignoring:
         db.posts.update_one({'_id': original_pid},
-                                 {'$set': {'datetime': original_time, 'author_id': original_uid}})
-        db.postmemes.update_one({'post_id': original_pid}, {'$set': {'datetime': original_time}})
+                            {'$set': {'datetime': original_time, 'author_id': original_uid}})
+        db.postmemes.update_one({'post_id': original_pid},
+                                {'$set': {'datetime': original_time, 'author_id': original_uid}})
     meme_id = memes_map[str(original_pid)]
 
     # Read retweets number.
@@ -316,9 +318,26 @@ def calc_memes_values():
     count = db.memes.count()
     save_step = 10 ** 6
 
+    logger.info('query of meme sizes (number of users) ...')
+    meme_sizes = db.postmemes.aggregate([{'$group': {'_id': {'meme_id': '$meme_id', 'user_id': '$author_id'}}},
+                                         {'$group': {'_id': '$meme_id', 'size': {'$sum': 1}}}],
+                                        allowDiskUse=True)
+
+    logger.info('saving ...')
+    operations = []
+    i = 0
+    for doc in meme_sizes:
+        operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'size': doc['count']}}))
+        i += 1
+        if i % save_step == 0:
+            db.memes.bulk_write(operations)
+            operations = []
+            logger.info('%d%% done', i * 100 / count)
+    db.memes.bulk_write(operations)
+
     logger.info('query of meme counts ...')
     meme_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
-                                              allowDiskUse=True)
+                                         allowDiskUse=True)
 
     logger.info('saving ...')
     operations = []
@@ -334,7 +353,7 @@ def calc_memes_values():
 
     logger.info('query of first times ...')
     first_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}],
-                                              allowDiskUse=True)
+                                         allowDiskUse=True)
 
     logger.info('saving ...')
     operations = []
@@ -350,7 +369,7 @@ def calc_memes_values():
 
     logger.info('query of last times ...')
     last_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}],
-                                             allowDiskUse=True)
+                                        allowDiskUse=True)
 
     logger.info('saving ...')
     operations = []
@@ -423,4 +442,3 @@ def extract_relations(relations_file, uidlist_file, user_ids=None):
     if edges:
         db.relations.insert_many(edges)
         logger.info('%d edges saved' % len(edges))
-
