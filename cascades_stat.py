@@ -32,11 +32,11 @@ class Command:
             start = time.time()
             query = {}
             if args.max or args.min:
-                query = {'$size': {}}
+                query = {'size': {}}
                 if args.max:
-                    query['$size']['$le'] = args.max
+                    query['size']['$le'] = args.max
                 if args.max:
-                    query['$size']['$ge'] = args.min
+                    query['size']['$ge'] = args.min
 
             memes = DBManager().db.memes.find(query, {'_id': int(args.idout is not None), 'count': 1})
             mcounts = np.array(sorted([m['count'] for m in memes], reverse=True))
