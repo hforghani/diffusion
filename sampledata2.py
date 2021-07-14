@@ -18,29 +18,13 @@ class Command:
     help = 'Samples a subset of cascades and separate training, validation and test sets and save them into the project data'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            '--min',
-            type=int,
-            default=0,
-            help='min number of cascade users',
-        )
-        parser.add_argument(
-            '--max',
-            type=int,
-            help='max number of cascade users',
-        )
-        parser.add_argument(
-            "-n",
-            "--number",
-            type=int,
-            help="number of samples consisting training, validation and test sets",
-        )
-        parser.add_argument(
-            "-p",
-            "--project",
-            type=str,
-            help="project name",
-        )
+        parser.add_argument('--min', type=int, default=0, help='min number of cascade users')
+        parser.add_argument('--max', type=int, help='max number of cascade users')
+        parser.add_argument("-n", "--number", type=int,
+                            help="number of samples consisting training, validation and test sets")
+        parser.add_argument("-d", "--mindepth", type=int, dest="min_depth", default=0,
+                            help="minimum depth of cascade trees of memes")
+        parser.add_argument("-p", "--project", type=str, help="project name")
 
     def __init__(self):
         super(Command, self).__init__()
@@ -52,10 +36,11 @@ class Command:
             if args.min:
                 query['size'] = {'$gte': args.min}
             if args.max:
-                if 'size' in query:
-                    query['size'].update({'$lte': args.max})
-                else:
-                    query['size'] = {'$lte': args.max}
+                query.setdefault('size', {})
+                query['size'].update({'$lte': args.max})
+            if args.min_depth:
+                query['depth'] = {'$gte': args.min_depth}
+
             logger.debug('query: %s', query)
             db = DBManager().db
             memes = list(db.memes.find(query, ['_id']))
