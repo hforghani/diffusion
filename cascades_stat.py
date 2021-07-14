@@ -41,7 +41,7 @@ class Command:
 
             memes = DBManager().db.memes.find(query, {'_id': int(args.idout is not None), 'size': 1})
             msizes = np.array(sorted([m['size'] for m in memes], reverse=True))
-            min_size, max_size = min(msizes), max(msizes)
+            min_size, max_size = msizes.min(), msizes.max()
             print(f'min of all: {min_size}')
             print(f'max of all: {max_size}')
             range_max = args.max if args.max is not None else max_size
