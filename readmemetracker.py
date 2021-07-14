@@ -510,14 +510,14 @@ class Command:
 
         logger.info('query of meme sizes (number of users) ...')
         meme_sizes = db.postmemes.aggregate([{'$group': {'_id': {'meme_id': '$meme_id', 'user_id': '$author_id'}}},
-                                             {'$group': {'_id': '$meme_id', 'size': {'$sum': 1}}}],
+                                             {'$group': {'_id': '$_id.meme_id', 'size': {'$sum': 1}}}],
                                             allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
         i = 0
         for doc in meme_sizes:
-            operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'size': doc['count']}}))
+            operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'size': doc['size']}}))
             i += 1
             if i % save_step == 0:
                 db.memes.bulk_write(operations)
