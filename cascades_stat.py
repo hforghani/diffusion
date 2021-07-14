@@ -38,17 +38,17 @@ class Command:
                 if args.min:
                     query['size']['$gte'] = args.min
 
-            memes = DBManager().db.memes.find(query, {'_id': int(args.idout is not None), 'count': 1})
-            mcounts = np.array(sorted([m['count'] for m in memes], reverse=True))
-            min_count, max_count = min(mcounts), max(mcounts)
-            print(f'min of all: {min_count}')
-            print(f'max of all: {max_count}')
-            range_max = args.max if args.max is not None else max_count
+            memes = DBManager().db.memes.find(query, {'_id': int(args.idout is not None), 'size': 1})
+            msizes = np.array(sorted([m['size'] for m in memes], reverse=True))
+            min_size, max_size = min(msizes), max(msizes)
+            print(f'min of all: {min_size}')
+            print(f'max of all: {max_size}')
+            range_max = args.max if args.max is not None else max_size
             bins_num = 100
-            counts, bins = np.histogram(mcounts, bins=bins_num, range=(args.min, range_max))
+            counts, bins = np.histogram(msizes, bins=bins_num, range=(args.min, range_max))
             for i in range(len(counts)):
                 print(f'{bins[i]} - {bins[i + 1]} : {counts[i]}')
-            print(f'count between {args.min} and {max_count}: {sum(counts)}')
+            print(f'count between {args.min} and {max_size}: {sum(counts)}')
 
             if args.idout:
                 self.output_memeids(args.idout, memes, args.min, range_max)
@@ -62,8 +62,8 @@ class Command:
             raise
 
     @staticmethod
-    def output_memeids(filename, memes, min_count, max_count):
-        meme_ids = [str(meme['_id']) for meme in memes if min_count <= meme['count'] <= max_count]
+    def output_memeids(filename, memes, min_size, max_size):
+        meme_ids = [str(meme['_id']) for meme in memes if min_size <= meme['count'] <= max_size]
         with open(filename, 'w') as f:
             json.dump(meme_ids, f)
 
