@@ -30,8 +30,8 @@ class Command:
     def handle(self, args):
         try:
             start = time.time()
-            memes = list(DBManager().db.memes.find({}, ['_id', 'count']).sort('count', -1))
-            mcounts = np.array([m['count'] for m in memes])
+            memes = DBManager().db.memes.find({}, {'_id': int(args.idout is not None), 'count': 1})
+            mcounts = np.array(sorted([m['count'] for m in memes], reverse=True))
             min_count, max_count = min(mcounts), max(mcounts)
             print(f'min of all: {min_count}')
             print(f'max of all: {max_count}')
