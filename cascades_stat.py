@@ -31,7 +31,7 @@ class Command:
         try:
             start = time.time()
             if args.max is None and args.min is None:
-                query = {'size': {'$ne': None}}
+                query = {'size': {'$exists': True}}
             else:
                 query = {'size': {}}
                 if args.max:
@@ -40,7 +40,7 @@ class Command:
                     query['size']['$gte'] = args.min
 
             memes = DBManager().db.memes.find(query, {'_id': int(args.idout is not None), 'size': 1})
-            msizes = np.array(sorted([m['size'] for m in memes], reverse=True))
+            msizes = np.array([m['size'] for m in memes])
             min_size, max_size = msizes.min(), msizes.max()
             print(f'min of all: {min_size}')
             print(f'max of all: {max_size}')
@@ -52,7 +52,7 @@ class Command:
             print(f'count between {args.min} and {max_size}: {sum(counts)}')
 
             if args.idout:
-                self.output_memeids(args.idout, memes, args.min, range_max)
+                self.output_memeids(args.idout, memes)
 
             pyplot.bar(bins[:-1], counts, width=(range_max - args.min) / bins_num)
             pyplot.savefig(args.pltout)
@@ -63,8 +63,8 @@ class Command:
             raise
 
     @staticmethod
-    def output_memeids(filename, memes, min_size, max_size):
-        meme_ids = [str(meme['_id']) for meme in memes if min_size <= meme['count'] <= max_size]
+    def output_memeids(filename, memes):
+        meme_ids = [str(meme['_id']) for meme in memes]
         with open(filename, 'w') as f:
             json.dump(meme_ids, f)
 
