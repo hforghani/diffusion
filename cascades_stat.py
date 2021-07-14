@@ -30,8 +30,9 @@ class Command:
     def handle(self, args):
         try:
             start = time.time()
-            query = {}
-            if args.max or args.min:
+            if args.max is None and args.min is None:
+                query = {'size': {'$ne': None}}
+            else:
                 query = {'size': {}}
                 if args.max:
                     query['size']['$lte'] = args.max
