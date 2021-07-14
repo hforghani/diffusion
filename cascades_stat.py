@@ -30,7 +30,15 @@ class Command:
     def handle(self, args):
         try:
             start = time.time()
-            memes = DBManager().db.memes.find({}, {'_id': int(args.idout is not None), 'count': 1})
+            query = {}
+            if args.max or args.min:
+                query = {'$size': {}}
+                if args.max:
+                    query['$size']['$le'] = args.max
+                if args.max:
+                    query['$size']['$ge'] = args.min
+
+            memes = DBManager().db.memes.find(query, {'_id': int(args.idout is not None), 'count': 1})
             mcounts = np.array(sorted([m['count'] for m in memes], reverse=True))
             min_count, max_count = min(mcounts), max(mcounts)
             print(f'min of all: {min_count}')
