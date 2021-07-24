@@ -117,7 +117,7 @@ class CascadeTree(object):
             for user_id in user_ids:
                 nodes[user_id] = CascadeNode(user_id)
 
-        with Timer('TREE: creating difussion edges'):
+        with Timer('TREE: creating diffusion edges'):
             # Create diffusion edge if a user reshares to another for the first time. Note that reshares are sorted by time.
             logger.debug('TREE: reshares count = %d' % reshares.count())
             roots = []
