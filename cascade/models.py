@@ -607,12 +607,11 @@ class Project(object):
                 for meme_id in all_memes:
                     tree = CascadeTree().extract_cascade(meme_id)
                     trees[meme_id] = tree
-                    trees_dict = {str(meme_id): tree.get_dict() for meme_id, tree in trees.items()}
-                    # Save trees for the project.
-                    self.save_param(trees_dict, 'trees', ParamTypes.JSON)
                     i += 1
                     if i % 10 == 0:
                         logger.info('%d%% done', i * 100 / count)
+                trees_dict = {str(meme_id): tree.get_dict() for meme_id, tree in trees.items()}
+                self.save_param(trees_dict, 'trees', ParamTypes.JSON) # Save trees for the project.
 
         self.trees = trees
         return trees
