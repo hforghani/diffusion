@@ -64,13 +64,18 @@ class EvidenceManager:
         """
         documents = self.__find_by_user_ids(project, user_ids)
 
-        return {
-            doc.user_id: {
-                'dimension': doc.dimension,
-                'sequences': eval(doc.read())
+        if documents.count():
+            return {
+                doc.user_id: {
+                    'dimension': doc.dimension,
+                    'sequences': eval(doc.read())
+                }
+                for doc in documents
             }
-            for doc in documents
-        }
+        else:
+            raise DataDoesNotExist(
+                f'No MEMM evidences exist on project {project.project_name}'
+                f'{" for user set given" if user_ids else ""}')
 
     def get_many_generator(self, project, user_ids=None):
         """
