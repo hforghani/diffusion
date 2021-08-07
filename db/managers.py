@@ -47,9 +47,9 @@ class EvidenceManager:
         fs = gridfs.GridFS(evid_db)
 
         if user_ids:
-            documents = fs.find({'user_id': {'$in': user_ids}})
+            documents = fs.find({'user_id': {'$in': user_ids}}, no_cursor_timeout=True)
         else:
-            documents = fs.find()
+            documents = fs.find(no_cursor_timeout=True)
 
         return documents
 
