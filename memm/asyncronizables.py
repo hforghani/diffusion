@@ -14,7 +14,7 @@ def train_memms(evidences):
     for uid in user_ids:
         count += 1
         ev = evidences.pop(uid)  # to free RAM
-        #    logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev[0])
+        logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev['dimension'])
         m = MEMM()
         try:
             m.fit(ev)
