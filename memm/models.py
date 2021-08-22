@@ -188,51 +188,6 @@ class MEMMModel:
     def __fit_by_evidences(self, train_set):
         evidences = self.__prepare_evidences(train_set)
 
-        test_userids = [
-         '5c5d7cf886887710a8f1d1f7', '5c5d7cee86887710a8ed8d1d', '5c5d7d0386887710a8f6eaa3', '5c5d7cf586887710a8f0b772',
-         '5c5d7d0f86887710a8fc294e', '5c5d7cf186887710a8ee40c6', '5c5d7cef86887710a8ee0ffa', '5c5d7cf886887710a8f2703b',
-         '5c5d7d0586887710a8f78afe', '5c5d7d0586887710a8f81f2b', '5c5d7cf486887710a8f032e2', '5c5d7cff86887710a8f50627',
-         '5c5d7cfe86887710a8f45133', '5c5d7cf886887710a8f17443', '5c94a81686887721b009cd1f', '5c5d7d0686887710a8f85c76',
-         '5c5d7d0286887710a8f6d6b9', '5c5d7cf886887710a8f1d2b4', '5c5d7d0686887710a8f84686', '5c5d7d0286887710a8f6b39a',
-         '5c97dddf8688771e3852d305', '5c5d7cf886887710a8f26763', '5c5d7d0586887710a8f800fd', '5c5d7d0586887710a8f776b2',
-         '5c5d7d0286887710a8f631c2', '5c5d7cf886887710a8f188b9', '5c5d7cf486887710a8efe53f', '5c5d7cf886887710a8f187ca',
-         '5c5d7cfc86887710a8f40cc7', '5c5d7cf886887710a8f1f252', '5c5d7d0686887710a8f8a1f9', '5c5d7cff86887710a8f51798',
-         '5c5d7cf186887710a8eeb2df', '5c5d7cff86887710a8f52d3f', '5c5d7cf586887710a8f06be7', '5c5d7d0886887710a8f8f43b',
-         '5c5d7d0986887710a8f9f6fe', '5c5d7d0686887710a8f86a03', '5c5d7cf186887710a8ee9103', '5c5d7cfb86887710a8f2bca7',
-         '5c5d7cf486887710a8f0167b', '5c5d7cff86887710a8f54eea', '5c5d7cff86887710a8f54700', '5c5d7cf586887710a8f05f1d',
-         '5c5d7d0c86887710a8fb6172', '5c5fba5c8688772420d6d5b0', '5c5d7cf286887710a8ef29fa', '5c5d7cf886887710a8f1de6a',
-         '5c5d7cfe86887710a8f48a03', '5c5d7d0886887710a8f9408e', '5c5d7cf586887710a8f0656b', '5c5d7cf786887710a8f13993',
-         '5c5d7cff86887710a8f526f6', '5c5d7cee86887710a8ed73c3', '5c5d7cf986887710a8f2a94d', '5c5d7cef86887710a8ede186',
-         '5c5d7d0186887710a8f5dc9b', '5c5d7d0686887710a8f872fc', '5c5d7cff86887710a8f5058c', '5c5d7cfb86887710a8f2d7dc',
-         '5c5d7d0586887710a8f82e12', '5c5d7cfb86887710a8f34b80', '5c5d7d0286887710a8f6114c', '5c5d7d0986887710a8f9e5c9',
-         '5c5d7cf186887710a8eed7fb', '5c5d7d0c86887710a8fafc62', '5c5d7cef86887710a8edf4c8', '5c5d7cf186887710a8ef16dc',
-         '5c5d7d0286887710a8f68ec7', '5c5d7cfb86887710a8f2e045', '5c5d7cf586887710a8f0b617', '5c5d7cff86887710a8f4db2f',
-         '5c5d7d0386887710a8f6f78c', '5c5d7cfc86887710a8f38b82', '5c5d7cf186887710a8eebe66', '5c5d7cf986887710a8f2aca9',
-         '5ca11cd08688770808470f3b', '5c5d7cfe86887710a8f47673', '5c5e7a4c86887725cc47f879', '5c5d7cff86887710a8f4e35c',
-         '5c5d7ced86887710a8ecb116', '5c5e7a3186887725cc46777b', '5c5d7d0586887710a8f74f84', '5c5d7d0286887710a8f6337b',
-         '5c5d7d0886887710a8f95c93', '5c97ddf38688771e3856ca91', '5c5d7cff86887710a8f4d51d', '5c5d7cfc86887710a8f3c7f3',
-         '5c5d7cee86887710a8ed0c89', '5c5d7d0f86887710a8fc4f35', '5c5d7d0c86887710a8fb0909', '5c5d7cf186887710a8ee8231',
-         '5c5d7cfe86887710a8f44273', '5c5d7cfc86887710a8f42f6c', '5c5d7cfe86887710a8f4a04b', '5c5d7cf886887710a8f1fcd4',
-         '5c5d7cfb86887710a8f348c4', '5c5d7cee86887710a8ed1b56', '5c5d7d0586887710a8f7bc2e', '5c5d7d0886887710a8f9293c',
-         '5c5e7aa986887725cc4fa4b2', '5c5d7cf886887710a8f1d3ff', '5c5d7d0b86887710a8fa635d', '5c5d7d0686887710a8f8a066',
-         '5c5d7d0886887710a8f90bbc', '5c5d7cf186887710a8eec184', '5c5d7d0186887710a8f5e26b', '5c5d7cf886887710a8f24e2b',
-         '5c5d7cee86887710a8ecdcc8', '5c5d7cf586887710a8f08e0d', '5c5d7cfe86887710a8f499cd', '5c5d7d0586887710a8f81d00',
-         '5c5d7d0c86887710a8fb25a7', '5c5d7d0286887710a8f6ba28', '5c5d7d0086887710a8f5b393', '5c5d7d0286887710a8f6cedb',
-         '5c5d7cf886887710a8f2844b', '5c5d7cff86887710a8f4c5ef', '5c5d7d0f86887710a8fc5932', '5c5d7cee86887710a8ed405e',
-         '5c5d7d0c86887710a8fb5a31', '5c5d7cfc86887710a8f3dbc9', '5c5d7cf586887710a8f0daa8', '5c5d7cff86887710a8f55f03',
-         '5c5d7cee86887710a8ed5b36', '5c5d7d0986887710a8f99a0d', '5c5d7cf286887710a8ef4e75', '5c5d7d0c86887710a8fb5331',
-         '5c5d7d0c86887710a8fb0ac1', '5c5d7cef86887710a8ee1028', '5c5d7cf586887710a8f08bbf', '5c5d7d0386887710a8f7230b',
-         '5c5d7d0c86887710a8fb7733', '5c5d7cf486887710a8efea99', '5c5d7d0586887710a8f7cb1c', '5c5d7d0586887710a8f7ab7d',
-         '5c5d7cfe86887710a8f47f99', '5c5d7cf186887710a8eecb56', '5c5d7cee86887710a8ecff79', '5c5d7cf786887710a8f13dc2',
-         '5c5d7cee86887710a8ed61d6', '5c5d7cf186887710a8eeb1ae', '5c5d7d0c86887710a8fb0d2e', '5c5d7d0586887710a8f7ac63',
-         '5c5d7cf186887710a8ef055e', '5c5d7d0586887710a8f7ee14', '5c5d7d0286887710a8f61e3a', '5c5d7d0986887710a8f9ca59',
-         '5c5d7cf486887710a8f00cb1', '5c5d7d0886887710a8f91db7', '5c5d7cf286887710a8ef88c5', '5c5d7d0586887710a8f77608',
-         '5c5d7d0c86887710a8fb6f96', '5c5d7cfc86887710a8f3d00e', '5c5d7cf286887710a8ef56e9', '5c5d7d0c86887710a8fab7e2',
-         '5c5d7d0186887710a8f5c6f4', '5c5d7d0986887710a8f9d2ad', '5c5d7d0686887710a8f88b26', '5c5d7d0c86887710a8fab090',
-         '5c5d7d0886887710a8f93e2a', '5c5d7d0986887710a8f9e0e2', '5c5d7d0c86887710a8fba961', '5c5d7cee86887710a8ed4125',
-         '5c5d7d0c86887710a8fab861', '5c5d7cf186887710a8eebff9'
-        ]
-
         # for uid in test_userids:
         #     logger.debugv('%s in evidences: %s', uid, ObjectId(uid) in evidences)
 
@@ -262,15 +217,17 @@ class MEMMModel:
             logger.info("training %d MEMM's related to part %d of users ...", len(part_j), j + 1)
             self.__fit_multiproc(evidences_j)
 
+        from guppy import hpy
+        h = hpy()
+        logger.debug('memory usage:')
+        logger.debug(str(h.heap()))
+
         # Train big evidences sequentially.
         logger.info('training %d big MEMMs sequentially', len(big_ev))
         memms = train_memms(big_ev)
         del big_ev
         for uid in big_user_ids:
             self.__memms[uid] = memms.pop(uid)  # to free RAM
-
-        for uid in test_userids:
-            logger.debugv('%s in MEMMs: %s', uid, ObjectId(uid) in self.__memms)
 
         logger.info('training MEMMs finished')
 
