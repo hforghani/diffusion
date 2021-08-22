@@ -47,9 +47,9 @@ class EvidenceManager:
         fs = gridfs.GridFS(evid_db)
 
         if user_ids:
-            documents = fs.find({'user_id': {'$in': user_ids}})
+            documents = fs.find({'user_id': {'$in': user_ids}}, no_cursor_timeout=True)
         else:
-            documents = fs.find()
+            documents = fs.find(no_cursor_timeout=True)
 
         return documents
 
@@ -64,13 +64,18 @@ class EvidenceManager:
         """
         documents = self.__find_by_user_ids(project, user_ids)
 
-        return {
-            doc.user_id: {
-                'dimension': doc.dimension,
-                'sequences': eval(doc.read())
+        if documents.count():
+            return {
+                doc.user_id: {
+                    'dimension': doc.dimension,
+                    'sequences': eval(doc.read())
+                }
+                for doc in documents
             }
-            for doc in documents
-        }
+        else:
+            raise DataDoesNotExist(
+                f'No MEMM evidences exist on project {project.project_name}'
+                f'{" for user set given" if user_ids else ""}')
 
     def get_many_generator(self, project, user_ids=None):
         """
