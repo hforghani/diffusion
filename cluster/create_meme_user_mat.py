@@ -1,3 +1,7 @@
+import sys
+
+sys.path.append('.')
+
 from scipy import sparse
 import numpy as np
 
