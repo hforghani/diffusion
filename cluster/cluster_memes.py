@@ -20,12 +20,8 @@ from matplotlib import pyplot as plt
 
 def get_users(meme_id):
     db = DBManager().db
-    #logger.info('querying posts ...')
-    posts = [pm['post_id'] for pm in db.postmemes.find({'meme_id': ObjectId(meme_id)}, {'post_id': 1, '_id': 0})]
-    #logger.info('size of posts: {}'.format(len(posts)))
-    #logger.info('querying users ...')
-    users = [p['author_id'] for p in db.posts.find({'_id': {'$in': posts}}, {'author_id': 1, '_id': 0})]
-    return list({str(u) for u in users})
+    users = db.postmemes.find({'meme_id': ObjectId(meme_id)}, {'author_id': 1, '_id': 0})
+    return list({str(u['author_id']) for u in users})
 
 
 def print_mat_neat(mat):
@@ -85,7 +81,7 @@ def get_jaccard_mat(memes, users):
 
         for j in range(i + 1, count):
             users_j = set(users[memes[j]])
-            #common = len(users_i.intersection(users_j))
+            # common = len(users_i.intersection(users_j))
             jaccard = len(users_i.intersection(users_j)) / len(users_i.union(users_j))
             mat[i, j] = jaccard
 
@@ -103,7 +99,7 @@ def cluster_mat(mat, clust_num):
     clustering = SpectralClustering(n_clusters=clust_num,
                                     assign_labels="discretize",
                                     random_state=0).fit(mat)
-    #clustering = DBSCAN(eps=0.001, min_samples=5, metric='precomputed', n_jobs=-1).fit(mat)
+    # clustering = DBSCAN(eps=0.001, min_samples=5, metric='precomputed', n_jobs=-1).fit(mat)
     return clustering.labels_
 
 
@@ -193,7 +189,7 @@ def main():
     error = calc_error(new_mat, clusters)
     logger.info('error = %f', error)
 
-    #print_mat_all_tab(new_mat)
+    # print_mat_all_tab(new_mat)
     heat_map(new_mat)
 
 
