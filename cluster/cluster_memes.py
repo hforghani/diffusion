@@ -13,7 +13,7 @@ from sklearn.cluster import SpectralClustering
 from sklearn.preprocessing.data import normalize
 
 from db.managers import DBManager
-from settings import logger, BASEPATH
+from settings import logger, BASEPATH, DB_NAME
 import numpy as np
 from matplotlib import pyplot as plt
 
@@ -108,7 +108,7 @@ def cluster_mat(mat, clust_num):
 
 
 def load_or_extract_users(meme_ids):
-    fname = os.path.join(BASEPATH, 'data', 'weibo_users.json')
+    fname = os.path.join(BASEPATH, 'data', f'{DB_NAME}_users.json')
     try:
         with open(fname) as f:
             logger.info('loading users lists ...')
@@ -153,7 +153,7 @@ def main():
 
     # Extract the top cascades.
     db = DBManager().db
-    memes = [str(m['_id']) for m in db.memes.find({}, ['_id']).sort('count', -1)[:count]]
+    memes = [str(m['_id']) for m in db.memes.find({}, ['_id']).sort('size', -1)[:count]]
 
     # Extract user sets of top cascades
     users = load_or_extract_users(memes)
@@ -180,7 +180,7 @@ def main():
         ordered_ind = np.concatenate((ordered_ind, indexes))
 
     # Print the clusters into the file.
-    with open(os.path.join(BASEPATH, 'data', 'weibo-clust'), 'w') as f:
+    with open(os.path.join(BASEPATH, 'data', f'{DB_NAME}-clust'), 'w') as f:
         for clust, clust_memes in clusters:
             f.write('cluster {}: size = {}\n'.format(clust, clust_memes.size))
             f.write('\n'.join(clust_memes))
