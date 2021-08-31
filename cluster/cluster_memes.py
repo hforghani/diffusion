@@ -157,6 +157,8 @@ def main():
     # Calculate the Jaccard matrix.
     logger.info('creating the similarity matrix ...')
     mat = get_jaccard_mat(memes, users)
+
+    # Normalize the matrix.
     mat = np.reshape(mat - np.eye(count), (1, mat.size))
     mat = normalize(mat, norm='max')
     mat = np.reshape(mat, (len(memes), len(memes)))
