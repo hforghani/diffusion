@@ -1,3 +1,11 @@
+import sys
+
+sys.path.append('.')
+
+import sys
+
+sys.path.append('.')
+
 import json
 import os
 from bson import ObjectId
@@ -5,19 +13,15 @@ from sklearn.cluster import SpectralClustering
 from sklearn.preprocessing.data import normalize
 
 from db.managers import DBManager
-from settings import logger, BASEPATH
+from settings import logger, BASEPATH, DB_NAME
 import numpy as np
 from matplotlib import pyplot as plt
 
 
 def get_users(meme_id):
     db = DBManager().db
-    #logger.info('querying posts ...')
-    posts = [pm['post_id'] for pm in db.postmemes.find({'meme_id': ObjectId(meme_id)}, {'post_id': 1, '_id': 0})]
-    #logger.info('size of posts: {}'.format(len(posts)))
-    #logger.info('querying users ...')
-    users = [p['author_id'] for p in db.posts.find({'_id': {'$in': posts}}, {'author_id': 1, '_id': 0})]
-    return list({str(u) for u in users})
+    users = db.postmemes.find({'meme_id': ObjectId(meme_id)}, {'author_id': 1, '_id': 0})
+    return list({str(u['author_id']) for u in users})
 
 
 def print_mat_neat(mat):
@@ -77,7 +81,7 @@ def get_jaccard_mat(memes, users):
 
         for j in range(i + 1, count):
             users_j = set(users[memes[j]])
-            #common = len(users_i.intersection(users_j))
+            # common = len(users_i.intersection(users_j))
             jaccard = len(users_i.intersection(users_j)) / len(users_i.union(users_j))
             mat[i, j] = jaccard
 
@@ -95,12 +99,12 @@ def cluster_mat(mat, clust_num):
     clustering = SpectralClustering(n_clusters=clust_num,
                                     assign_labels="discretize",
                                     random_state=0).fit(mat)
-    #clustering = DBSCAN(eps=0.001, min_samples=5, metric='precomputed', n_jobs=-1).fit(mat)
+    # clustering = DBSCAN(eps=0.001, min_samples=5, metric='precomputed', n_jobs=-1).fit(mat)
     return clustering.labels_
 
 
 def load_or_extract_users(meme_ids):
-    fname = os.path.join(BASEPATH, 'data', 'weibo_users.json')
+    fname = os.path.join(BASEPATH, 'data', f'{DB_NAME}_users.json')
     try:
         with open(fname) as f:
             logger.info('loading users lists ...')
@@ -145,7 +149,7 @@ def main():
 
     # Extract the top cascades.
     db = DBManager().db
-    memes = [str(m['_id']) for m in db.memes.find({}, ['_id']).sort('count', -1)[:count]]
+    memes = [str(m['_id']) for m in db.memes.find({}, ['_id']).sort('size', -1)[:count]]
 
     # Extract user sets of top cascades
     users = load_or_extract_users(memes)
@@ -172,7 +176,7 @@ def main():
         ordered_ind = np.concatenate((ordered_ind, indexes))
 
     # Print the clusters into the file.
-    with open(os.path.join(BASEPATH, 'data', 'weibo-clust'), 'w') as f:
+    with open(os.path.join(BASEPATH, 'data', f'{DB_NAME}-clust'), 'w') as f:
         for clust, clust_memes in clusters:
             f.write('cluster {}: size = {}\n'.format(clust, clust_memes.size))
             f.write('\n'.join(clust_memes))
@@ -185,7 +189,7 @@ def main():
     error = calc_error(new_mat, clusters)
     logger.info('error = %f', error)
 
-    #print_mat_all_tab(new_mat)
+    # print_mat_all_tab(new_mat)
     heat_map(new_mat)
 
 

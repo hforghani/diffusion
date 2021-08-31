@@ -1,10 +1,13 @@
+import sys
+
+sys.path.append('.')
+
 from scipy import sparse
 import numpy as np
 
 from db.managers import DBManager
-from settings import logger
+from settings import logger, DB_NAME
 from utils.numpy_utils import save_sparse
-
 
 logger.info('mapping meme ids to indexes ...')
 db = DBManager().db
@@ -23,7 +26,7 @@ user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
 u_count = len(user_ids)
 del user_ids
 
-#meme_user_mat = sparse.lil_matrix((m_count, u_count), dtype=bool)
+# meme_user_mat = sparse.lil_matrix((m_count, u_count), dtype=bool)
 
 logger.info('mapping posts to authors ...')
 cursor = db.posts.find({}, {'_id', 'author_id'}, no_cursor_timeout=True)
@@ -41,7 +44,7 @@ for pm in cursor:
     user_ind = post_author_map[post_id]
     meme_id = str(pm['meme_id'])
     meme_users.add((meme_map[meme_id], user_ind))
-    #meme_user_mat[meme_map[meme_id], user_map[user_id]] = 1
+    # meme_user_mat[meme_map[meme_id], user_map[user_id]] = 1
 
     i += 1
     if i % 1000 == 0:
@@ -51,8 +54,8 @@ cursor.close()
 del post_author_map
 del meme_map
 
-#logger.info('converting to csr ...')
-#meme_user_mat = meme_user_mat.tocsr()
+# logger.info('converting to csr ...')
+# meme_user_mat = meme_user_mat.tocsr()
 
 logger.info('creating matrix ...')
 row_ind = []
@@ -67,4 +70,4 @@ del row_ind
 del col_ind
 
 logger.info('saving into file ...')
-save_sparse('../data/weibo_meme_user_mat.npz', meme_user_mat)
+save_sparse(f'../data/{DB_NAME}_meme_user_mat.npz', meme_user_mat)
