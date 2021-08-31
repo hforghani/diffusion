@@ -10,7 +10,7 @@ import json
 import os
 from bson import ObjectId
 from sklearn.cluster import SpectralClustering
-from sklearn.preprocessing.data import normalize
+from sklearn.preprocessing import normalize
 
 from db.managers import DBManager
 from settings import logger, BASEPATH, DB_NAME
