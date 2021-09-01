@@ -156,12 +156,15 @@ def cluster(count, clust_num):
     # Calculate the Jaccard matrix.
     logger.info('creating the similarity matrix ...')
     mat = get_jaccard_mat(memes, users)
+    logger.debug('number of ones: %d', np.count_nonzero(mat == 1))
 
     # Normalize the matrix.
     mat = np.reshape(mat - np.eye(count), (1, mat.size))
     mat = normalize(mat, norm='max')
     mat = np.reshape(mat, (len(memes), len(memes)))
     mat += np.eye(count)
+    logger.debug('number of ones: %d', np.count_nonzero(mat == 1))
+    heat_map(mat)
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
