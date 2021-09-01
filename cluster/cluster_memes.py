@@ -1,5 +1,7 @@
 import sys
 
+import argparse
+
 sys.path.append('.')
 
 import sys
@@ -143,10 +145,7 @@ def calc_error(mat, clusters):
     return error
 
 
-def main():
-    count = 100
-    clust_num = 4
-
+def cluster(count, clust_num):
     # Extract the top cascades.
     db = DBManager().db
     memes = [str(m['_id']) for m in db.memes.find({}, ['_id']).sort('size', -1)[:count]]
@@ -199,4 +198,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(c.help)
+    parser.add_argument('-c', '--clusters', type=int, default=4, help='number of clusters')
+    parser.add_argument('-n', '--cascades', type=int, default=100, help='number of top cascades')
+    args = parser.parse_args()
+    cluster(args.cascades, args.clusters)
