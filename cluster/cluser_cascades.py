@@ -198,7 +198,7 @@ def cluster(count, clust_num):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(c.help)
+    parser = argparse.ArgumentParser('Cluster the cascades based on their common users')
     parser.add_argument('-c', '--clusters', type=int, default=4, help='number of clusters')
     parser.add_argument('-n', '--cascades', type=int, default=100, help='number of top cascades')
     args = parser.parse_args()
