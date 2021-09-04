@@ -227,7 +227,7 @@ def ask_to_create_project(clusters):
         return
     label = ask_question('Which cluster do you want to peek?', [str(k) for k in sorted(clusters.keys())])
     name = input('Enter the project name: ')
-    save_project(name, clusters[int(label)])
+    save_project(name, list(clusters[int(label)]))
 
 
 if __name__ == '__main__':
