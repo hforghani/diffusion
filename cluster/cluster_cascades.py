@@ -1,7 +1,4 @@
-import random
 import sys
-
-from cascade.models import Project
 
 sys.path.append('.')
 
@@ -11,11 +8,13 @@ import os
 from bson import ObjectId
 from sklearn.cluster import SpectralClustering
 from sklearn.preprocessing import normalize
+import numpy as np
+from matplotlib import pyplot as plt
+import random
 
 from db.managers import DBManager
 from settings import logger, BASEPATH, DB_NAME
-import numpy as np
-from matplotlib import pyplot as plt
+from cascade.models import Project
 
 
 def get_users(meme_id):
