@@ -203,8 +203,8 @@ def ask_question(question, choices):
     while True:
         ans = input(f'{question} ({choices}) ')
         lower_choices = [c.lower() for c in choices]
-        if ans.lower in lower_choices:
-            return ans
+        if ans.lower() in lower_choices:
+            return ans.lower()
         else:
             print('Wrong answer!')
 
