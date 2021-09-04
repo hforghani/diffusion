@@ -143,7 +143,9 @@ def calc_error(mat, clusters):
 def cluster(count, clust_num):
     # Extract the top cascades.
     db = DBManager().db
-    memes = [str(m['_id']) for m in db.memes.find({}, ['_id']).sort('size', -1)[:count]]
+    top_memes = db.memes.find({}, ['_id', 'size']).sort('size', -1)[:count]
+    memes = [str(m['_id']) for m in top_memes]
+    sizes = {str(m['_id']): m['size'] for m in top_memes}
 
     # Extract user sets of top cascades
     users = load_or_extract_users(memes)
@@ -177,8 +179,8 @@ def cluster(count, clust_num):
     # Print the clusters into the file.
     with open(os.path.join(BASEPATH, 'data', f'{DB_NAME}-clust'), 'w') as f:
         for clust, clust_memes in clusters:
-            f.write('cluster {}: size = {}\n'.format(clust, clust_memes.size))
-            f.write('\n'.join(clust_memes))
+            f.write(f'cluster {clust}: count = {clust_memes.size}\n')
+            f.write('\n'.join([f'{meme_id}, size = {sizes[meme_id]}' for meme_id in clust_memes]))
             f.write('\n')
 
     new_mat = mat[:, ordered_ind]
