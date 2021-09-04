@@ -7,7 +7,7 @@ import json
 import os
 from bson import ObjectId
 from sklearn.cluster import SpectralClustering
-from sklearn.preprocessing.data import normalize
+from sklearn.preprocessing import normalize
 
 from db.managers import DBManager
 from settings import logger, BASEPATH, DB_NAME
@@ -141,7 +141,6 @@ def calc_error(mat, clusters):
 
 
 def cluster(count, clust_num):
-
     # Extract the top cascades.
     db = DBManager().db
     memes = [str(m['_id']) for m in db.memes.find({}, ['_id']).sort('size', -1)[:count]]
@@ -168,18 +167,18 @@ def cluster(count, clust_num):
     logger.debug('labels = %s', labels)
 
     # Create the ordered indexes of cascades.
-    ordered_ind = np.array([], dtype=np.int8)
+    ordered_ind = np.array([], dtype=np.int64)
     memes_arr = np.array([str(m) for m in memes])
     uni_val = np.unique(labels)
     clusters = []
     logger.info('%d cluster(s) found', uni_val.size)
     for val in uni_val:
         indexes = np.nonzero(labels == val)[0]
+        clusters.append((val, memes_arr[indexes]))
         logger.debug('indexes of value %d = %s', val, indexes)
         logger.debug('type = %s', indexes.dtype)
-        indexes = indexes.astype(np.int8)
+        indexes = indexes.astype(np.int64)
         logger.debug('indexes = %s', indexes)
-        clusters.append((val, memes_arr[indexes]))
         ordered_ind = np.concatenate((ordered_ind, indexes))
     logger.debug('ordered_ind = %s', ordered_ind)
 
