@@ -175,7 +175,10 @@ def cluster(count, clust_num):
     logger.info('%d cluster(s) found', uni_val.size)
     for val in uni_val:
         indexes = np.nonzero(labels == val)[0]
+        logger.debug('indexes of value %d = %s', val, indexes)
+        logger.debug('type = %s', indexes.dtype)
         indexes = indexes.astype(np.int8)
+        logger.debug('indexes = %s', indexes)
         clusters.append((val, memes_arr[indexes]))
         ordered_ind = np.concatenate((ordered_ind, indexes))
     logger.debug('ordered_ind = %s', ordered_ind)
