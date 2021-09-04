@@ -212,8 +212,8 @@ def ask_question(question, choices):
 def save_project(name, meme_ids):
     random.shuffle(meme_ids)
     val_ratio, test_ratio = 0.15, 0.15
-    val_num = round(val_ratio * args.number)
-    test_num = round(test_ratio * args.number)
+    val_num = round(val_ratio * len(meme_ids))
+    test_num = round(test_ratio * len(meme_ids))
     val_set = meme_ids[:val_num]
     test_set = meme_ids[val_num:val_num + test_num]
     train_set = meme_ids[val_num + test_num:]
