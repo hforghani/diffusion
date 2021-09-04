@@ -1,4 +1,7 @@
+import random
 import sys
+
+from cascade.models import Project
 
 sys.path.append('.')
 
@@ -132,15 +135,15 @@ def calc_error(mat, clusters):
     count = mat.shape[0]
     squares_mat = np.zeros((count, count))
     begin = 0
-    for clust, clust_memes in clusters:
-        clust_size = clust_memes.size
+    for label in sorted(clusters.keys()):
+        clust_size = clusters[label].size
         squares_mat[begin: begin + clust_size, begin: begin + clust_size] = 1
         begin += clust_size
     error = np.linalg.norm(mat - squares_mat)
     return error
 
 
-def cluster(count, clust_num):
+def show_clusters(count, clust_num):
     # Extract the top cascades.
     db = DBManager().db
     top_memes = list(db.memes.find({}, ['_id', 'size']).sort('size', -1)[:count])
@@ -168,18 +171,19 @@ def cluster(count, clust_num):
     ordered_ind = np.array([], dtype=np.int64)
     memes_arr = np.array([str(m) for m in memes])
     uni_val = np.unique(labels)
-    clusters = []
+    clusters = {}
     logger.info('%d cluster(s) found', uni_val.size)
     for val in uni_val:
         indexes = np.nonzero(labels == val)[0]
         indexes = indexes.astype(np.int64)
-        clusters.append((val, memes_arr[indexes]))
+        clusters[val] = memes_arr[indexes]
         ordered_ind = np.concatenate((ordered_ind, indexes))
 
     # Print the clusters into the file.
     with open(os.path.join(BASEPATH, 'data', f'{DB_NAME}-clust'), 'w') as f:
-        for clust, clust_memes in clusters:
-            f.write(f'cluster {clust}: count = {clust_memes.size}\n')
+        for label in sorted(clusters.keys()):
+            clust_memes = clusters[label]
+            f.write(f'cluster {label}: count = {clust_memes.size}\n')
             f.write('\n'.join([f'{meme_id}, size = {sizes[meme_id]}' for meme_id in clust_memes]))
             f.write('\n')
 
@@ -193,10 +197,44 @@ def cluster(count, clust_num):
     # print_mat_all_tab(new_mat)
     heat_map(new_mat)
 
+    return clusters
+
+
+def ask_question(question, choices):
+    while True:
+        ans = input(f'{question} ({choices}) ')
+        lower_choices = [c.lower() for c in choices]
+        if ans.lower in lower_choices:
+            return ans
+        else:
+            print('Wrong answer!')
+
+
+def save_project(name, meme_ids):
+    random.shuffle(meme_ids)
+    val_ratio, test_ratio = 0.15, 0.15
+    val_num = round(val_ratio * args.number)
+    test_num = round(test_ratio * args.number)
+    val_set = meme_ids[:val_num]
+    test_set = meme_ids[val_num:val_num + test_num]
+    train_set = meme_ids[val_num + test_num:]
+    project = Project(name)
+    project.save_sets(train_set, val_set, test_set)
+
+
+def ask_to_create_project(clusters):
+    ans = ask_question('Do you want to peek a cluster as a project?', {'y': 'Yes', 'n': 'No'})
+    if ans == 'n':
+        return
+    label = ask_question('Which cluster do you want to peek?', [str(k) for k in sorted(clusters.keys())])
+    name = input('Enter the project name: ')
+    save_project(name, clusters[int(label)])
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Cluster the cascades based on their common users')
     parser.add_argument('-c', '--clusters', type=int, default=4, help='number of clusters')
     parser.add_argument('-n', '--cascades', type=int, default=100, help='number of top cascades')
     args = parser.parse_args()
-    cluster(args.cascades, args.clusters)
+    clusters = show_clusters(args.cascades, args.clusters)
+    ask_to_create_project(clusters)
