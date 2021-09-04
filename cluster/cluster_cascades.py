@@ -86,7 +86,6 @@ def get_jaccard_mat(memes, users):
             mat[i, j] = jaccard
 
     mat += mat.transpose() + np.eye(count)
-    logger.debug('matrix is symmetric? %s', mat == mat.transpose())
     return mat
 
 
@@ -164,7 +163,6 @@ def main():
     mat = normalize(mat, norm='max')
     mat = np.reshape(mat, (len(memes), len(memes)))
     mat += np.eye(count)
-    logger.debug('matrix is symmetric? %s', mat == mat.transpose())
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
@@ -181,8 +179,6 @@ def main():
         indexes = indexes.astype(np.int8)
         clusters.append((val, memes_arr[indexes]))
         ordered_ind = np.concatenate((ordered_ind, indexes))
-    logger.debug('ordered_ind = ')
-    logger.debug(str(ordered_ind))
 
     # Print the clusters into the file.
     with open(os.path.join(BASEPATH, 'data', f'{DB_NAME}-clust'), 'w') as f:
@@ -193,7 +189,6 @@ def main():
 
     new_mat = mat[:, ordered_ind]
     new_mat = new_mat[ordered_ind, :]
-    logger.debug('matrix is symmetric after re-ordering? %s', new_mat == new_mat.transpose())
 
     # Calculate the clustering error.
     error = calc_error(new_mat, clusters)
