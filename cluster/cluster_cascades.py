@@ -1,13 +1,8 @@
 import sys
 
+sys.path.append('.')
+
 import argparse
-
-sys.path.append('.')
-
-import sys
-
-sys.path.append('.')
-
 import json
 import os
 from bson import ObjectId
@@ -171,14 +166,14 @@ def cluster(count, clust_num):
     labels = cluster_mat(mat, clust_num)
 
     # Create the ordered indexes of cascades.
-    ordered_ind = np.array([], dtype=np.int8)
+    ordered_ind = np.array([], dtype=np.int64)
     memes_arr = np.array([str(m) for m in memes])
     uni_val = np.unique(labels)
     clusters = []
     logger.info('%d cluster(s) found', uni_val.size)
     for val in uni_val:
         indexes = np.nonzero(labels == val)[0]
-        indexes = indexes.astype(np.int8)
+        indexes = indexes.astype(np.int64)
         clusters.append((val, memes_arr[indexes]))
         ordered_ind = np.concatenate((ordered_ind, indexes))
 
