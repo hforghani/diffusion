@@ -167,6 +167,7 @@ def main():
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
     labels = cluster_mat(mat, clust_num)
+    logger.debug('labels = %s', labels)
 
     # Create the ordered indexes of cascades.
     ordered_ind = np.array([], dtype=np.int8)
@@ -179,6 +180,7 @@ def main():
         indexes = indexes.astype(np.int8)
         clusters.append((val, memes_arr[indexes]))
         ordered_ind = np.concatenate((ordered_ind, indexes))
+    logger.debug('ordered_ind = %s', ordered_ind)
 
     # Print the clusters into the file.
     with open(os.path.join(BASEPATH, 'data', f'{DB_NAME}-clust'), 'w') as f:
