@@ -143,7 +143,7 @@ def calc_error(mat, clusters):
 def cluster(count, clust_num):
     # Extract the top cascades.
     db = DBManager().db
-    top_memes = db.memes.find({}, ['_id', 'size']).sort('size', -1)[:count]
+    top_memes = list(db.memes.find({}, ['_id', 'size']).sort('size', -1)[:count])
     memes = [str(m['_id']) for m in top_memes]
     sizes = {str(m['_id']): m['size'] for m in top_memes}
 
