@@ -818,7 +818,7 @@ class Project(object):
                 if common_memes:
                     edges.append((ref_user_id, user_id))
             i += 1
-            if resh_count is not None and i % (resh_count / 10) == 0:
+            if i % (resh_count / 10) == 0:
                 logger.info('%d%% reshares done' % (i * 100 / resh_count))
 
         graph = DiGraph()
