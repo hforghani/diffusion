@@ -9,7 +9,7 @@ from anytree import Node, RenderTree
 from bson.objectid import ObjectId
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
-from pymongo.errors import CursorNotFound
+from pymongo.errors import CursorNotFound, DocumentTooLarge
 
 import settings
 from db.managers import DBManager
@@ -787,14 +787,20 @@ class Project(object):
 
         logger.info('querying reshares ...')
         db = DBManager().db
-        resh_count = db.reshares.find(
-            {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}).count()
+        try:
+            resh_count = db.reshares.find(
+                {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}).count()
+        except DocumentTooLarge:
+            resh_count = None
         reshares = db.reshares.find(
             {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
             {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
         logger.info('time: %.2f min', (time.time() - t0) / 60.0)
 
-        logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
+        if resh_count is not None:
+            logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
+        else:
+            logger.info('extracting graph from %d posts ...', len(post_ids))
         edges = []
         meme_ids = set(meme_ids)
         i = 0
@@ -812,7 +818,7 @@ class Project(object):
                 if common_memes:
                     edges.append((ref_user_id, user_id))
             i += 1
-            if i % (resh_count / 10) == 0:
+            if resh_count is not None and i % (resh_count / 10) == 0:
                 logger.info('%d%% reshares done' % (i * 100 / resh_count))
 
         graph = DiGraph()
