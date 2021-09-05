@@ -611,7 +611,7 @@ class Project(object):
                     if i % 10 == 0:
                         logger.info('%d%% done', i * 100 / count)
                 trees_dict = {str(meme_id): tree.get_dict() for meme_id, tree in trees.items()}
-                self.save_param(trees_dict, 'trees', ParamTypes.JSON) # Save trees for the project.
+                self.save_param(trees_dict, 'trees', ParamTypes.JSON)  # Save trees for the project.
 
         self.trees = trees
         return trees
@@ -787,11 +787,11 @@ class Project(object):
 
         logger.info('querying reshares ...')
         db = DBManager().db
+        resh_count = db.reshares.find(
+            {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}).count()
         reshares = db.reshares.find(
             {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
             {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
-        resh_count = reshares.count()
-        reshares.rewind()
         logger.info('time: %.2f min', (time.time() - t0) / 60.0)
 
         logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
