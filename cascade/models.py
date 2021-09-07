@@ -787,7 +787,9 @@ class Project(object):
                 logger.debug('fetching reshares of post ids from %d to %d ...', i, i + step)
                 reshares.extend(list(db.reshares.find(
                     {'post_id': post_ids[i: i + step], 'reshared_post_id': {'$in': post_ids}},
-                    {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')))
+                    {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1})))
+                logger.debug('number of reshares: %d', len(reshares))
+            reshares.sort(key=lambda resh: resh['datetime'])
             return reshares
 
     def __extract_reshare_graph(self, post_ids, meme_ids, graph_fname):
