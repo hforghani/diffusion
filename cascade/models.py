@@ -774,6 +774,20 @@ class Project(object):
         logger.info('act. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return sequences
 
+    def __extract_reshares(self, db, post_ids):
+        if len(post_ids) < 400000:
+            reshares = db.reshares.find(
+                {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
+                {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
+            return list(reshares)
+        else:
+            reshares = []
+            for pid in post_ids:
+                reshares.extend(list(db.reshares.find(
+                    {'post_id': pid, 'reshared_post_id': {'$in': post_ids}},
+                    {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')))
+            return reshares
+
     def __extract_reshare_graph(self, post_ids, meme_ids, graph_fname):
         """
         Extract graph from given meme id's.
@@ -787,20 +801,11 @@ class Project(object):
 
         logger.info('querying reshares ...')
         db = DBManager().db
-        try:
-            resh_count = db.reshares.find(
-                {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}).count()
-        except DocumentTooLarge:
-            resh_count = None
-        reshares = db.reshares.find(
-            {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
-            {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
+        reshares = self.__extract_reshares(db, post_ids)
+        resh_count = len(reshares)
         logger.info('time: %.2f min', (time.time() - t0) / 60.0)
 
-        if resh_count is not None:
-            logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
-        else:
-            logger.info('extracting graph from %d posts and too many reshares ...', len(post_ids))
+        logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
         edges = []
         meme_ids = set(meme_ids)
         i = 0
