@@ -788,12 +788,13 @@ class Project(object):
         logger.info('querying reshares ...')
         db = DBManager().db
         try:
+            # TODO: Remove the limit!
             resh_count = db.reshares.find(
-                {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}).count()
+                {'post_id': {'$in': post_ids[:500000]}, 'reshared_post_id': {'$in': post_ids}}).count()
         except DocumentTooLarge:
             resh_count = None
         reshares = db.reshares.find(
-            {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
+            {'post_id': {'$in': post_ids[:500000]}, 'reshared_post_id': {'$in': post_ids[:500000]}},
             {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
         logger.info('time: %.2f min', (time.time() - t0) / 60.0)
 
