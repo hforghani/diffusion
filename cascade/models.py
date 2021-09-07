@@ -98,7 +98,7 @@ class CascadeTree(object):
 
     @classmethod
     def extract_cascade(cls, meme_id):
-        with Timer('TREE: fetching posts'):
+        with Timer('TREE: fetching posts', 'debug'):
             # Fetch posts related to the meme and reshares.
             if isinstance(meme_id, str):
                 meme_id = ObjectId(meme_id)
@@ -110,7 +110,7 @@ class CascadeTree(object):
             reshares = db.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
                 .sort('datetime')
 
-        with Timer('TREE: creating nodes'):
+        with Timer('TREE: creating nodes', 'debug'):
             # Create nodes for the users.
             nodes = {}
             visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
@@ -304,7 +304,6 @@ class AsLT(object):
         self.users_map = None
 
         self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
-        logger.debug('w loaded from : %s', self.w_param_name)
         # logger.info('sum of columns:')
         # for i in range(self.w.shape[1]):
         #     if self.w[:, i].nnz:
@@ -774,6 +773,24 @@ class Project(object):
         logger.info('act. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return sequences
 
+    def __extract_reshares(self, db, post_ids):
+        if len(post_ids) < 400000:
+            reshares = db.reshares.find(
+                {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
+                {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
+            return list(reshares)
+        else:
+            reshares = []
+            step = 800000 - len(post_ids)
+            for i in range(0, len(post_ids), step):
+                logger.debug('fetching reshares of post ids from %d to %d ...', i, i + step)
+                reshares.extend(list(db.reshares.find(
+                    {'post_id': post_ids[i: i + step], 'reshared_post_id': {'$in': post_ids}},
+                    {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1})))
+                logger.debug('number of reshares: %d', len(reshares))
+            reshares.sort(key=lambda resh: resh['datetime'])
+            return reshares
+
     def __extract_reshare_graph(self, post_ids, meme_ids, graph_fname):
         """
         Extract graph from given meme id's.
@@ -787,21 +804,11 @@ class Project(object):
 
         logger.info('querying reshares ...')
         db = DBManager().db
-        try:
-            # TODO: Remove the limit!
-            resh_count = db.reshares.find(
-                {'post_id': {'$in': post_ids[:500000]}, 'reshared_post_id': {'$in': post_ids}}).count()
-        except DocumentTooLarge:
-            resh_count = None
-        reshares = db.reshares.find(
-            {'post_id': {'$in': post_ids[:500000]}, 'reshared_post_id': {'$in': post_ids[:500000]}},
-            {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
+        reshares = self.__extract_reshares(db, post_ids)
+        resh_count = len(reshares)
         logger.info('time: %.2f min', (time.time() - t0) / 60.0)
 
-        if resh_count is not None:
-            logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
-        else:
-            logger.info('extracting graph from %d posts and too many reshares ...', len(post_ids))
+        logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
         edges = []
         meme_ids = set(meme_ids)
         i = 0
