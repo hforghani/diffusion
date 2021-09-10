@@ -22,8 +22,9 @@ class Command:
         group.add_argument("-v", "--validation", action='store_true', default=False,
                            help="learn the best threshold in validation stage")
         parser.add_argument("-c", "--thresh-count", type=int, dest="thresholds_count", default=10,
-                            help="in the case the argument --all is given, this argument specifies the number of "
-                                 "thresholds to test between min and max thresholds specified in local_settings.py")
+                            help="in the case the argument --validation is given, this argument specifies the number "
+                                 "of thresholds to test between min and max thresholds specified in local_settings.py "
+                                 "in validation stage")
         parser.add_argument("-i", "--init-depth", type=int, dest="initial_depth", default=0,
                             help="the maximum depth for the initial nodes")
         parser.add_argument("-d", "--max-depth", type=int, dest="max_depth",
