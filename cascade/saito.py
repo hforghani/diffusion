@@ -260,7 +260,9 @@ class Saito(AsLT):
         for j in range(0, m_count, step):
             subset = meme_ids[j: j + step]
             indexes = [meme_map[str(mid)] for mid in subset]
+            logger.debugv('indexes = %s', indexes)
             row_subsets.append(indexes)
+            logger.debugv('row_subsets = %s', row_subsets)
             sequences = [data[mid] for mid in subset]
             res = pool.apply_async(calc_g, (sequences, graph, w, r, user_map))
             results.append(res)
