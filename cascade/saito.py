@@ -43,8 +43,8 @@ def calc_g(sequences, graph, w, r, user_map):
             cols.append(uid_i)
 
         i += 1
-        if c_count >= 10 and i % (c_count / 10) == 0:
-            logger.info('\t%d%% done' % (i * 100 / c_count))
+        if c_count >= 10 and i % (c_count // 10) == 0:
+            logger.info('\t%d%% done', i * 100 // c_count)
 
     return values, cols
 
@@ -242,8 +242,8 @@ class Saito(AsLT):
                     rows.append(mid_i)
                     cols.append(uid_i)
             i += 1
-            if m_count >= 10 and i % (m_count / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / m_count))
+            if m_count >= 10 and i % (m_count // 10) == 0:
+                logger.info('\t%d%% done' % (i * 100 // m_count))
 
         h = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float64)
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
@@ -278,6 +278,7 @@ class Saito(AsLT):
             values.extend(val_subset)
             rows.extend(row_subsets[i])
             cols.extend(col_subset)
+            logger.debugv('lengths: %d, %d, %d', len(values), len(rows), len(cols))
 
         g = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
         return g
@@ -321,8 +322,8 @@ class Saito(AsLT):
             phi_h[mid_i] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
 
             i += 1
-            if len(meme_ids) >= 10 and i % (len(meme_ids) / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
+            if len(meme_ids) >= 10 and i % (len(meme_ids) // 10) == 0:
+                logger.info('\t%d%% done' % (i * 100 // len(meme_ids)))
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return phi_h
@@ -362,8 +363,8 @@ class Saito(AsLT):
             phi_g[mid_i] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
 
             i += 1
-            if len(meme_ids) >= 10 and i % (len(meme_ids) / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
+            if len(meme_ids) >= 10 and i % (len(meme_ids) // 10) == 0:
+                logger.info('\t%d%% done' % (i * 100 // len(meme_ids)))
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return phi_g
@@ -404,8 +405,8 @@ class Saito(AsLT):
             psi[mid_i] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
 
             i += 1
-            if len(meme_ids) >= 10 and i % (len(meme_ids) / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
+            if len(meme_ids) >= 10 and i % (len(meme_ids) // 10) == 0:
+                logger.info('\t%d%% done' % (i * 100 // len(meme_ids)))
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return psi
@@ -467,8 +468,8 @@ class Saito(AsLT):
                     logger.info('\tWARNING: denominator = 0, r = inf')
 
             i += 1
-            if len(user_ids) >= 10 and i % (len(user_ids) / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / len(user_ids)))
+            if len(user_ids) >= 10 and i % (len(user_ids) // 10) == 0:
+                logger.info('\t%d%% done' % (i * 100 // len(user_ids)))
 
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return r
@@ -522,8 +523,8 @@ class Saito(AsLT):
             #        (u, v), muv_set1[(u, v)], muv_set2[(u, v)], muv_set3[(u, v)]))
 
             i += 1
-            if val_count >= 10 and i % (val_count / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / val_count))
+            if val_count >= 10 and i % (val_count // 10) == 0:
+                logger.info('\t%d%% done' % (i * 100 // val_count))
 
         for v in graph.nodes():
             v_i = user_map[str(v)]
@@ -537,8 +538,8 @@ class Saito(AsLT):
                     #    logger.info('\t\tWARNING: w = 0 at %s, set: %s' % ((v, v), mv_set2[v]))
 
             i += 1
-            if val_count >= 10 and i % (val_count / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / val_count))
+            if val_count >= 10 and i % (val_count // 10) == 0:
+                logger.info('\t%d%% done' % (i * 100 // val_count))
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype='d')
 
