@@ -14,39 +14,41 @@ from utils.time_utils import Timer, time_measure
 
 
 def calc_g(sequences, graph, w, r, user_map):
-    c_count = len(sequences)
+    m_count = len(sequences)
     values = []
+    rows = []
     cols = []
     i = 0
 
-    for sequence in sequences:
+    for mindex, sequence in sequences.items():
         rond_set = sequence.get_rond_set(graph)
 
         for uid in rond_set:
-            uid_i = user_map[str(uid)]
+            uindex = user_map[str(uid)]
             active_parents = sequence.get_active_parents(uid, graph)
             act_par_indexes = [user_map[str(id)] for id in active_parents]
             inactive_parents = set(graph.predecessors(uid)) - set(active_parents)
             inact_par_indexes = [user_map[str(id)] for id in inactive_parents]
 
-            w_col = w[:, uid_i].todense()
+            w_col = w[:, uindex].todense()
             inact_par_sum = w_col[inact_par_indexes].sum()
             act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
             max_time = np.repeat(np.matrix(sequence.max_t), len(active_parents))
             diff = max_time - act_par_times
-            act_par_sum = np.exp(-r[uid_i] * diff) * w_col[act_par_indexes]
+            act_par_sum = np.exp(-r[uindex] * diff) * w_col[act_par_indexes]
 
-            val = w[uid_i, uid_i] + inact_par_sum + float(act_par_sum)
+            val = w[uindex, uindex] + inact_par_sum + float(act_par_sum)
             if np.float32(val) == 0:
                 logger.info('\tWARNING: g = 0')
             values.append(val)
-            cols.append(uid_i)
+            rows.append(mindex)
+            cols.append(uindex)
 
         i += 1
-        if c_count >= 10 and i % (c_count // 10) == 0:
-            logger.info('\t%d%% done', i * 100 // c_count)
+        if m_count >= 10 and i % (m_count // 10) == 0:
+            logger.info('\t%d%% done', i * 100 // m_count)
 
-    return values, cols
+    return values, rows, cols
 
 
 class Saito(AsLT):
@@ -255,15 +257,10 @@ class Saito(AsLT):
         m_count = len(meme_ids)
         pool = Pool(processes=settings.PROCESS_COUNT)
         step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
-        row_subsets = []
         results = []
         for j in range(0, m_count, step):
             subset = meme_ids[j: j + step]
-            indexes = [meme_map[str(mid)] for mid in subset]
-            logger.debugv('indexes = %s', indexes)
-            row_subsets.append(indexes)
-            logger.debugv('row_subsets = %s', row_subsets)
-            sequences = [data[mid] for mid in subset]
+            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
             res = pool.apply_async(calc_g, (sequences, graph, w, r, user_map))
             results.append(res)
 
@@ -276,9 +273,9 @@ class Saito(AsLT):
 
         # Collect results of the processes.
         for i in range(len(results)):
-            val_subset, col_subset = results[i].get()
+            val_subset, row_subset, col_subset = results[i].get()
             values.extend(val_subset)
-            rows.extend(row_subsets[i])
+            rows.extend(row_subset)
             cols.extend(col_subset)
             logger.debugv('lengths: %d, %d, %d', len(values), len(rows), len(cols))
 
