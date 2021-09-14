@@ -416,7 +416,7 @@ class AsLT(object):
                         node.children.append(child)
                         activated.append(v)
                         next_step.append(child)
-                        logger.debugv('a reshare predicted: prob (%d) >= thresh (%d)', self.probabilities[v], thresh)
+                        logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thresh)
             cur_step = sorted(next_step, key=lambda n: n.datetime)
             logger.debug('step %d done, time = %.2f s' % (step, time.time() - t0))
 
