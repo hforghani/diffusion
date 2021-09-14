@@ -13,26 +13,26 @@ from settings import logger
 from utils.time_utils import Timer, time_measure
 
 
-def calc_g(cascades, graph, w, r, user_map):
-    c_count = len(cascades)
+def calc_g(sequences, graph, w, r, user_map):
+    c_count = len(sequences)
     values = []
     cols = []
     i = 0
 
-    for cascade in cascades:
-        rond_set = cascade.get_rond_set(graph)
+    for sequence in sequences:
+        rond_set = sequence.get_rond_set(graph)
 
         for uid in rond_set:
             uid_i = user_map[str(uid)]
-            active_parents = cascade.get_active_parents(uid, graph)
+            active_parents = sequence.get_active_parents(uid, graph)
             act_par_indexes = [user_map[str(id)] for id in active_parents]
             inactive_parents = set(graph.predecessors(uid)) - set(active_parents)
             inact_par_indexes = [user_map[str(id)] for id in inactive_parents]
 
             w_col = w[:, uid_i].todense()
             inact_par_sum = w_col[inact_par_indexes].sum()
-            act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
-            max_time = np.repeat(np.matrix(cascade.max_t), len(active_parents))
+            act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
+            max_time = np.repeat(np.matrix(sequence.max_t), len(active_parents))
             diff = max_time - act_par_times
             act_par_sum = np.exp(-r[uid_i] * diff) * w_col[act_par_indexes]
 
@@ -104,7 +104,7 @@ class Saito(AsLT):
                 logger.info('g loaded')
             except:
                 logger.info('calculating g ...')
-                g = self.calc_g(sequences, graph, w, r, train_set, meme_map, user_map)
+                g = self.calc_g_mp(sequences, graph, w, r, train_set, meme_map, user_map)
                 self.project.save_param(g, 'g', ParamTypes.SPARSE)
 
             try:
@@ -261,8 +261,8 @@ class Saito(AsLT):
             subset = meme_ids[j: j + step]
             indexes = [meme_map[str(mid)] for mid in subset]
             row_subsets.append(indexes)
-            cascades = [data[mid] for mid in subset]
-            res = pool.apply_async(calc_g, (cascades, graph, w, r, user_map))
+            sequences = [data[mid] for mid in subset]
+            res = pool.apply_async(calc_g, (sequences, graph, w, r, user_map))
             results.append(res)
 
         pool.close()
