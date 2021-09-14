@@ -1,10 +1,52 @@
+import math
 import time
+from multiprocessing import Pool
+
 import numpy as np
 from scipy import sparse
 from sklearn.preprocessing import normalize
+
+import settings
 from cascade.models import AsLT, ParamTypes
 from db.managers import DBManager
 from settings import logger
+from utils.time_utils import Timer, time_measure
+
+
+def calc_g(cascades, graph, w, r, user_map):
+    c_count = len(cascades)
+    values = []
+    cols = []
+    i = 0
+
+    for cascade in cascades:
+        rond_set = cascade.get_rond_set(graph)
+
+        for uid in rond_set:
+            uid_i = user_map[str(uid)]
+            active_parents = cascade.get_active_parents(uid, graph)
+            act_par_indexes = [user_map[str(id)] for id in active_parents]
+            inactive_parents = set(graph.predecessors(uid)) - set(active_parents)
+            inact_par_indexes = [user_map[str(id)] for id in inactive_parents]
+
+            w_col = w[:, uid_i].todense()
+            inact_par_sum = w_col[inact_par_indexes].sum()
+            act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
+            max_time = np.repeat(np.matrix(cascade.max_t), len(active_parents))
+            diff = max_time - act_par_times
+            act_par_sum = np.exp(-r[uid_i] * diff) * w_col[act_par_indexes]
+
+            val = w[uid_i, uid_i] + inact_par_sum + float(act_par_sum)
+            if np.float32(val) == 0:
+                logger.info('\tWARNING: g = 0')
+            values.append(val)
+            cols.append(uid_i)
+
+        i += 1
+        if c_count >= 10 and i % (c_count / 10) == 0:
+            logger.info('\t%d%% done' % (i * 100 / c_count))
+
+    return values, cols
 
 
 class Saito(AsLT):
@@ -128,8 +170,10 @@ class Saito(AsLT):
             logger.info('r nnz = %d, w nnz = %d' % (np.count_nonzero(r), w.nnz))
             del last_r
             del last_w
-            del r_dif
-            del w_dif
+
+            if w_dif + r_dif < 1e-6:
+                logger.info('Stop condition met: r dif + w dif < 1e-6')
+                break
 
             logger.info('iteration time: %.2f min' % ((time.time() - t0) / 60.0))
 
@@ -205,47 +249,37 @@ class Saito(AsLT):
         logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return h
 
-    def calc_g(self, data, graph, w, r, meme_ids, meme_map, user_map):
-        t0 = time.time()
+    @time_measure()
+    def calc_g_mp(self, data, graph, w, r, meme_ids, meme_map, user_map):
         u_count = len(user_map)
         m_count = len(meme_ids)
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        row_subsets = []
+        results = []
+        for j in range(0, m_count, step):
+            subset = meme_ids[j: j + step]
+            indexes = [meme_map[str(mid)] for mid in subset]
+            row_subsets.append(indexes)
+            cascades = [data[mid] for mid in subset]
+            res = pool.apply_async(calc_g, (cascades, graph, w, r, user_map))
+            results.append(res)
+
+        pool.close()
+        pool.join()
+
         values = []
         rows = []
         cols = []
-        i = 0
 
-        for mid in meme_ids:
-            mid_i = meme_map[str(mid)]
-            cascade = data[mid]
-            rond_set = cascade.get_rond_set(graph)
-
-            for uid in rond_set:
-                uid_i = user_map[str(uid)]
-                active_parents = cascade.get_active_parents(uid, graph)
-                act_par_indexes = [user_map[str(id)] for id in active_parents]
-                inactive_parents = set(graph.predecessors(uid)) - set(active_parents)
-                inact_par_indexes = [user_map[str(id)] for id in inactive_parents]
-
-                w_col = w[:, uid_i].todense()
-                inact_par_sum = w_col[inact_par_indexes].sum()
-                act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
-                max_time = np.repeat(np.matrix(cascade.max_t), len(active_parents))
-                diff = max_time - act_par_times
-                act_par_sum = np.exp(-r[uid_i] * diff) * w_col[act_par_indexes]
-
-                val = w[uid_i, uid_i] + inact_par_sum + float(act_par_sum)
-                if np.float32(val) == 0:
-                    logger.info('\tWARNING: g = 0')
-                values.append(val)
-                rows.append(mid_i)
-                cols.append(uid_i)
-
-            i += 1
-            if m_count >= 10 and i % (m_count / 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 / len(meme_ids)))
+        # Collect results of the processes.
+        for i in range(len(results)):
+            val_subset, col_subset = results[i].get()
+            values.extend(val_subset)
+            rows.extend(row_subsets[i])
+            cols.extend(col_subset)
 
         g = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return g
 
     def calc_phi_h(self, data, graph, w, r, h, meme_ids, meme_map, user_map):
@@ -275,7 +309,7 @@ class Saito(AsLT):
                 val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) * r[v_i] / h[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
                     logger.info('\tWARNING: phi_h = inf')
-                    #if (np.float32(val) == 0).any():
+                    # if (np.float32(val) == 0).any():
                 #    logger.info('\tWARNING: phi_h = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
@@ -316,7 +350,7 @@ class Saito(AsLT):
                 val = w_col[u_indexes] / g[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
                     logger.info('\tWARNING: phi_g = inf')
-                    #if (np.float32(val) == 0).any():
+                    # if (np.float32(val) == 0).any():
                 #    logger.info('\tWARNING: phi_g = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
@@ -358,7 +392,7 @@ class Saito(AsLT):
                 val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) / g[mid_i, v_i]
                 if np.isinf(np.float32(val)).any():
                     logger.info('\tWARNING: psi = inf')
-                    #if (np.float32(val) == 0).any():
+                    # if (np.float32(val) == 0).any():
                 #    logger.info('\tWARNING: psi = 0')
                 if val.size > 1:
                     values.extend(list(np.array(val).squeeze()))
@@ -423,7 +457,7 @@ class Saito(AsLT):
 
             if phi_sum == 0:
                 r[v_i] = 0
-                #if m_set1[v] or m_set2[v]:
+                # if m_set1[v] or m_set2[v]:
                 #    logger.info('\tWARNING: r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
             else:
                 if phi_time_sum + psi_time_sum != 0:
@@ -483,7 +517,7 @@ class Saito(AsLT):
                 values.append(val)
                 rows.append(u_i)
                 cols.append(v_i)
-                #elif muv_set1[(u, v)] or muv_set2[(u, v)] or muv_set3[(u, v)]:
+                # elif muv_set1[(u, v)] or muv_set2[(u, v)] or muv_set3[(u, v)]:
             #    logger.info('\tWARNING: w = 0 at %s, sets: %s, %s, %s' % (
             #        (u, v), muv_set1[(u, v)], muv_set2[(u, v)], muv_set3[(u, v)]))
 
@@ -499,7 +533,7 @@ class Saito(AsLT):
                     values.append(phi_g_sum)
                     rows.append(v_i)
                     cols.append(v_i)
-                    #else:
+                    # else:
                     #    logger.info('\t\tWARNING: w = 0 at %s, set: %s' % ((v, v), mv_set2[v]))
 
             i += 1
