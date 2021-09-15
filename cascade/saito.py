@@ -1,5 +1,4 @@
 import math
-import time
 from multiprocessing import Pool
 
 import numpy as np
@@ -11,6 +10,43 @@ from cascade.models import AsLT, ParamTypes
 from db.managers import DBManager
 from settings import logger
 from utils.time_utils import Timer, time_measure
+
+
+def calc_h(sequences, graph, w, r, user_map):
+    m_count = len(sequences)
+    values = []
+    rows = []
+    cols = []
+
+    i = 0
+    for mindex, sequence in sequences.items():
+        for uid in sequence.users:
+            uindex = user_map[str(uid)]
+            val = 0
+            if sequence.user_times[uid] == sequence.times[0]:
+                val = 1
+            else:
+                active_parents = sequence.get_active_parents(uid, graph)
+                if active_parents:
+                    act_par_indexes = [user_map[str(id)] for id in active_parents]
+                    act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
+                    user_time = np.repeat(np.matrix([sequence.user_times[uid]]), len(active_parents))
+                    diff = user_time - act_par_times
+                    diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
+                    w_col = w[:, uindex].todense()
+                    val = float(np.exp(-r[uindex] * diff) * w_col[act_par_indexes] * r[uindex])
+                    if np.float64(val) == 0:
+                        logger.warning('\th = 0')
+
+            if val:
+                values.append(val)
+                rows.append(mindex)
+                cols.append(uindex)
+        i += 1
+        if m_count >= 10 and i % (m_count // 10) == 0:
+            logger.debug('\t%d%% done' % (i * 100 // m_count))
+
+    return values, rows, cols
 
 
 def calc_g(sequences, graph, w, r, user_map):
@@ -39,16 +75,191 @@ def calc_g(sequences, graph, w, r, user_map):
 
             val = w[uindex, uindex] + inact_par_sum + float(act_par_sum)
             if np.float32(val) == 0:
-                logger.info('\tWARNING: g = 0')
+                logger.warning('\tg = 0')
             values.append(val)
             rows.append(mindex)
             cols.append(uindex)
 
         i += 1
         if m_count >= 10 and i % (m_count // 10) == 0:
-            logger.info('\t%d%% done', i * 100 // m_count)
+            logger.debug('\t%d%% done', i * 100 // m_count)
 
     return values, rows, cols
+
+
+def calc_phi_h(sequences, graph, w, r, h, user_map):
+    u_count = len(user_map)
+    m_count = len(sequences)
+    phi_h = {}
+    i = 0
+
+    for mindex, sequence in sequences.items():
+        values = []
+        rows = []
+        cols = []
+
+        for v in sequence.users:
+            vindex = user_map[str(v)]
+            active_parents = sequence.get_active_parents(v, graph)
+            if not active_parents:
+                continue
+            act_par_indexes = [user_map[str(id)] for id in active_parents]
+            act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
+            user_time = np.repeat(np.matrix([sequence.user_times[v]]), len(active_parents))
+            diff = user_time - act_par_times
+            diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
+            w_col = w[:, vindex].todense()
+            val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[vindex] * diff)) * r[vindex] / h[mid_i, vindex]
+            if np.isinf(np.float32(val)).any():
+                logger.warning('\tphi_h = inf')
+                # if (np.float32(val) == 0).any():
+            #    logger.warning('\phi_h = 0')
+            if val.size > 1:
+                values.extend(list(np.array(val).squeeze()))
+            else:
+                values.append(float(val))
+            rows.extend(act_par_indexes)
+            cols.extend([vindex] * len(act_par_indexes))
+
+        phi_h[mindex] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
+
+        i += 1
+        if m_count >= 10 and i % (m_count // 10) == 0:
+            logger.debug('\t%d%% done', i * 100 // m_count)
+
+    return phi_h
+
+
+def calc_phi_g(sequences, graph, w, g, user_map):
+    u_count = len(user_map)
+    m_count = len(sequences)
+    phi_g = {}
+    i = 0
+
+    for mindex, sequence in sequences.items():
+        values = []
+        rows = []
+        cols = []
+
+        for v in sequence.get_rond_set(graph):
+            v_i = user_map[str(v)]
+            u_set = {v} | (set(graph.predecessors(v)) - set(sequence.get_active_parents(v, graph)))
+            if not u_set:
+                continue
+            u_indexes = [user_map[str(id)] for id in u_set]
+            w_col = w[:, v_i].todense()
+            val = w_col[u_indexes] / g[mindex, v_i]
+            if np.isinf(np.float32(val)).any():
+                logger.warning('\tphi_g = inf')
+                # if (np.float32(val) == 0).any():
+            #    logger.warning('\phi_g = 0')
+            if val.size > 1:
+                values.extend(list(np.array(val).squeeze()))
+            else:
+                values.append(float(val))
+            rows.extend(u_indexes)
+            cols.extend([v_i] * len(u_indexes))
+
+        phi_g[mindex] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
+
+        i += 1
+        if m_count >= 10 and i % (m_count // 10) == 0:
+            logger.debug('\t%d%% done', i * 100 // m_count)
+
+    return phi_g
+
+
+def calc_psi(sequences, graph, w, r, g, user_map):
+    u_count = len(user_map)
+    m_count = len(sequences)
+    psi = {}
+    i = 0
+
+    for mindex, sequence in sequences.items():
+        values = []
+        rows = []
+        cols = []
+
+        for v in sequence.get_rond_set(graph):
+            v_i = user_map[str(v)]
+            active_parents = sequence.get_active_parents(v, graph)
+            act_par_indexes = [user_map[str(id)] for id in active_parents]
+            act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
+            max_time = np.repeat(np.matrix([sequence.max_t]), len(active_parents))
+            diff = max_time - act_par_times
+            w_col = w[:, v_i].todense()
+            val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) / g[mindex, v_i]
+            if np.isinf(np.float32(val)).any():
+                logger.warning('\tpsi = inf')
+                # if (np.float32(val) == 0).any():
+            #    logger.warning('\psi = 0')
+            if val.size > 1:
+                values.extend(list(np.array(val).squeeze()))
+            else:
+                values.append(float(val))
+            rows.extend(act_par_indexes)
+            cols.extend([v_i] * len(act_par_indexes))
+
+        psi[mindex] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
+
+        i += 1
+        if m_count >= 10 and i % (m_count // 10) == 0:
+            logger.debug('\t%d%% done', i * 100 // m_count)
+
+    return psi
+
+
+def calc_r(sequences, graph, phi_h, psi, user_ids, meme_map, user_map, m_set1, m_set2):
+    u_count = len(user_ids)
+    r_values = {}
+
+    logger.info('\tcalculating values ...')
+    i = 0
+    for v in user_ids:
+        vindex = user_map[str(v)]
+
+        phi_sum = 0
+        phi_time_sum = 0
+        psi_time_sum = 0
+        for m in set(m_set1[v]) | set(m_set2[v]):
+            mindex = meme_map[str(m)]
+            sequence = sequences[m]
+            active_parents = sequence.get_active_parents(v, graph)
+            if not active_parents:
+                continue
+            act_par_indexes = [user_map[str(id)] for id in active_parents]
+            act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
+
+            if m in m_set1[v]:
+                phi_h_col = phi_h[mindex][:, vindex].todense()
+                phi_sum += phi_h_col[act_par_indexes].sum()
+                user_time = np.repeat(np.matrix([sequence.user_times[v]]), len(active_parents))
+                diff = user_time - act_par_times
+                diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
+                phi_time_sum += float(diff * phi_h_col[act_par_indexes])
+
+            if m in m_set2[v]:
+                psi_col = psi[mindex][:, vindex]
+                max_time = np.repeat(np.matrix([sequence.max_t]), len(active_parents))
+                diff = max_time - act_par_times
+                psi_time_sum += float(diff * psi_col[act_par_indexes])
+
+        if phi_sum == 0:
+            r_values[vindex] = 0
+            # if m_set1[v] or m_set2[v]:
+            #    logger.warning('\r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
+        else:
+            if phi_time_sum + psi_time_sum != 0:
+                r_values[vindex] = phi_sum / (phi_time_sum + psi_time_sum)
+            else:
+                r_values[vindex] = np.finfo(np.float32).max
+                logger.warning('\tdenominator = 0, r = inf')
+
+        i += 1
+        if u_count >= 10 and i % (u_count // 10) == 0:
+            logger.debug('\t%d%% done', i * 100 // u_count)
+
+    return r_values
 
 
 class Saito(AsLT):
@@ -90,97 +301,94 @@ class Saito(AsLT):
         # Run EM algorithm.
         logger.info('running algorithm ...')
         for i in range(iterations):
-            t0 = time.time()
+            with Timer('iteration time'):
+                logger.info('#%d' % (i + 1))
+                try:
+                    h = self.project.load_param('h', ParamTypes.SPARSE)
+                    logger.info('h loaded')
+                except:
+                    logger.info('calculating h ...')
+                    h = self.calc_h_mp(sequences, graph, w, r, train_set, meme_map, user_map)
+                    self.project.save_param(h, 'h', ParamTypes.SPARSE)
 
-            logger.info('#%d' % (i + 1))
-            try:
-                h = self.project.load_param('h', ParamTypes.SPARSE)
-                logger.info('h loaded')
-            except:
-                logger.info('calculating h ...')
-                h = self.calc_h(sequences, graph, w, r, train_set, meme_map, user_map)
-                self.project.save_param(h, 'h', ParamTypes.SPARSE)
+                try:
+                    g = self.project.load_param('g', ParamTypes.SPARSE)
+                    logger.info('g loaded')
+                except:
+                    logger.info('calculating g ...')
+                    g = self.calc_g_mp(sequences, graph, w, r, train_set, meme_map, user_map)
+                    self.project.save_param(g, 'g', ParamTypes.SPARSE)
 
-            try:
-                g = self.project.load_param('g', ParamTypes.SPARSE)
-                logger.info('g loaded')
-            except:
-                logger.info('calculating g ...')
-                g = self.calc_g_mp(sequences, graph, w, r, train_set, meme_map, user_map)
-                self.project.save_param(g, 'g', ParamTypes.SPARSE)
+                try:
+                    self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
+                except:
+                    logger.info('calculating phi_h ...')
+                    phi_h = self.calc_phi_h_mp(sequences, graph, w, r, h, train_set, meme_map, user_map)
+                    self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
+                    del phi_h
 
-            try:
-                self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
-            except:
-                logger.info('calculating phi_h ...')
-                phi_h = self.calc_phi_h(sequences, graph, w, r, h, train_set, meme_map, user_map)
-                self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
+                try:
+                    self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
+                except:
+                    logger.info('calculating phi_g ...')
+                    phi_g = self.calc_phi_g_mp(sequences, graph, w, g, train_set, meme_map, user_map)
+                    self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
+                    del phi_g
+
+                try:
+                    psi = self.project.load_param('psi', ParamTypes.SPARSE_LIST)
+                    logger.info('psi loaded')
+                except:
+                    logger.info('calculating psi ...')
+                    psi = self.calc_psi_mp(sequences, graph, w, r, g, train_set, meme_map, user_map)
+                    self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
+
+                del h
+                del g
+                phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)
+                logger.info('phi_h loaded')
+
+                logger.info('estimating r ...')
+                last_r = r
+                r = self.calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, meme_map, user_map)
+
+                phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
+                logger.info('phi_g loaded')
+
+                logger.info('estimating w ...')
+                last_w = w
+                w = self.calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, meme_map)
+
                 del phi_h
-
-            try:
-                self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
-            except:
-                logger.info('calculating phi_g ...')
-                phi_g = self.calc_phi_g(sequences, graph, w, g, train_set, meme_map, user_map)
-                self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
                 del phi_g
+                del psi
 
-            try:
-                psi = self.project.load_param('psi', ParamTypes.SPARSE_LIST)
-                logger.info('psi loaded')
-            except:
-                logger.info('calculating psi ...')
-                psi = self.calc_psi(sequences, graph, w, r, g, train_set, meme_map, user_map)
-                self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
+                # Save r and w.
+                self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
+                self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
 
-            del h
-            del g
-            phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)
-            logger.info('phi_h loaded')
+                # Delete all except w and r.
+                self.project.delete_param('h', ParamTypes.SPARSE)
+                self.project.delete_param('g', ParamTypes.SPARSE)
+                self.project.delete_param('phi_h', ParamTypes.SPARSE_LIST)
+                self.project.delete_param('phi_g', ParamTypes.SPARSE_LIST)
+                self.project.delete_param('psi', ParamTypes.SPARSE_LIST)
 
-            logger.info('estimating r ...')
-            last_r = r
-            r = self.calc_r(sequences, graph, phi_h, psi, user_ids, train_set, meme_map, user_map)
+                # Calculate and report delta r and delta w.
+                r_dif = np.linalg.norm(r - last_r)
+                w_dif = w - last_w
+                w_dif = np.sqrt(w_dif.multiply(w_dif).sum())
+                logger.info('r dif = %s, w dif = %s' % (r_dif, w_dif))
+                logger.info('r nnz = %d, w nnz = %d' % (np.count_nonzero(r), w.nnz))
+                del last_r
+                del last_w
 
-            phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
-            logger.info('phi_g loaded')
+                if w_dif + r_dif < 1e-6:
+                    logger.info('Stop condition met: r dif + w dif < 1e-6')
+                    break
 
-            logger.info('estimating w ...')
-            last_w = w
-            w = self.calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, meme_map)
-
-            del phi_h
-            del phi_g
-            del psi
-
-            # Save r and w.
-            self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
-            self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
-
-            # Delete all except w and r.
-            self.project.delete_param('h', ParamTypes.SPARSE)
-            self.project.delete_param('g', ParamTypes.SPARSE)
-            self.project.delete_param('phi_h', ParamTypes.SPARSE_LIST)
-            self.project.delete_param('phi_g', ParamTypes.SPARSE_LIST)
-            self.project.delete_param('psi', ParamTypes.SPARSE_LIST)
-
-            # Calculate and report delta r and delta w.
-            r_dif = np.linalg.norm(r - last_r)
-            w_dif = w - last_w
-            w_dif = np.sqrt(w_dif.multiply(w_dif).sum())
-            logger.info('r dif = %s, w dif = %s' % (r_dif, w_dif))
-            logger.info('r nnz = %d, w nnz = %d' % (np.count_nonzero(r), w.nnz))
-            del last_r
-            del last_w
-
-            if w_dif + r_dif < 1e-6:
-                logger.info('Stop condition met: r dif + w dif < 1e-6')
-                break
-
-            logger.info('iteration time: %.2f min' % ((time.time() - t0) / 60.0))
-
+    @time_measure()
     def set_initial_values(self, graph, user_ids, user_map):
-        t0 = time.time()
         u_count = len(user_ids)
         nodes = graph.nodes()
         values = []
@@ -206,49 +414,35 @@ class Saito(AsLT):
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
         r = np.ones(u_count, np.float32)
-        logger.info('time: %.2f min' % ((time.time() - t0) / 60.0))
         return w, r
 
-    def calc_h(self, data, graph, w, r, meme_ids, meme_map, user_map):
-        t0 = time.time()
+    @time_measure()
+    def calc_h_mp(self, data, graph, w, r, meme_ids, meme_map, user_map):
         u_count = len(user_map)
         m_count = len(meme_ids)
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        results = []
+        for j in range(0, m_count, step):
+            subset = meme_ids[j: j + step]
+            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
+            res = pool.apply_async(calc_h, (sequences, graph, w, r, user_map))
+            results.append(res)
+
+        pool.close()
+        pool.join()
+
+        # Collect results of the processes.
         values = []
         rows = []
         cols = []
-
-        i = 0
-        for mid in meme_ids:
-            mid_i = meme_map[str(mid)]
-            cascade = data[mid]
-            for uid in cascade.users:
-                uid_i = user_map[str(uid)]
-                val = 0
-                if cascade.user_times[uid] == cascade.times[0]:
-                    val = 1
-                else:
-                    active_parents = cascade.get_active_parents(uid, graph)
-                    if active_parents:
-                        act_par_indexes = [user_map[str(id)] for id in active_parents]
-                        act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
-                        user_time = np.repeat(np.matrix([cascade.user_times[uid]]), len(active_parents))
-                        diff = user_time - act_par_times
-                        diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
-                        w_col = w[:, uid_i].todense()
-                        val = float(np.exp(-r[uid_i] * diff) * w_col[act_par_indexes] * r[uid_i])
-                        if np.float64(val) == 0:
-                            logger.info('\tWARNING: h = 0')
-
-                if val:
-                    values.append(val)
-                    rows.append(mid_i)
-                    cols.append(uid_i)
-            i += 1
-            if m_count >= 10 and i % (m_count // 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 // m_count))
+        for i in range(len(results)):
+            val_subset, row_subset, col_subset = results[i].get()
+            values.extend(val_subset)
+            rows.extend(row_subset)
+            cols.extend(col_subset)
 
         h = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float64)
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return h
 
     @time_measure()
@@ -267,214 +461,127 @@ class Saito(AsLT):
         pool.close()
         pool.join()
 
+        # Collect results of the processes.
         values = []
         rows = []
         cols = []
-
-        # Collect results of the processes.
         for i in range(len(results)):
             val_subset, row_subset, col_subset = results[i].get()
             values.extend(val_subset)
             rows.extend(row_subset)
             cols.extend(col_subset)
-            logger.debugv('lengths: %d, %d, %d', len(values), len(rows), len(cols))
 
         g = sparse.csc_matrix((values, [rows, cols]), shape=(m_count, u_count), dtype=np.float32)
         return g
 
-    def calc_phi_h(self, data, graph, w, r, h, meme_ids, meme_map, user_map):
-        t0 = time.time()
-        u_count = len(user_map)
+    @time_measure()
+    def calc_phi_h_mp(self, data, graph, w, r, h, meme_ids, meme_map, user_map):
+        m_count = len(meme_ids)
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        results = []
+        for j in range(0, m_count, step):
+            subset = meme_ids[j: j + step]
+            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
+            res = pool.apply_async(calc_phi_h, (sequences, graph, w, r, h, user_map))
+            results.append(res)
+
+        pool.close()
+        pool.join()
+
+        # Collect results of the processes.
         phi_h = [None for _ in range(len(meme_ids))]
-        i = 0
+        for i in range(len(results)):
+            phi_h_subset = results[i].get()
+            for mindex, mat in phi_h_subset.items():
+                phi_h[mindex] = mat
 
-        for mid in meme_ids:
-            mid_i = meme_map[str(mid)]
-            cascade = data[mid]
-            values = []
-            rows = []
-            cols = []
-
-            for v in cascade.users:
-                v_i = user_map[str(v)]
-                active_parents = cascade.get_active_parents(v, graph)
-                if not active_parents:
-                    continue
-                act_par_indexes = [user_map[str(id)] for id in active_parents]
-                act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
-                user_time = np.repeat(np.matrix([cascade.user_times[v]]), len(active_parents))
-                diff = user_time - act_par_times
-                diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
-                w_col = w[:, v_i].todense()
-                val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) * r[v_i] / h[mid_i, v_i]
-                if np.isinf(np.float32(val)).any():
-                    logger.info('\tWARNING: phi_h = inf')
-                    # if (np.float32(val) == 0).any():
-                #    logger.info('\tWARNING: phi_h = 0')
-                if val.size > 1:
-                    values.extend(list(np.array(val).squeeze()))
-                else:
-                    values.append(float(val))
-                rows.extend(act_par_indexes)
-                cols.extend([v_i] * len(act_par_indexes))
-
-            phi_h[mid_i] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
-
-            i += 1
-            if len(meme_ids) >= 10 and i % (len(meme_ids) // 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 // len(meme_ids)))
-
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return phi_h
 
-    def calc_phi_g(self, data, graph, w, g, meme_ids, meme_map, user_map):
-        t0 = time.time()
-        u_count = len(user_map)
+    @time_measure()
+    def calc_phi_g_mp(self, data, graph, w, g, meme_ids, meme_map, user_map):
+        m_count = len(meme_ids)
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        results = []
+        for j in range(0, m_count, step):
+            subset = meme_ids[j: j + step]
+            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
+            res = pool.apply_async(calc_phi_g, (sequences, graph, w, g, user_map))
+            results.append(res)
+
+        pool.close()
+        pool.join()
+
+        # Collect results of the processes.
         phi_g = [None for _ in range(len(meme_ids))]
-        i = 0
+        for i in range(len(results)):
+            phi_g_subset = results[i].get()
+            for mindex, mat in phi_g_subset.items():
+                phi_g[mindex] = mat
 
-        for mid in meme_ids:
-            mid_i = meme_map[str(mid)]
-            cascade = data[mid]
-            values = []
-            rows = []
-            cols = []
-
-            for v in cascade.get_rond_set(graph):
-                v_i = user_map[str(v)]
-                u_set = {v} | (set(graph.predecessors(v)) - set(cascade.get_active_parents(v, graph)))
-                if not u_set:
-                    continue
-                u_indexes = [user_map[str(id)] for id in u_set]
-                w_col = w[:, v_i].todense()
-                val = w_col[u_indexes] / g[mid_i, v_i]
-                if np.isinf(np.float32(val)).any():
-                    logger.info('\tWARNING: phi_g = inf')
-                    # if (np.float32(val) == 0).any():
-                #    logger.info('\tWARNING: phi_g = 0')
-                if val.size > 1:
-                    values.extend(list(np.array(val).squeeze()))
-                else:
-                    values.append(float(val))
-                rows.extend(u_indexes)
-                cols.extend([v_i] * len(u_indexes))
-
-            phi_g[mid_i] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
-
-            i += 1
-            if len(meme_ids) >= 10 and i % (len(meme_ids) // 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 // len(meme_ids)))
-
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return phi_g
 
-    def calc_psi(self, data, graph, w, r, g, meme_ids, meme_map, user_map):
-        t0 = time.time()
-        u_count = len(user_map)
+    @time_measure()
+    def calc_psi_mp(self, data, graph, w, r, g, meme_ids, meme_map, user_map):
+        m_count = len(meme_ids)
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        results = []
+        for j in range(0, m_count, step):
+            subset = meme_ids[j: j + step]
+            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
+            res = pool.apply_async(calc_psi, (sequences, graph, w, r, g, user_map))
+            results.append(res)
+
+        pool.close()
+        pool.join()
+
+        # Collect results of the processes.
         psi = [None for _ in range(len(meme_ids))]
-        i = 0
+        for i in range(len(results)):
+            psi_subset = results[i].get()
+            for mindex, mat in psi_subset.items():
+                psi[mindex] = mat
 
-        for mid in meme_ids:
-            mid_i = meme_map[str(mid)]
-            cascade = data[mid]
-            values = []
-            rows = []
-            cols = []
-
-            for v in cascade.get_rond_set(graph):
-                v_i = user_map[str(v)]
-                active_parents = cascade.get_active_parents(v, graph)
-                act_par_indexes = [user_map[str(id)] for id in active_parents]
-                act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
-                max_time = np.repeat(np.matrix([cascade.max_t]), len(active_parents))
-                diff = max_time - act_par_times
-                w_col = w[:, v_i].todense()
-                val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) / g[mid_i, v_i]
-                if np.isinf(np.float32(val)).any():
-                    logger.info('\tWARNING: psi = inf')
-                    # if (np.float32(val) == 0).any():
-                #    logger.info('\tWARNING: psi = 0')
-                if val.size > 1:
-                    values.extend(list(np.array(val).squeeze()))
-                else:
-                    values.append(float(val))
-                rows.extend(act_par_indexes)
-                cols.extend([v_i] * len(act_par_indexes))
-
-            psi[mid_i] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
-
-            i += 1
-            if len(meme_ids) >= 10 and i % (len(meme_ids) // 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 // len(meme_ids)))
-
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return psi
 
-    def calc_r(self, data, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map):
-        t0 = time.time()
+    @time_measure()
+    def calc_r_mp(self, sequences, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map):
         u_count = len(user_ids)
-        r = np.ones(u_count, np.float32)
 
         logger.info('\textracting sigma domains ...')
         m_set1 = {v: [] for v in user_ids}
         m_set2 = {v: [] for v in user_ids}
         for m in meme_ids:
-            for v in data[m].users:
+            for v in sequences[m].users:
                 m_set1[v].append(m)
-            for v in data[m].get_rond_set(graph):
+            for v in sequences[m].get_rond_set(graph):
                 m_set2[v].append(m)
 
         logger.info('\tcalculating values ...')
-        i = 0
-        for v in user_ids:
-            v_i = user_map[str(v)]
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(float(u_count) / settings.PROCESS_COUNT))
+        results = []
+        for j in range(0, u_count, step):
+            subset = user_ids[j: j + step]
+            res = pool.apply_async(calc_r, (sequences, graph, phi_h, psi, subset, meme_map, user_map, m_set1, m_set2))
+            results.append(res)
 
-            phi_sum = 0
-            phi_time_sum = 0
-            psi_time_sum = 0
-            for m in set(m_set1[v]) | set(m_set2[v]):
-                m_i = meme_map[str(m)]
-                cascade = data[m]
-                active_parents = cascade.get_active_parents(v, graph)
-                if not active_parents:
-                    continue
-                act_par_indexes = [user_map[str(id)] for id in active_parents]
-                act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
+        pool.close()
+        pool.join()
 
-                if m in m_set1[v]:
-                    phi_h_col = phi_h[m_i][:, v_i].todense()
-                    phi_sum += phi_h_col[act_par_indexes].sum()
-                    user_time = np.repeat(np.matrix([cascade.user_times[v]]), len(active_parents))
-                    diff = user_time - act_par_times
-                    diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
-                    phi_time_sum += float(diff * phi_h_col[act_par_indexes])
+        # Collect results of the processes.
+        r = np.ones(u_count, np.float32)
+        for i in range(len(results)):
+            r_values = results[i].get()
+            for mindex, val in r_values.items():
+                r[mindex] = val
 
-                if m in m_set2[v]:
-                    psi_col = psi[m_i][:, v_i]
-                    max_time = np.repeat(np.matrix([cascade.max_t]), len(active_parents))
-                    diff = max_time - act_par_times
-                    psi_time_sum += float(diff * psi_col[act_par_indexes])
-
-            if phi_sum == 0:
-                r[v_i] = 0
-                # if m_set1[v] or m_set2[v]:
-                #    logger.info('\tWARNING: r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
-            else:
-                if phi_time_sum + psi_time_sum != 0:
-                    r[v_i] = phi_sum / (phi_time_sum + psi_time_sum)
-                else:
-                    r[v_i] = np.finfo(np.float32).max
-                    logger.info('\tWARNING: denominator = 0, r = inf')
-
-            i += 1
-            if len(user_ids) >= 10 and i % (len(user_ids) // 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 // len(user_ids)))
-
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return r
 
+    @time_measure()
     def calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, meme_ids, meme_map):
-        t0 = time.time()
         u_count = len(user_ids)
 
         logger.info('\textracting sigma domains ...')
@@ -518,7 +625,7 @@ class Saito(AsLT):
                 rows.append(u_i)
                 cols.append(v_i)
                 # elif muv_set1[(u, v)] or muv_set2[(u, v)] or muv_set3[(u, v)]:
-            #    logger.info('\tWARNING: w = 0 at %s, sets: %s, %s, %s' % (
+            #    logger.warning('\w = 0 at %s, sets: %s, %s, %s' % (
             #        (u, v), muv_set1[(u, v)], muv_set2[(u, v)], muv_set3[(u, v)]))
 
             i += 1
@@ -534,7 +641,7 @@ class Saito(AsLT):
                     rows.append(v_i)
                     cols.append(v_i)
                     # else:
-                    #    logger.info('\t\tWARNING: w = 0 at %s, set: %s' % ((v, v), mv_set2[v]))
+                    #    logger.warning('\t\tw = 0 at %s, set: %s' % ((v, v), mv_set2[v]))
 
             i += 1
             if val_count >= 10 and i % (val_count // 10) == 0:
@@ -546,5 +653,4 @@ class Saito(AsLT):
         w = normalize(w, axis=0, copy=False)
         w = sparse.csc_matrix((w.data, w.indices, w.indptr), shape=w.shape, dtype=np.float32)
 
-        logger.info('\ttime: %.2f min' % ((time.time() - t0) / 60.0))
         return w
