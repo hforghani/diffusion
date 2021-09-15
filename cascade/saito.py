@@ -109,7 +109,7 @@ def calc_phi_h(sequences, graph, w, r, h, user_map):
             diff = user_time - act_par_times
             diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
             w_col = w[:, vindex].todense()
-            val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[vindex] * diff)) * r[vindex] / h[mid_i, vindex]
+            val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[vindex] * diff)) * r[vindex] / h[mindex, vindex]
             if np.isinf(np.float32(val)).any():
                 logger.warning('\tphi_h = inf')
                 # if (np.float32(val) == 0).any():
