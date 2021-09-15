@@ -230,63 +230,6 @@ def calc_psi(sequences, graph, w, r, g, user_map):
         raise
 
 
-def calc_r(sequences, graph, phi_h, psi, user_ids, meme_map, user_map, m_set1, m_set2):
-    try:
-        u_count = len(user_ids)
-        r_values = {}
-
-        logger.info('\tcalculating values ...')
-        i = 0
-        for v in user_ids:
-            vindex = user_map[str(v)]
-
-            phi_sum = 0
-            phi_time_sum = 0
-            psi_time_sum = 0
-            for m in set(m_set1[v]) | set(m_set2[v]):
-                mindex = meme_map[str(m)]
-                sequence = sequences[m]
-                active_parents = sequence.get_active_parents(v, graph)
-                if not active_parents:
-                    continue
-                act_par_indexes = [user_map[str(id)] for id in active_parents]
-                act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
-
-                if m in m_set1[v]:
-                    phi_h_col = phi_h[mindex][:, vindex].todense()
-                    phi_sum += phi_h_col[act_par_indexes].sum()
-                    user_time = np.repeat(np.matrix([sequence.user_times[v]]), len(active_parents))
-                    diff = user_time - act_par_times
-                    diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
-                    phi_time_sum += float(diff * phi_h_col[act_par_indexes])
-
-                if m in m_set2[v]:
-                    psi_col = psi[mindex][:, vindex]
-                    max_time = np.repeat(np.matrix([sequence.max_t]), len(active_parents))
-                    diff = max_time - act_par_times
-                    psi_time_sum += float(diff * psi_col[act_par_indexes])
-
-            if phi_sum == 0:
-                r_values[vindex] = 0
-                # if m_set1[v] or m_set2[v]:
-                #    logger.warning('\r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
-            else:
-                if phi_time_sum + psi_time_sum != 0:
-                    r_values[vindex] = phi_sum / (phi_time_sum + psi_time_sum)
-                else:
-                    r_values[vindex] = np.finfo(np.float32).max
-                    logger.warning('\tdenominator = 0, r = inf')
-
-            i += 1
-            if u_count >= 10 and i % (u_count // 10) == 0:
-                logger.debug('\t%d%% done', i * 100 // u_count)
-
-        return r_values
-    except:
-        logger.error(traceback.format_exc())
-        raise
-
-
 class Saito(AsLT):
     def __init__(self, project):
         self.project = project
@@ -375,7 +318,7 @@ class Saito(AsLT):
 
                 logger.info('estimating r ...')
                 last_r = r
-                r = self.calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, meme_map, user_map)
+                r = self.calc_r(sequences, graph, phi_h, psi, user_ids, train_set, meme_map, user_map)
 
                 phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
                 logger.info('phi_g loaded')
@@ -572,37 +515,64 @@ class Saito(AsLT):
         return psi
 
     @time_measure()
-    def calc_r_mp(self, sequences, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map):
+    def calc_r(self, data, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map):
         u_count = len(user_ids)
+        r = np.ones(u_count, np.float32)
 
         logger.info('\textracting sigma domains ...')
         m_set1 = {v: [] for v in user_ids}
         m_set2 = {v: [] for v in user_ids}
         for m in meme_ids:
-            for v in sequences[m].users:
+            for v in data[m].users:
                 m_set1[v].append(m)
-            for v in sequences[m].get_rond_set(graph):
+            for v in data[m].get_rond_set(graph):
                 m_set2[v].append(m)
 
         logger.info('\tcalculating values ...')
-        process_count = min(settings.PROCESS_COUNT, 4)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(float(u_count) / process_count))
-        results = []
-        for j in range(0, u_count, step):
-            subset = user_ids[j: j + step]
-            res = pool.apply_async(calc_r, (sequences, graph, phi_h, psi, subset, meme_map, user_map, m_set1, m_set2))
-            results.append(res)
+        i = 0
+        for v in user_ids:
+            v_i = user_map[str(v)]
 
-        pool.close()
-        pool.join()
+            phi_sum = 0
+            phi_time_sum = 0
+            psi_time_sum = 0
+            for m in set(m_set1[v]) | set(m_set2[v]):
+                m_i = meme_map[str(m)]
+                cascade = data[m]
+                active_parents = cascade.get_active_parents(v, graph)
+                if not active_parents:
+                    continue
+                act_par_indexes = [user_map[str(id)] for id in active_parents]
+                act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
 
-        # Collect results of the processes.
-        r = np.ones(u_count, np.float32)
-        for i in range(len(results)):
-            r_values = results[i].get()
-            for mindex, val in r_values.items():
-                r[mindex] = val
+                if m in m_set1[v]:
+                    phi_h_col = phi_h[m_i][:, v_i].todense()
+                    phi_sum += phi_h_col[act_par_indexes].sum()
+                    user_time = np.repeat(np.matrix([cascade.user_times[v]]), len(active_parents))
+                    diff = user_time - act_par_times
+                    diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
+                    phi_time_sum += float(diff * phi_h_col[act_par_indexes])
+
+                if m in m_set2[v]:
+                    psi_col = psi[m_i][:, v_i]
+                    max_time = np.repeat(np.matrix([cascade.max_t]), len(active_parents))
+                    diff = max_time - act_par_times
+                    psi_time_sum += float(diff * psi_col[act_par_indexes])
+
+            if phi_sum == 0:
+                r[v_i] = 0
+                # if m_set1[v] or m_set2[v]:
+                #    logger.info('\tWARNING: r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
+            else:
+                if phi_time_sum + psi_time_sum != 0:
+                    r[v_i] = phi_sum / (phi_time_sum + psi_time_sum)
+                else:
+                    r[v_i] = np.finfo(np.float32).max
+                    logger.info('\tWARNING: denominator = 0, r = inf')
+
+            i += 1
+            if len(user_ids) >= 10 and i % (len(user_ids) // 10) == 0:
+                logger.info('\t%d%% done' % (i * 100 // len(user_ids)))
 
         return r
 
