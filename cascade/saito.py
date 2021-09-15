@@ -1,4 +1,5 @@
 import math
+import traceback
 from multiprocessing import Pool
 
 import numpy as np
@@ -13,253 +14,277 @@ from utils.time_utils import Timer, time_measure
 
 
 def calc_h(sequences, graph, w, r, user_map):
-    m_count = len(sequences)
-    values = []
-    rows = []
-    cols = []
+    try:
+        m_count = len(sequences)
+        values = []
+        rows = []
+        cols = []
 
-    i = 0
-    for mindex, sequence in sequences.items():
-        for uid in sequence.users:
-            uindex = user_map[str(uid)]
-            val = 0
-            if sequence.user_times[uid] == sequence.times[0]:
-                val = 1
-            else:
-                active_parents = sequence.get_active_parents(uid, graph)
-                if active_parents:
-                    act_par_indexes = [user_map[str(id)] for id in active_parents]
-                    act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
-                    user_time = np.repeat(np.matrix([sequence.user_times[uid]]), len(active_parents))
-                    diff = user_time - act_par_times
-                    diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
-                    w_col = w[:, uindex].todense()
-                    val = float(np.exp(-r[uindex] * diff) * w_col[act_par_indexes] * r[uindex])
-                    if np.float64(val) == 0:
-                        logger.warning('\th = 0')
+        i = 0
+        for mindex, sequence in sequences.items():
+            for uid in sequence.users:
+                uindex = user_map[str(uid)]
+                val = 0
+                if sequence.user_times[uid] == sequence.times[0]:
+                    val = 1
+                else:
+                    active_parents = sequence.get_active_parents(uid, graph)
+                    if active_parents:
+                        act_par_indexes = [user_map[str(id)] for id in active_parents]
+                        act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
+                        user_time = np.repeat(np.matrix([sequence.user_times[uid]]), len(active_parents))
+                        diff = user_time - act_par_times
+                        diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
+                        w_col = w[:, uindex].todense()
+                        val = float(np.exp(-r[uindex] * diff) * w_col[act_par_indexes] * r[uindex])
+                        if np.float64(val) == 0:
+                            logger.warning('\th = 0')
 
-            if val:
-                values.append(val)
-                rows.append(mindex)
-                cols.append(uindex)
-        i += 1
-        if m_count >= 10 and i % (m_count // 10) == 0:
-            logger.debug('\t%d%% done' % (i * 100 // m_count))
+                if val:
+                    values.append(val)
+                    rows.append(mindex)
+                    cols.append(uindex)
+            i += 1
+            if m_count >= 10 and i % (m_count // 10) == 0:
+                logger.debug('\t%d%% done' % (i * 100 // m_count))
 
-    return values, rows, cols
+        return values, rows, cols
+    except:
+        logger.error(traceback.format_exc())
+        raise
 
 
 def calc_g(sequences, graph, w, r, user_map):
-    m_count = len(sequences)
-    values = []
-    rows = []
-    cols = []
-    i = 0
+    try:
+        m_count = len(sequences)
+        values = []
+        rows = []
+        cols = []
+        i = 0
 
-    for mindex, sequence in sequences.items():
-        rond_set = sequence.get_rond_set(graph)
+        for mindex, sequence in sequences.items():
+            rond_set = sequence.get_rond_set(graph)
 
-        for uid in rond_set:
-            uindex = user_map[str(uid)]
-            active_parents = sequence.get_active_parents(uid, graph)
-            act_par_indexes = [user_map[str(id)] for id in active_parents]
-            inactive_parents = set(graph.predecessors(uid)) - set(active_parents)
-            inact_par_indexes = [user_map[str(id)] for id in inactive_parents]
+            for uid in rond_set:
+                uindex = user_map[str(uid)]
+                active_parents = sequence.get_active_parents(uid, graph)
+                act_par_indexes = [user_map[str(id)] for id in active_parents]
+                inactive_parents = set(graph.predecessors(uid)) - set(active_parents)
+                inact_par_indexes = [user_map[str(id)] for id in inactive_parents]
 
-            w_col = w[:, uindex].todense()
-            inact_par_sum = w_col[inact_par_indexes].sum()
-            act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
-            max_time = np.repeat(np.matrix(sequence.max_t), len(active_parents))
-            diff = max_time - act_par_times
-            act_par_sum = np.exp(-r[uindex] * diff) * w_col[act_par_indexes]
+                w_col = w[:, uindex].todense()
+                inact_par_sum = w_col[inact_par_indexes].sum()
+                act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
+                max_time = np.repeat(np.matrix(sequence.max_t), len(active_parents))
+                diff = max_time - act_par_times
+                act_par_sum = np.exp(-r[uindex] * diff) * w_col[act_par_indexes]
 
-            val = w[uindex, uindex] + inact_par_sum + float(act_par_sum)
-            if np.float32(val) == 0:
-                logger.warning('\tg = 0')
-            values.append(val)
-            rows.append(mindex)
-            cols.append(uindex)
+                val = w[uindex, uindex] + inact_par_sum + float(act_par_sum)
+                if np.float32(val) == 0:
+                    logger.warning('\tg = 0')
+                values.append(val)
+                rows.append(mindex)
+                cols.append(uindex)
 
-        i += 1
-        if m_count >= 10 and i % (m_count // 10) == 0:
-            logger.debug('\t%d%% done', i * 100 // m_count)
+            i += 1
+            if m_count >= 10 and i % (m_count // 10) == 0:
+                logger.debug('\t%d%% done', i * 100 // m_count)
 
-    return values, rows, cols
+        return values, rows, cols
+    except:
+        logger.error(traceback.format_exc())
+        raise
 
 
 def calc_phi_h(sequences, graph, w, r, h, user_map):
-    u_count = len(user_map)
-    m_count = len(sequences)
-    phi_h = {}
-    i = 0
+    try:
+        u_count = len(user_map)
+        m_count = len(sequences)
+        phi_h = {}
+        i = 0
 
-    for mindex, sequence in sequences.items():
-        values = []
-        rows = []
-        cols = []
+        for mindex, sequence in sequences.items():
+            values = []
+            rows = []
+            cols = []
 
-        for v in sequence.users:
-            vindex = user_map[str(v)]
-            active_parents = sequence.get_active_parents(v, graph)
-            if not active_parents:
-                continue
-            act_par_indexes = [user_map[str(id)] for id in active_parents]
-            act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
-            user_time = np.repeat(np.matrix([sequence.user_times[v]]), len(active_parents))
-            diff = user_time - act_par_times
-            diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
-            w_col = w[:, vindex].todense()
-            val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[vindex] * diff)) * r[vindex] / h[mindex, vindex]
-            if np.isinf(np.float32(val)).any():
-                logger.warning('\tphi_h = inf')
-                # if (np.float32(val) == 0).any():
-            #    logger.warning('\phi_h = 0')
-            if val.size > 1:
-                values.extend(list(np.array(val).squeeze()))
-            else:
-                values.append(float(val))
-            rows.extend(act_par_indexes)
-            cols.extend([vindex] * len(act_par_indexes))
-
-        phi_h[mindex] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
-
-        i += 1
-        if m_count >= 10 and i % (m_count // 10) == 0:
-            logger.debug('\t%d%% done', i * 100 // m_count)
-
-    return phi_h
-
-
-def calc_phi_g(sequences, graph, w, g, user_map):
-    u_count = len(user_map)
-    m_count = len(sequences)
-    phi_g = {}
-    i = 0
-
-    for mindex, sequence in sequences.items():
-        values = []
-        rows = []
-        cols = []
-
-        for v in sequence.get_rond_set(graph):
-            v_i = user_map[str(v)]
-            u_set = {v} | (set(graph.predecessors(v)) - set(sequence.get_active_parents(v, graph)))
-            if not u_set:
-                continue
-            u_indexes = [user_map[str(id)] for id in u_set]
-            w_col = w[:, v_i].todense()
-            val = w_col[u_indexes] / g[mindex, v_i]
-            if np.isinf(np.float32(val)).any():
-                logger.warning('\tphi_g = inf')
-                # if (np.float32(val) == 0).any():
-            #    logger.warning('\phi_g = 0')
-            if val.size > 1:
-                values.extend(list(np.array(val).squeeze()))
-            else:
-                values.append(float(val))
-            rows.extend(u_indexes)
-            cols.extend([v_i] * len(u_indexes))
-
-        phi_g[mindex] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
-
-        i += 1
-        if m_count >= 10 and i % (m_count // 10) == 0:
-            logger.debug('\t%d%% done', i * 100 // m_count)
-
-    return phi_g
-
-
-def calc_psi(sequences, graph, w, r, g, user_map):
-    u_count = len(user_map)
-    m_count = len(sequences)
-    psi = {}
-    i = 0
-
-    for mindex, sequence in sequences.items():
-        values = []
-        rows = []
-        cols = []
-
-        for v in sequence.get_rond_set(graph):
-            v_i = user_map[str(v)]
-            active_parents = sequence.get_active_parents(v, graph)
-            act_par_indexes = [user_map[str(id)] for id in active_parents]
-            act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
-            max_time = np.repeat(np.matrix([sequence.max_t]), len(active_parents))
-            diff = max_time - act_par_times
-            w_col = w[:, v_i].todense()
-            val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) / g[mindex, v_i]
-            if np.isinf(np.float32(val)).any():
-                logger.warning('\tpsi = inf')
-                # if (np.float32(val) == 0).any():
-            #    logger.warning('\psi = 0')
-            if val.size > 1:
-                values.extend(list(np.array(val).squeeze()))
-            else:
-                values.append(float(val))
-            rows.extend(act_par_indexes)
-            cols.extend([v_i] * len(act_par_indexes))
-
-        psi[mindex] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
-
-        i += 1
-        if m_count >= 10 and i % (m_count // 10) == 0:
-            logger.debug('\t%d%% done', i * 100 // m_count)
-
-    return psi
-
-
-def calc_r(sequences, graph, phi_h, psi, user_ids, meme_map, user_map, m_set1, m_set2):
-    u_count = len(user_ids)
-    r_values = {}
-
-    logger.info('\tcalculating values ...')
-    i = 0
-    for v in user_ids:
-        vindex = user_map[str(v)]
-
-        phi_sum = 0
-        phi_time_sum = 0
-        psi_time_sum = 0
-        for m in set(m_set1[v]) | set(m_set2[v]):
-            mindex = meme_map[str(m)]
-            sequence = sequences[m]
-            active_parents = sequence.get_active_parents(v, graph)
-            if not active_parents:
-                continue
-            act_par_indexes = [user_map[str(id)] for id in active_parents]
-            act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
-
-            if m in m_set1[v]:
-                phi_h_col = phi_h[mindex][:, vindex].todense()
-                phi_sum += phi_h_col[act_par_indexes].sum()
+            for v in sequence.users:
+                vindex = user_map[str(v)]
+                active_parents = sequence.get_active_parents(v, graph)
+                if not active_parents:
+                    continue
+                act_par_indexes = [user_map[str(id)] for id in active_parents]
+                act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
                 user_time = np.repeat(np.matrix([sequence.user_times[v]]), len(active_parents))
                 diff = user_time - act_par_times
                 diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
-                phi_time_sum += float(diff * phi_h_col[act_par_indexes])
+                w_col = w[:, vindex].todense()
+                val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[vindex] * diff)) * r[vindex] / h[mindex, vindex]
+                if np.isinf(np.float32(val)).any():
+                    logger.warning('\tphi_h = inf')
+                    # if (np.float32(val) == 0).any():
+                #    logger.warning('\phi_h = 0')
+                if val.size > 1:
+                    values.extend(list(np.array(val).squeeze()))
+                else:
+                    values.append(float(val))
+                rows.extend(act_par_indexes)
+                cols.extend([vindex] * len(act_par_indexes))
 
-            if m in m_set2[v]:
-                psi_col = psi[mindex][:, vindex]
+            phi_h[mindex] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
+
+            i += 1
+            if m_count >= 10 and i % (m_count // 10) == 0:
+                logger.debug('\t%d%% done', i * 100 // m_count)
+
+        return phi_h
+    except:
+        logger.error(traceback.format_exc())
+        raise
+
+
+def calc_phi_g(sequences, graph, w, g, user_map):
+    try:
+        u_count = len(user_map)
+        m_count = len(sequences)
+        phi_g = {}
+        i = 0
+
+        for mindex, sequence in sequences.items():
+            values = []
+            rows = []
+            cols = []
+
+            for v in sequence.get_rond_set(graph):
+                v_i = user_map[str(v)]
+                u_set = {v} | (set(graph.predecessors(v)) - set(sequence.get_active_parents(v, graph)))
+                if not u_set:
+                    continue
+                u_indexes = [user_map[str(id)] for id in u_set]
+                w_col = w[:, v_i].todense()
+                val = w_col[u_indexes] / g[mindex, v_i]
+                if np.isinf(np.float32(val)).any():
+                    logger.warning('\tphi_g = inf')
+                    # if (np.float32(val) == 0).any():
+                #    logger.warning('\phi_g = 0')
+                if val.size > 1:
+                    values.extend(list(np.array(val).squeeze()))
+                else:
+                    values.append(float(val))
+                rows.extend(u_indexes)
+                cols.extend([v_i] * len(u_indexes))
+
+            phi_g[mindex] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
+
+            i += 1
+            if m_count >= 10 and i % (m_count // 10) == 0:
+                logger.debug('\t%d%% done', i * 100 // m_count)
+
+        return phi_g
+    except:
+        logger.error(traceback.format_exc())
+        raise
+
+
+def calc_psi(sequences, graph, w, r, g, user_map):
+    try:
+        u_count = len(user_map)
+        m_count = len(sequences)
+        psi = {}
+        i = 0
+
+        for mindex, sequence in sequences.items():
+            values = []
+            rows = []
+            cols = []
+
+            for v in sequence.get_rond_set(graph):
+                v_i = user_map[str(v)]
+                active_parents = sequence.get_active_parents(v, graph)
+                act_par_indexes = [user_map[str(id)] for id in active_parents]
+                act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
                 max_time = np.repeat(np.matrix([sequence.max_t]), len(active_parents))
                 diff = max_time - act_par_times
-                psi_time_sum += float(diff * psi_col[act_par_indexes])
+                w_col = w[:, v_i].todense()
+                val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[v_i] * diff)) / g[mindex, v_i]
+                if np.isinf(np.float32(val)).any():
+                    logger.warning('\tpsi = inf')
+                    # if (np.float32(val) == 0).any():
+                #    logger.warning('\psi = 0')
+                if val.size > 1:
+                    values.extend(list(np.array(val).squeeze()))
+                else:
+                    values.append(float(val))
+                rows.extend(act_par_indexes)
+                cols.extend([v_i] * len(act_par_indexes))
 
-        if phi_sum == 0:
-            r_values[vindex] = 0
-            # if m_set1[v] or m_set2[v]:
-            #    logger.warning('\r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
-        else:
-            if phi_time_sum + psi_time_sum != 0:
-                r_values[vindex] = phi_sum / (phi_time_sum + psi_time_sum)
+            psi[mindex] = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
+
+            i += 1
+            if m_count >= 10 and i % (m_count // 10) == 0:
+                logger.debug('\t%d%% done', i * 100 // m_count)
+
+        return psi
+    except:
+        logger.error(traceback.format_exc())
+        raise
+
+
+def calc_r(sequences, graph, phi_h, psi, user_ids, meme_map, user_map, m_set1, m_set2):
+    try:
+        u_count = len(user_ids)
+        r_values = {}
+
+        logger.info('\tcalculating values ...')
+        i = 0
+        for v in user_ids:
+            vindex = user_map[str(v)]
+
+            phi_sum = 0
+            phi_time_sum = 0
+            psi_time_sum = 0
+            for m in set(m_set1[v]) | set(m_set2[v]):
+                mindex = meme_map[str(m)]
+                sequence = sequences[m]
+                active_parents = sequence.get_active_parents(v, graph)
+                if not active_parents:
+                    continue
+                act_par_indexes = [user_map[str(id)] for id in active_parents]
+                act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
+
+                if m in m_set1[v]:
+                    phi_h_col = phi_h[mindex][:, vindex].todense()
+                    phi_sum += phi_h_col[act_par_indexes].sum()
+                    user_time = np.repeat(np.matrix([sequence.user_times[v]]), len(active_parents))
+                    diff = user_time - act_par_times
+                    diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
+                    phi_time_sum += float(diff * phi_h_col[act_par_indexes])
+
+                if m in m_set2[v]:
+                    psi_col = psi[mindex][:, vindex]
+                    max_time = np.repeat(np.matrix([sequence.max_t]), len(active_parents))
+                    diff = max_time - act_par_times
+                    psi_time_sum += float(diff * psi_col[act_par_indexes])
+
+            if phi_sum == 0:
+                r_values[vindex] = 0
+                # if m_set1[v] or m_set2[v]:
+                #    logger.warning('\r = 0, sets: %s, %s' % (m_set1[v], m_set2[v]))
             else:
-                r_values[vindex] = np.finfo(np.float32).max
-                logger.warning('\tdenominator = 0, r = inf')
+                if phi_time_sum + psi_time_sum != 0:
+                    r_values[vindex] = phi_sum / (phi_time_sum + psi_time_sum)
+                else:
+                    r_values[vindex] = np.finfo(np.float32).max
+                    logger.warning('\tdenominator = 0, r = inf')
 
-        i += 1
-        if u_count >= 10 and i % (u_count // 10) == 0:
-            logger.debug('\t%d%% done', i * 100 // u_count)
+            i += 1
+            if u_count >= 10 and i % (u_count // 10) == 0:
+                logger.debug('\t%d%% done', i * 100 // u_count)
 
-    return r_values
+        return r_values
+    except:
+        logger.error(traceback.format_exc())
+        raise
 
 
 class Saito(AsLT):
