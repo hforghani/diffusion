@@ -585,8 +585,9 @@ class Saito(AsLT):
                 m_set2[v].append(m)
 
         logger.info('\tcalculating values ...')
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(float(u_count) / settings.PROCESS_COUNT))
+        process_count = min(settings.PROCESS_COUNT, 4)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(float(u_count) / process_count))
         results = []
         for j in range(0, u_count, step):
             subset = user_ids[j: j + step]
