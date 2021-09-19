@@ -572,7 +572,7 @@ class Saito(AsLT):
 
             i += 1
             if len(user_ids) >= 10 and i % (len(user_ids) // 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 // len(user_ids)))
+                logger.debug('\t%d%% done', i * 100 // len(user_ids))
 
         return r
 
@@ -626,7 +626,7 @@ class Saito(AsLT):
 
             i += 1
             if val_count >= 10 and i % (val_count // 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 // val_count))
+                logger.debug('\t%d%% done', i * 100 // val_count)
 
         for v in graph.nodes():
             v_i = user_map[str(v)]
@@ -641,7 +641,7 @@ class Saito(AsLT):
 
             i += 1
             if val_count >= 10 and i % (val_count // 10) == 0:
-                logger.info('\t%d%% done' % (i * 100 // val_count))
+                logger.debug('\t%d%% done', i * 100 // val_count)
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype='d')
 
