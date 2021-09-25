@@ -120,7 +120,7 @@ class ProjectTester(abc.ABC):
         pyplot.plot(fprs, recs)
         pyplot.scatter([fprs[best_ind]], [recs[best_ind]], c='r', marker='o')
         pyplot.title('ROC curve')
-        pyplot.axis([0, pyplot.axis()[1], 0, 1])
+        pyplot.axis([0, 1, 0, 1])
         pyplot.savefig(os.path.join(self.project.project_path, 'validation_results.png'))
         # pyplot.show()
 

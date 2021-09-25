@@ -142,10 +142,16 @@ def calc_error(mat, clusters):
     return error
 
 
-def show_clusters(count, clust_num):
+def show_clusters(clust_num, min_size, max_size):
     # Extract the top cascades.
     db = DBManager().db
-    top_memes = list(db.memes.find({}, ['_id', 'size']).sort('size', -1)[:count])
+    query = {}
+    if min_size is not None:
+        query['size'] = {'$gte': min_size}
+    if max_size is not None:
+        query.setdefault('size', {})
+        query['size']['$lte'] = max_size
+    top_memes = list(db.memes.find(query, ['_id', 'size']))
     memes = [str(m['_id']) for m in top_memes]
     sizes = {str(m['_id']): m['size'] for m in top_memes}
 
@@ -157,10 +163,10 @@ def show_clusters(count, clust_num):
     mat = get_jaccard_mat(memes, users)
 
     # Normalize the matrix.
-    mat = np.reshape(mat - np.eye(count), (1, mat.size))
+    mat = np.reshape(mat - np.eye(len(memes)), (1, mat.size))
     mat = normalize(mat, norm='max')
     mat = np.reshape(mat, (len(memes), len(memes)))
-    mat += np.eye(count)
+    mat += np.eye(len(memes))
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
@@ -233,7 +239,8 @@ def ask_to_create_project(clusters):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Cluster the cascades based on their common users')
     parser.add_argument('-c', '--clusters', type=int, default=4, help='number of clusters')
-    parser.add_argument('-n', '--cascades', type=int, default=100, help='number of top cascades')
+    parser.add_argument('-m', '--min', type=int, help='minimum cascade size')
+    parser.add_argument('-x', '--max', type=int, help='minimum cascade size')
     args = parser.parse_args()
-    clusters = show_clusters(args.cascades, args.clusters)
+    clusters = show_clusters(args.clusters, args.min, args.max)
     ask_to_create_project(clusters)
