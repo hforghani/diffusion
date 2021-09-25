@@ -17,9 +17,9 @@ from settings import logger, BASEPATH, DB_NAME
 from cascade.models import Project
 
 
-def get_users(meme_id):
+def get_users(cascade_id):
     db = DBManager().db
-    users = db.postmemes.find({'meme_id': ObjectId(meme_id)}, {'author_id': 1, '_id': 0})
+    users = db.postmemes.find({'meme_id': ObjectId(cascade_id)}, {'author_id': 1, '_id': 0})
     return list({str(u['author_id']) for u in users})
 
 
@@ -71,15 +71,15 @@ def print_mat_all_tab(mat):
         print()
 
 
-def get_jaccard_mat(memes, users):
-    count = len(memes)
+def get_jaccard_mat(cascades, users):
+    count = len(cascades)
     mat = np.zeros((count, count))
 
     for i in range(count - 1):
-        users_i = set(users[memes[i]])
+        users_i = set(users[cascades[i]])
 
         for j in range(i + 1, count):
-            users_j = set(users[memes[j]])
+            users_j = set(users[cascades[j]])
             # common = len(users_i.intersection(users_j))
             jaccard = len(users_i.intersection(users_j)) / len(users_i.union(users_j))
             mat[i, j] = jaccard
@@ -102,7 +102,7 @@ def cluster_mat(mat, clust_num):
     return clustering.labels_
 
 
-def load_or_extract_users(meme_ids):
+def load_or_extract_users(cas_ids):
     fname = os.path.join(BASEPATH, 'data', f'{DB_NAME}_users.json')
     try:
         with open(fname) as f:
@@ -114,12 +114,12 @@ def load_or_extract_users(meme_ids):
     res_users = {}
     i = 1
     changed = False
-    for meme_id in meme_ids:
-        if meme_id not in users:
+    for cas_id in cas_ids:
+        if cas_id not in users:
             logger.info('querying users of cascade {}'.format(i))
-            users[meme_id] = get_users(meme_id)
+            users[cas_id] = get_users(cas_id)
             changed = True
-        res_users[meme_id] = users[meme_id]
+        res_users[cas_id] = users[cas_id]
         i += 1
 
     if changed:
@@ -142,7 +142,7 @@ def calc_error(mat, clusters):
     return error
 
 
-def show_clusters(clust_num, min_size, max_size):
+def show_clusters(clust_num, min_size, max_size, depth):
     # Extract the top cascades.
     db = DBManager().db
     query = {}
@@ -151,22 +151,25 @@ def show_clusters(clust_num, min_size, max_size):
     if max_size is not None:
         query.setdefault('size', {})
         query['size']['$lte'] = max_size
-    top_memes = list(db.memes.find(query, ['_id', 'size']))
-    memes = [str(m['_id']) for m in top_memes]
-    sizes = {str(m['_id']): m['size'] for m in top_memes}
+    if depth is not None:
+        query['depth'] = {'$gte': depth}
+    res_cascades = list(db.memes.find(query, ['_id', 'size']))
+    cascades = [str(m['_id']) for m in res_cascades]
+    sizes = {str(m['_id']): m['size'] for m in res_cascades}
+    logger.info('%d cascades found', len(cascades))
 
     # Extract user sets of top cascades
-    users = load_or_extract_users(memes)
+    users = load_or_extract_users(cascades)
 
     # Calculate the Jaccard matrix.
     logger.info('creating the similarity matrix ...')
-    mat = get_jaccard_mat(memes, users)
+    mat = get_jaccard_mat(cascades, users)
 
     # Normalize the matrix.
-    mat = np.reshape(mat - np.eye(len(memes)), (1, mat.size))
+    mat = np.reshape(mat - np.eye(len(cascades)), (1, mat.size))
     mat = normalize(mat, norm='max')
-    mat = np.reshape(mat, (len(memes), len(memes)))
-    mat += np.eye(len(memes))
+    mat = np.reshape(mat, (len(cascades), len(cascades)))
+    mat += np.eye(len(cascades))
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
@@ -174,22 +177,22 @@ def show_clusters(clust_num, min_size, max_size):
 
     # Create the ordered indexes of cascades.
     ordered_ind = np.array([], dtype=np.int64)
-    memes_arr = np.array([str(m) for m in memes])
+    cascades_arr = np.array([str(m) for m in cascades])
     uni_val = np.unique(labels)
     clusters = {}
     logger.info('%d cluster(s) found', uni_val.size)
     for val in uni_val:
         indexes = np.nonzero(labels == val)[0]
         indexes = indexes.astype(np.int64)
-        clusters[val] = memes_arr[indexes]
+        clusters[val] = cascades_arr[indexes]
         ordered_ind = np.concatenate((ordered_ind, indexes))
 
     # Print the clusters into the file.
     with open(os.path.join(BASEPATH, 'data', f'{DB_NAME}-clust'), 'w') as f:
         for label in sorted(clusters.keys()):
-            clust_memes = clusters[label]
-            f.write(f'cluster {label}: count = {clust_memes.size}\n')
-            f.write('\n'.join([f'{meme_id}, size = {sizes[meme_id]}' for meme_id in clust_memes]))
+            clust_cascades = clusters[label]
+            f.write(f'cluster {label}: count = {clust_cascades.size}\n')
+            f.write('\n'.join([f'{cas_id}, size = {sizes[cas_id]}' for cas_id in clust_cascades]))
             f.write('\n')
 
     new_mat = mat[:, ordered_ind]
@@ -215,14 +218,14 @@ def ask_question(question, choices):
             print('Wrong answer!')
 
 
-def save_project(name, meme_ids):
-    random.shuffle(meme_ids)
+def save_project(name, cas_ids):
+    random.shuffle(cas_ids)
     val_ratio, test_ratio = 0.15, 0.15
-    val_num = round(val_ratio * len(meme_ids))
-    test_num = round(test_ratio * len(meme_ids))
-    val_set = meme_ids[:val_num]
-    test_set = meme_ids[val_num:val_num + test_num]
-    train_set = meme_ids[val_num + test_num:]
+    val_num = round(val_ratio * len(cas_ids))
+    test_num = round(test_ratio * len(cas_ids))
+    val_set = cas_ids[:val_num]
+    test_set = cas_ids[val_num:val_num + test_num]
+    train_set = cas_ids[val_num + test_num:]
     project = Project(name)
     project.save_sets(train_set, val_set, test_set)
 
@@ -241,6 +244,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--clusters', type=int, default=4, help='number of clusters')
     parser.add_argument('-m', '--min', type=int, help='minimum cascade size')
     parser.add_argument('-x', '--max', type=int, help='minimum cascade size')
+    parser.add_argument('-d', '--depth', type=int, help='minimum depth')
     args = parser.parse_args()
-    clusters = show_clusters(args.clusters, args.min, args.max)
+    clusters = show_clusters(args.clusters, args.min, args.max, args.depth)
     ask_to_create_project(clusters)
