@@ -16,8 +16,13 @@ def evaluate(initial_tree, res_tree, tree, all_nodes, max_depth=None):
     res_nodes = set(res_tree.node_ids())
     true_nodes = set(tree.node_ids(max_depth=max_depth))
     initial_nodes = set(initial_tree.node_ids())
+    logger.debugv('res_nodes = %s', res_nodes)
+    logger.debugv('true_nodes = %s', true_nodes)
+    logger.debugv('initial_nodes = %s', initial_nodes)
     res_output = res_nodes - initial_nodes
     true_output = true_nodes - initial_nodes
+    logger.debugv('res_output = %s', res_output)
+    logger.debugv('true_output = %s', true_output)
     logger.debug('len(all_nodes) = %d', len(all_nodes))
 
     # Evaluate the result.
@@ -128,7 +133,7 @@ def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, tre
                     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                 logger.info(log)
                 # Notice: This line takes too much execution time:
-                # log_trees(tree, res_tree, max_depth)
+                log_trees(tree, res_tree, max_depth)
                 count += 1
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
