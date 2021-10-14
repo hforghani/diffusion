@@ -333,7 +333,7 @@ class AsLT(object):
 
         # Initialize values.
         cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        activated = tree.nodes()
+        activated = tree.node_ids()
         self.probabilities = {}
         db = DBManager().db
 

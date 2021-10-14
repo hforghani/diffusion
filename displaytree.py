@@ -2,12 +2,11 @@
 import argparse
 import logging
 import traceback
-
-import time
+from bson import ObjectId
 
 from cascade.models import Project, CascadeTree
 import settings
-
+from utils.time_utils import time_measure
 
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('displaytree')
@@ -33,19 +32,18 @@ class Command:
     def __init__(self):
         super(Command, self).__init__()
 
+    @time_measure()
     def handle(self, args):
         try:
-            start = time.time()
             meme_id = args.meme_id
             if args.project:
                 project = Project(args.project)
                 trees = project.load_trees()
-                tree = trees[meme_id]
+                tree = trees[ObjectId(meme_id)]
             else:
                 tree = CascadeTree.extract_cascade(meme_id)
 
             logger.info('\n' + tree.render())
-            logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:
             logger.info(traceback.format_exc())
             raise
