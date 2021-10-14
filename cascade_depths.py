@@ -9,9 +9,10 @@ from bson.objectid import ObjectId
 
 import settings
 from db.managers import DBManager
+from utils.time_utils import time_measure
 
 logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('memedepths')
+logger = logging.getLogger('cascade_depths')
 logger.setLevel(settings.LOG_LEVEL)
 
 
@@ -27,11 +28,10 @@ class Command:
             help="whether to continue from the last save point"
         )
 
+    @time_measure()
     def handle(self, args):
         try:
-            start = time.time()
             self.calc_depths(args.do_continue)
-            logger.info('command done in %.2f min' % ((time.time() - start) / 60.0))
         except:
             logger.info(traceback.format_exc())
             raise
@@ -39,7 +39,7 @@ class Command:
     def load_data(self, do_continue):
         i = 0
         depths = {}     # dictionary of meme id's to their depths
-        tree_nodes = {}  # dictionary of meme id's to its tree nodes data. Each tree nodes data is a dictionary of user id's to its depth.
+        tree_nodes = {}  # dictionary of meme id's to their tree nodes data. Each tree nodes data is a dictionary of user id's to their depths.
 
         if do_continue and os.path.exists('data/memedepths/i.json') and os.path.exists(
                 'data/memedepths/depths.json') and os.path.exists('data/memedepths/tree_nodes.json'):
@@ -80,6 +80,12 @@ class Command:
         # If do_continue argument is true, continue from the last save point.
 
         i, depths, tree_nodes = self.load_data(do_continue)
+        """
+        i : Number of iterated reshares 
+        depths: dictionary of meme id's to their depths
+        tree_nodes: dictionary of meme id's to their tree nodes data. Each tree nodes data is a dictionary of 
+                    user id's to their depths.
+        """
         if i > 0:
             reshares = reshares.skip(i)
 
