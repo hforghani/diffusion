@@ -369,6 +369,8 @@ class AsLT(object):
                 for i in range(w_u.nnz):
                     v_i = w_u.indices[i]
                     v = user_ids[v_i]  # receiver (child) user id
+                    logger.debugv('v = %s , of type %s', v, type(v))
+                    logger.debugv('activated = %s', activated)
                     if v in activated:
                         continue
                     if v not in self.probabilities:
