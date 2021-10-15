@@ -124,6 +124,12 @@ class Command:
                                 #logger.info('meme {} has now depth {}'.format(meme_id, depths[meme_id]))
 
             if i % step == 0:
+                logger.info('%d reshares done', i)
+
+            if i % save_step == 0:
+                logger.info('saving temp data ...')
+                self.save_data(i, depths, tree_nodes)
+                logger.info('temp data saved')
                 avg = (time.time() - t0) / (i - i0)
                 rem = avg * (count - i)
                 if rem > 60 * 60 * 48:
@@ -132,14 +138,9 @@ class Command:
                     rem_str = '{:.0f} hours'.format(rem / (60 * 60))
                 else:
                     rem_str = '{:.0f} minutes'.format(rem / 60)
-                logger.info(
-                    '{} reshares done. mean time: {:.0f} s per {}. estimated remaining time: {}'
-                    .format(i, avg * step, step, rem_str))
-
-            if i % save_step == 0:
-                logger.info('saving temp data ...')
-                self.save_data(i, depths, tree_nodes)
-                logger.info('temp data saved')
+                logger.info(f'mean time: {(avg * step):.0f} s per {step}. estimated remaining time: {rem_str}')
+                t0 = time.time()
+                i0 = i
 
         reshares.close()
 
