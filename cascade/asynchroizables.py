@@ -80,15 +80,15 @@ def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, tre
         count = 1
 
         for meme_id in meme_ids:
-            with Timer('getting tree'):
+            with Timer('getting tree', level='debug'):
                 tree = trees[meme_id]
 
             # Copy roots in a new tree.
-            with Timer('copying tree'):
+            with Timer('copying tree', level='debug'):
                 initial_tree = tree.copy(initial_depth)
 
             # Predict remaining nodes.
-            with Timer('prediction'):
+            with Timer('prediction', level='debug'):
                 logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
                 # TODO: apply max_depth for all methods.
                 if method in ['mlnprac', 'mlnalch']:
@@ -100,7 +100,7 @@ def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, tre
                     res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, multiprocessed=False)
 
             # Evaluate the results.
-            with Timer('evaluating results'):
+            with Timer('evaluating results', level='debug'):
                 meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)
 
             if method in ['aslt', 'avg']:
@@ -110,7 +110,7 @@ def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, tre
                 prp1_list.append(prp1)
                 prp2_list.append(prp2)
 
-            with Timer('reporting results'):
+            with Timer('reporting results', level='debug'):
                 prec = meas.precision()
                 rec = meas.recall()
                 fpr = meas.fpr()

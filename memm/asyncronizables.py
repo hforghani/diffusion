@@ -55,7 +55,7 @@ def test_memms(children, parents_dic, observations, active_ids, memms, threshold
                 if new_state == 1:
                     active_children.append(child_id)
                     active_ids.append(child_id)
-                    # logger.debug('\ta reshare predicted')
+                    logger.debugv('\ta reshare predicted')
 
             j += 1
             if j % 100 == 0:

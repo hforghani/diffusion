@@ -326,10 +326,10 @@ class MEMMModel:
         :return:         Predicted tree
         """
         db = DBManager().db
-        ch_timer = Timer('get children')
-        p_timer = Timer('get parents')
-        obs_timer = Timer('observations')
-        m_timer = Timer('MEMM predict')
+        ch_timer = Timer('get children', level='debug')
+        p_timer = Timer('get parents', level='debug')
+        obs_timer = Timer('observations', level='debug')
+        m_timer = Timer('MEMM predict', level='debug')
 
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')

@@ -361,9 +361,8 @@ class AsLT(object):
                 # w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
                 w_u = self.w[u_i, :]
                 if w_u.nnz:
-                    logger.debugv('weights of user %d :', u_i)
-                    logger.debugv(
-                        '\n'.join(['{} : {}'.format(w_u.indices[i], w_u.data[i]) for i in range(w_u.nnz)]))
+                    logger.debugv('weights of user %d :\n' + '\n'.join(
+                        ['{} : {}'.format(w_u.indices[i], w_u.data[i]) for i in range(w_u.nnz)]), u_i)
 
                 # Iterate on children of u
                 # for v_i in np.nonzero(w_u)[0]:

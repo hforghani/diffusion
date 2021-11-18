@@ -129,10 +129,12 @@ class DefaultTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
         model = self.train()
         _, val_set, test_set = self.project.load_sets()
+        logger.info('{0} VALIDATION {0}'.format('=' * 20))
         thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=model)
+        logger.info('{0} TEST {0}'.format('=' * 20))
         return self.test(test_set, thr, initial_depth, max_depth, model=model)
 
-    @time_measure()
+    @time_measure(level='debug')
     def test(self, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False, model=None):
         # Load training and test sets and cascade trees.
         trees = self.project.load_trees()
@@ -153,7 +155,9 @@ class DefaultTester(ProjectTester):
 class MultiProcTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
         _, val_set, test_set = self.project.load_sets()
+        logger.info('{0} VALIDATION {0}'.format('=' * 20))
         thr = self.validate(val_set, thresholds, initial_depth, max_depth)
+        logger.info('{0} TEST {0}'.format('=' * 20))
         return self.test(test_set, thr, initial_depth, max_depth)
 
     @time_measure()

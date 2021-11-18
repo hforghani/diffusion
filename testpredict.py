@@ -7,9 +7,9 @@ import settings
 from cascade.testers import MultiProcTester, DefaultTester
 from settings import logger
 
-import pydevd_pycharm
-
-pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
+# import pydevd_pycharm
+#
+# pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
 
 class Command:
