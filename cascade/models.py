@@ -361,8 +361,8 @@ class AsLT(object):
                 # w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
                 w_u = self.w[u_i, :]
                 if w_u.nnz:
-                    logger.debugv('weights of user %d :\n' + '\n'.join(
-                        ['{} : {}'.format(w_u.indices[i], w_u.data[i]) for i in range(w_u.nnz)]), u_i)
+                    logger.debugv('weights of user %s :\n' + '\n'.join(
+                        ['{} : {}'.format(self.user_ids[w_u.indices[i]], w_u.data[i]) for i in range(w_u.nnz)]), u)
 
                 # Iterate on children of u
                 # for v_i in np.nonzero(w_u)[0]:
@@ -370,13 +370,13 @@ class AsLT(object):
                     v_i = w_u.indices[i]
                     v = user_ids[v_i]  # receiver (child) user id
                     if v in activated:
-                        logger.debugv('user %d is already activated', v_i)
+                        logger.debugv('user %s is already activated', v)
                         continue
                     if v not in self.probabilities:
                         self.probabilities[v] = 0
                         # self.probabilities[v] += w_u[v_i]
                     self.probabilities[v] += w_u.data[i]
-                    logger.debugv('probability of user %d = %f', v_i, self.probabilities[v])
+                    logger.debugv('probability of user %s = %f', v, self.probabilities[v])
 
                     # Set the threshold or sample it randomly if None.
                     if threshold is None:

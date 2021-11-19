@@ -80,12 +80,10 @@ def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, tre
         count = 1
 
         for meme_id in meme_ids:
-            with Timer('getting tree', level='debug'):
-                tree = trees[meme_id]
+            tree = trees[meme_id]
 
             # Copy roots in a new tree.
-            with Timer('copying tree', level='debug'):
-                initial_tree = tree.copy(initial_depth)
+            initial_tree = tree.copy(initial_depth)
 
             # Predict remaining nodes.
             with Timer('prediction', level='debug'):

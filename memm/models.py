@@ -14,6 +14,7 @@ from db.managers import MEMMManager, DBManager, EvidenceManager
 from db.decorators import graceful_auto_reconnect
 # from neo4j.models import Neo4jGraph
 from settings import logger
+from utils.text_utils import columnize
 from utils.time_utils import Timer
 
 MEMM_EVID_FILE_NAME = 'memm/evidence'
@@ -363,7 +364,8 @@ class MEMMModel:
                 # children = rel['children'] if rel is not None else []
 
                 if children:
-                    logger.debug('num of children of %s : %d', node_id, len(children))
+                    logger.debug('user %s has %d children:', node_id, len(children))
+                    logger.debugv('\n' + columnize([str(child_id) for child_id in children], 4))
 
                     # Add all children if threshold is 0.
                     if threshold == 0:
