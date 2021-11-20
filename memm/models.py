@@ -431,7 +431,7 @@ class MEMMModel:
         return parents_dic
 
     def __save_memms(self, memms):
-        MEMMManager.insert(self.project, memms)
+        MEMMManager(self.project).insert(memms)
 
     def __load_memms(self):
-        return MEMMManager.fetch(self.project)
+        return MEMMManager(self.project).fetch_all()

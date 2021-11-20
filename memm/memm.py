@@ -44,7 +44,7 @@ class MEMM():
         """
         # t0 = t_start = time.time()
         dim, sequences = evidence['dimension'], evidence['sequences']
-        new_sequences, self.orig_indexes = self.__decrease_dim(sequences, dim)
+        new_sequences, self.orig_indexes = self.decrease_dim(sequences, dim)
         new_dim = len(self.orig_indexes)
         # times[1] += time.time() - t0
         # logger.info('time 1: %.2f', time.time() - t0)
@@ -255,7 +255,7 @@ class MEMM():
         """
         return np.count_nonzero(np.absolute(Lambda0 - Lambda1) > epsilon) == 0
 
-    def __decrease_dim(self, sequences, dim):
+    def decrease_dim(self, sequences, dim):
         """
         Decrease dimensions of observations in sequences. Remove the dimensions related to the parents
         which has no activation (e.t. has no digit 1) in any observation.

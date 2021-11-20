@@ -22,7 +22,7 @@ class EvidenceManager:
         mongo_client = pymongo.MongoClient(MONGO_URL)
         self.db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
 
-    def get(self, user_id):
+    def get_one(self, user_id):
         if not isinstance(user_id, ObjectId):
             user_id = ObjectId(user_id)
         fs = gridfs.GridFS(self.db)
@@ -151,7 +151,7 @@ class MEMMManager:
             if i % 10000 == 0:
                 logger.info('%d documents inserted', i)
 
-    def fetch(self):
+    def fetch_all(self):
         fs = gridfs.GridFS(self.db)
         memms = {}
         for doc in fs.find():
@@ -164,3 +164,17 @@ class MEMMManager:
             memm.orig_indexes = memm_data['orig_indexes']
             memms[doc.user_id] = memm
         return memms
+
+    def fetch_one(self, user_id):
+        if not isinstance(user_id, ObjectId):
+            user_id = ObjectId(user_id)
+        fs = gridfs.GridFS(self.db)
+        doc = fs.find_one({'user_id': user_id})
+        memm_data = eval(doc.read())
+        memm = MEMM()
+        memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
+        memm.TPM = pickle.loads(memm_data['tpm'])
+        memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr'])
+        memm.map_obs_index = {int(key): value for key, value in memm_data['map_obs_index'].items()}
+        memm.orig_indexes = memm_data['orig_indexes']
+        return memm
