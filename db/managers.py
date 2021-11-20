@@ -34,10 +34,8 @@ class EvidenceManager:
             'sequences': eval(docs[0].read())
         }
 
-    def __find_by_user_ids(self, project, user_ids):
-        mongo_client = pymongo.MongoClient(MONGO_URL)
-        evid_db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
-        fs = gridfs.GridFS(evid_db)
+    def __find_by_user_ids(self, user_ids):
+        fs = gridfs.GridFS(self.db)
 
         if user_ids:
             documents = fs.find({'user_id': {'$in': user_ids}}, no_cursor_timeout=True)
@@ -51,7 +49,6 @@ class EvidenceManager:
         Return dictionary of user id's to the dict {'dimension': dim, 'sequences': sequences}
         of which sequences is the list of the sequences and each sequence is the list of (obs, state)
         tuples.
-        :param project:
         :param user_ids:
         :return:
         """
@@ -70,15 +67,14 @@ class EvidenceManager:
                 f'No MEMM evidences exist on project {self.project.project_name}'
                 f'{" for user set given" if user_ids else ""}')
 
-    def get_many_generator(self, project, user_ids=None):
+    def get_many_generator(self, user_ids=None):
         """
         Get the generator of (user_id, evidences) tuples which each evidences is a dictionary
         {'dimension': dim, 'sequences': sequences}. Read the doc of get_many for more information.
-        :param project:
         :param user_ids:
         :return:
         """
-        documents = self.__find_by_user_ids(project, user_ids)
+        documents = self.__find_by_user_ids(user_ids)
 
         if documents.count():
             for doc in documents:
@@ -89,21 +85,18 @@ class EvidenceManager:
                 yield doc['user_id'], evidences
         else:
             raise DataDoesNotExist(
-                f'No MEMM evidences exist on project {project.project_name}'
+                f'No MEMM evidences exist on project {self.project.project_name}'
                 f'{" for user set given" if user_ids else ""}')
 
-    def insert(self, project, evidences):
+    def insert(self, evidences):
         """
-        :param project:
         :param evidences: dictionary of user id's to MEMM evidences. Each evidence is a dictionary
          with 2 keys:
             <p>dimension : number of observation dimensions.</p>
             <p>sequences : list of (obs, state) sequences.</p>
         :return:
         """
-        mongo_client = pymongo.MongoClient(MONGO_URL)
-        evid_db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
-        fs = gridfs.GridFS(evid_db)
+        fs = gridfs.GridFS(self.db)
 
         logger.info('inserting %d MEMM evidence documents ...', len(evidences))
         i = 0
@@ -115,13 +108,12 @@ class EvidenceManager:
             if i % 10000 == 0:
                 logger.info('%d documents inserted', i)
 
-    def create_index(self, project):
+    def create_index(self):
         """
         Create index on 'user_id' key of MEMM evidences collection of the given project if does not exist.
-        :param project:
         :return:
         """
-        collection = self._get_collection(project)
+        collection = self.db.get_collection('fs.files')
         for _, value in collection.index_information():
             if value['key'][0] == 'user_id':
                 break
