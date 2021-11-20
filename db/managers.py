@@ -17,29 +17,22 @@ class DBManager:
 
 
 class EvidenceManager:
-    def __init__(self):
+    def __init__(self, project):
+        self.project = project
         mongo_client = pymongo.MongoClient(MONGO_URL)
-        self.db = mongo_client[DB_NAME]
+        self.db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
 
-    def _get_collection(self, project):
-        return self.db.get_collection(f'{DB_NAME}_memm_evid_{project.project_name}')
-
-    def get(self, project, user_id):
+    def get(self, user_id):
         if not isinstance(user_id, ObjectId):
             user_id = ObjectId(user_id)
-        collection = self._get_collection(project)
-        docs = collection.find({'user_id': user_id})
-        dim = docs[0]['dimension']
-        docs.rewind()
-        evidences = {
-            'dimension': dim,
-            'sequences': [
-                [
-                    (int(obs_state[0]), obs_state[1]) for obs_state in doc['sequence']
-                ] for doc in docs
-            ]
+        fs = gridfs.GridFS(self.db)
+        docs = fs.find({'user_id': user_id})
+        if not docs:
+            raise ValueError('No evidence exists for user id %s', user_id)
+        return {
+            'dimension': docs[0].dimension,
+            'sequences': eval(docs[0].read())
         }
-        return evidences
 
     def __find_by_user_ids(self, project, user_ids):
         mongo_client = pymongo.MongoClient(MONGO_URL)
@@ -53,7 +46,7 @@ class EvidenceManager:
 
         return documents
 
-    def get_many(self, project, user_ids=None):
+    def get_many(self, user_ids=None):
         """
         Return dictionary of user id's to the dict {'dimension': dim, 'sequences': sequences}
         of which sequences is the list of the sequences and each sequence is the list of (obs, state)
@@ -62,7 +55,7 @@ class EvidenceManager:
         :param user_ids:
         :return:
         """
-        documents = self.__find_by_user_ids(project, user_ids)
+        documents = self.__find_by_user_ids(user_ids)
 
         if documents.count():
             return {
@@ -74,7 +67,7 @@ class EvidenceManager:
             }
         else:
             raise DataDoesNotExist(
-                f'No MEMM evidences exist on project {project.project_name}'
+                f'No MEMM evidences exist on project {self.project.project_name}'
                 f'{" for user set given" if user_ids else ""}')
 
     def get_many_generator(self, project, user_ids=None):
@@ -137,12 +130,12 @@ class EvidenceManager:
 
 
 class MEMMManager:
-    # def __init__(self):
-    #     mongo_client = pymongo.MongoClient(MONGO_URL)
-    #     self.db = mongo_client[DB_NAME]
+    def __init__(self, project):
+        self.project = project
+        mongo_client = pymongo.MongoClient(MONGO_URL)
+        self.db = mongo_client[f'{DB_NAME}_memm_{project.project_name}']
 
-    @staticmethod
-    def __get_doc(memm):
+    def __get_doc(self, memm):
         doc = {
             'lambda': memm.Lambda.tolist(),
             'tpm': Binary(pickle.dumps(memm.TPM, protocol=2)),
@@ -154,44 +147,20 @@ class MEMMManager:
             doc['orig_indexes'] = sorted(list(doc['orig_indexes'].values()))
         return doc
 
-    @staticmethod
-    def insert(project, memms):
-        # logger.debug('creating MEMM documents ...')
-        # documents = [self.__get_doc(uid, memms[uid]) for uid in memms]
-        # logger.debug('inserting MEMMs into db ...')
-        # collection = self.db.get_collection(f'memm_{project.project_name}')
-        # collection.insert_many(documents)
-
-        mongo_client = pymongo.MongoClient(MONGO_URL)
-        memm_db = mongo_client[f'{DB_NAME}_memm_{project.project_name}']
-        fs = gridfs.GridFS(memm_db)
+    def insert(self, memms):
+        fs = gridfs.GridFS(self.db)
 
         logger.info('inserting %d MEMM documents ...', len(memms))
         i = 0
         for uid in memms:
-            doc = MEMMManager.__get_doc(memms[uid])
+            doc = self.__get_doc(memms[uid])
             fs.put(bytes(str(doc), encoding='utf8'), user_id=uid)
             i += 1
             if i % 10000 == 0:
                 logger.info('%d documents inserted', i)
 
-    @staticmethod
-    def fetch(project):
-        # collection = self.db.get_collection(f'memm_{project.project_name}')
-        # memms = {}
-        # for doc in collection.find():
-        #     memm = MEMM()
-        #     memm.Lambda = np.fromiter(doc['lambda'], np.float64)
-        #     memm.TPM = pickle.loads(doc['tpm'])
-        #     memm.all_obs_arr = pickle.loads(doc['all_obs_arr'])
-        #     memm.map_obs_index = {int(key): value for key, value in doc['map_obs_index'].items()}
-        #     memm.orig_indexes = doc['orig_indexes']
-        #     memms[doc['user_id']] = memm
-        # return memms
-
-        mongo_client = pymongo.MongoClient(MONGO_URL)
-        memm_db = mongo_client[f'{DB_NAME}_memm_{project.project_name}']
-        fs = gridfs.GridFS(memm_db)
+    def fetch(self):
+        fs = gridfs.GridFS(self.db)
         memms = {}
         for doc in fs.find():
             memm_data = eval(doc.read())

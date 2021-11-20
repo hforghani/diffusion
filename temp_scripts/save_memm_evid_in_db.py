@@ -21,5 +21,5 @@ if __name__ == '__main__':
             'sequences': value[1]
         } for uid, value in evidences.items()}
 
-        manager = EvidenceManager()
-        manager.insert(project, evidences)
+        manager = EvidenceManager(project)
+        manager.insert(evidences)

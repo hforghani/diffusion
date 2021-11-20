@@ -34,12 +34,12 @@ class MEMMModel:
         :param train_set: list of training cascade id's
         :return: a dictionary of user id's to instances of MemmEvidence
         """
-        evid_manager = EvidenceManager()
+        evid_manager = EvidenceManager(self.project)
 
         act_seqs = self.project.load_or_extract_act_seq()
 
         try:
-            evidences = evid_manager.get_many(self.project)
+            evidences = evid_manager.get_many()
 
         except DataDoesNotExist:
             logger.info('no evidences found! extraction started')

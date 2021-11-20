@@ -8,6 +8,7 @@ import numpy as np
 from bson import ObjectId
 
 from cascade.models import Project
+from db.managers import DBManager
 from settings import logger, BASE_PATH
 
 
