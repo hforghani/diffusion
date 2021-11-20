@@ -22,7 +22,7 @@ class EvidenceManager:
         self.db = mongo_client[DB_NAME]
 
     def _get_collection(self, project):
-        return self.db.get_collection(f'memm_evid_{project.project_name}')
+        return self.db.get_collection(f'{DB_NAME}_memm_evid_{project.project_name}')
 
     def get(self, project, user_id):
         if not isinstance(user_id, ObjectId):
