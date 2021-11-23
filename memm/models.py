@@ -387,8 +387,6 @@ class MEMMModel:
                         with obs_timer:
                             for child_id in children:
                                 obs = observations.setdefault(child_id, 0)
-                                if child_id not in parents_dic:
-                                    continue
                                 parents = parents_dic[child_id]
                                 index = parents.index(node_id)
                                 obs |= 1 << (len(parents) - index - 1)

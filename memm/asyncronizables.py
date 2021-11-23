@@ -49,11 +49,11 @@ def test_memms(children, parents_dic, observations, active_ids, memms, threshold
             if child_id not in active_ids and child_id in memms:
                 memm = memms[child_id]
                 logger.debugv('testing reshare to user %s ...', child_id)
-                new_state = memm.predict(obs, len(parents), threshold)
+                new_state, prob = memm.predict(obs, len(parents), threshold)
                 if new_state == 1:
                     active_children.append(child_id)
                     active_ids.append(child_id)
-                    logger.debug('a reshare predicted')
+                    logger.debug('a reshare predicted %f > %f', prob, threshold)
             else:
                 if child_id in active_ids:
                     logger.debugv('user %s is already activated', child_id)
