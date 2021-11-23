@@ -5,9 +5,9 @@ from db.managers import EvidenceManager
 from display_memm import print_info
 from memm.memm import MEMM
 
-import pydevd_pycharm
-
-pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
+# import pydevd_pycharm
+#
+# pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Learn a MEMM for a user id and display it')

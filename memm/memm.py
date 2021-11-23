@@ -128,14 +128,14 @@ class MEMM():
             prob = self.TPM[index][1]
             next_state = 1 if prob >= threshold else 0
         else:
-            prob = 0
-            next_state = 0
-            # index, sim = self.__nearest_obs_index(new_obs, new_dim)
-            # logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
-            #               array_to_str(self.all_obs_arr[index, :]), sim, self.TPM[index][1])
-            # # Use probability * similarity when the observation not found.
-            # prob = self.TPM[index][1] * sim
-            # next_state = 1 if prob >= threshold else 0
+            # prob = 0
+            # next_state = 0
+            index, sim = self.__nearest_obs_index(new_obs, new_dim)
+            logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
+                          array_to_str(self.all_obs_arr[index, :]), sim, self.TPM[index][1])
+            # Use probability * similarity when the observation not found.
+            prob = self.TPM[index][1] * sim
+            next_state = 1 if prob >= threshold else 0
 
         return next_state, prob
 

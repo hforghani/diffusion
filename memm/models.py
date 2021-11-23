@@ -365,7 +365,7 @@ class MEMMModel:
 
                 if children:
                     logger.debug('user %s has %d children:', node_id, len(children))
-                    logger.debugv('\n' + columnize([str(child_id) for child_id in children], 4))
+                    # logger.debugv('\n' + columnize([str(child_id) for child_id in children], 4))
 
                     # Add all children if threshold is 0.
                     if threshold == 0:

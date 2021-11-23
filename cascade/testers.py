@@ -131,7 +131,7 @@ class DefaultTester(ProjectTester):
         _, val_set, test_set = self.project.load_sets()
         logger.info('{0} VALIDATION {0}'.format('=' * 20))
         thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=model)
-        logger.info('{0} TEST {0}'.format('=' * 20))
+        logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
         return self.test(test_set, thr, initial_depth, max_depth, model=model)
 
     @time_measure(level='debug')
