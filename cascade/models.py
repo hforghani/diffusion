@@ -98,7 +98,7 @@ class CascadeTree(object):
 
     @classmethod
     def extract_cascade(cls, meme_id):
-        with Timer('TREE: fetching posts', 'debug'):
+        with Timer('TREE: fetching posts', level='debug'):
             # Fetch posts related to the meme and reshares.
             if isinstance(meme_id, str):
                 meme_id = ObjectId(meme_id)
@@ -110,14 +110,14 @@ class CascadeTree(object):
             reshares = db.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
                 .sort('datetime')
 
-        with Timer('TREE: creating nodes', 'debug'):
+        with Timer('TREE: creating nodes', level='debug'):
             # Create nodes for the users.
             nodes = {}
             visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
             for user_id in user_ids:
                 nodes[user_id] = CascadeNode(user_id)
 
-        with Timer('TREE: creating diffusion edges'):
+        with Timer('TREE: creating diffusion edges', level='debug'):
             # Create diffusion edge if a user reshares to another for the first time. Note that reshares are sorted by time.
             logger.debug('TREE: reshares count = %d' % reshares.count())
             roots = []
@@ -142,7 +142,7 @@ class CascadeTree(object):
                     child.datetime = reshare['datetime'].strftime(DT_FORMAT)
                     visited[child_id] = True
 
-        with Timer('TREE: Adding single nodes'):
+        with Timer('TREE: Adding single nodes', level='debug'):
             # Add users with no diffusion edges as single nodes.
             t1 = time.time()
             first_posts = {}

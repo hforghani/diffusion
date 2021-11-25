@@ -179,6 +179,10 @@ class MultiProcTester(ProjectTester):
         """
         Create a process pool to distribute the prediction.
         """
+        # Train the memes once and save them. Then the trained model is fetched from disk and used at each process.
+        # The model is not passed to each process to prevent high memory usage.
+        train_memes(self.method, self.project)
+
         pool = Pool(processes=settings.PROCESS_COUNT)
         step = int(math.ceil(float(len(test_set)) / settings.PROCESS_COUNT))
         results = []

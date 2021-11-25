@@ -129,10 +129,6 @@ class MEMMModel:
                     evidences[uid]['sequences'].append(cascade_seqs[uid])
                 cascade_seqs = {}
 
-                # if len(act_seq.users) > 1000 and new_evidences:
-                #     evid_manager.insert(self.project, new_evidences)
-                #     new_evidences = {}
-
             evid_manager.insert(self.project, evidences)
             evid_manager.create_index(self.project)
 
