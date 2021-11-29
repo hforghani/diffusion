@@ -20,4 +20,4 @@ if __name__ == '__main__':
     evidences = m.get_one(args.user_id)
     memm = MEMM()
     memm.fit(evidences)
-    print_info(args.user_id, project, memm, evidences)
+    print_info(args.user_id, evidences, memm)

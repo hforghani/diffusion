@@ -5,14 +5,14 @@ from bson import ObjectId
 
 from db.managers import EvidenceManager, DBManager, MEMMManager
 from cascade.models import Project
-from memm.memm import MEMM, array_to_obs, array_to_str, obs_to_str
+from memm.memm import MEMM, array_to_str, obs_to_str
 
 
 # import pydevd_pycharm
 #
 # pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
-def print_info(user_id, project, memm, evidences):
+def print_info(user_id, evidences, memm):
     dim = evidences['dimension']
     pp = PrettyPrinter()
     sequences, orig_indexes = MEMM().decrease_dim(evidences['sequences'], dim)
@@ -47,7 +47,7 @@ def handle():
     memm = MEMMManager(project).fetch_one(args.user_id)
     m = EvidenceManager(project)
     evidences = m.get_one(args.user_id)
-    print_info(args.user_id, project, memm, evidences)
+    print_info(args.user_id, evidences, memm)
 
 
 if __name__ == '__main__':

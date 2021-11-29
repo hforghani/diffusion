@@ -114,8 +114,8 @@ class EvidenceManager:
         :return:
         """
         collection = self.db.get_collection('fs.files')
-        for _, value in collection.index_information():
-            if value['key'][0] == 'user_id':
+        for _, value in collection.index_information().items():
+            if value['key'][0][0] == 'user_id':
                 break
         else:
             collection.create_index('user_id')

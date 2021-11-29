@@ -1,6 +1,5 @@
 import abc
 import math
-import multiprocessing
 import os
 from multiprocessing import Pool
 
@@ -96,7 +95,6 @@ class ProjectTester(abc.ABC):
         if self.method in ['aslt', 'avg']:
             logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
             logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
-        # return meas
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
     def __save_charts(self, best_f1, best_ind, best_thres, f1s, fprs, precs, recs, thresholds):
@@ -157,7 +155,7 @@ class MultiProcTester(ProjectTester):
         _, val_set, test_set = self.project.load_sets()
         logger.info('{0} VALIDATION {0}'.format('=' * 20))
         thr = self.validate(val_set, thresholds, initial_depth, max_depth)
-        logger.info('{0} TEST {0}'.format('=' * 20))
+        logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20))
         return self.test(test_set, thr, initial_depth, max_depth)
 
     @time_measure()

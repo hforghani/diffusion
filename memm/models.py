@@ -8,7 +8,7 @@ from pympler.asizeof import asizeof
 
 import settings
 from cascade.models import CascadeNode, CascadeTree
-from memm.asyncronizables import train_memms, test_memms, test_memms_eco
+from memm.asyncronizables import train_memms, test_memms, test_memms_eco, extract_evidences
 from db.exceptions import DataDoesNotExist
 from db.managers import MEMMManager, DBManager, EvidenceManager
 from db.decorators import graceful_auto_reconnect
@@ -36,101 +36,39 @@ class MEMMModel:
         """
         evid_manager = EvidenceManager(self.project)
 
-        act_seqs = self.project.load_or_extract_act_seq()
-
         try:
             evidences = evid_manager.get_many()
 
         except DataDoesNotExist:
             logger.info('no evidences found! extraction started')
-            count = 0
             evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
             cascade_seqs = {}  # dictionary of user id's to the sequences of ObsPair instances for this current cascade
-            parent_sizes = {}  # dictionary of user id's to number of their parents
-            db = DBManager().db
+            act_seqs = self.project.load_or_extract_act_seq()
 
             logger.info('extracting sequences from %d cascades ...', len(train_set))
 
-            # Iterate each activation sequence and extract sequences of (observation, state) for each user
-            for cascade_id in train_set:
-                act_seq = act_seqs[cascade_id]
-                observations = {}  # current observation of each user
-                activated = set()  # set of current activated users
-                i = 0
-                logger.info('cascade %d with %d users ...', count + 1, len(act_seq.users))
+            pool = Pool(processes=settings.PROCESS_COUNT)
+            step = int(math.ceil(float(len(train_set)) / settings.PROCESS_COUNT))
+            results = []
+            for j in range(0, len(train_set), step):
+                meme_ids = train_set[j: j + step]
+                res = pool.apply_async(extract_evidences, (meme_ids, act_seqs))
+                results.append(res)
 
-                # relations = db.relations.find({'user_id': {'$in': act_seq.users}})
-                # rel_dic = {rel['user_id']: rel for rel in relations}
+            pool.close()
+            pool.join()
 
-                for uid in act_seq.users:  # Notice users are sorted by activation time.
-                    activated.add(uid)
-                    # parents_count = len(rel_dic[uid]['parents'])
-                    rel = db.relations.find_one({'user_id': uid}, {'_id': 0, 'children': 1, 'parents': 1})
-                    parents_count = len(rel['parents']) if rel is not None else 0
-                    parent_sizes[uid] = parents_count
-                    logger.debug('extracting children ...')
-                    # children = rel_dic[uid]['children']
-                    children = rel['children'] if rel is not None else []
+            logger.info('merging sequences of processes ...')
+            for res in results:
+                process_evidences = res.get()
+                for uid in process_evidences:
+                    if uid not in evidences:
+                        evidences[uid] = process_evidences[uid]
+                    else:
+                        evidences[uid]['sequences'].extend(process_evidences[uid]['sequences'])
 
-                    # Put the last observation with state 1 in the sequence of (observation, state).
-                    if parents_count:
-                        observations.setdefault(uid, 0)  # initial observation: 0000000
-                        cascade_seqs.setdefault(uid, [])
-                        if cascade_seqs[uid]:
-                            obs = cascade_seqs[uid][-1][0]
-                            del cascade_seqs[uid][-1]
-                            cascade_seqs[uid].append((obs, 1))
-
-                    if children:
-                        logger.debug('iterating on %d children ...', len(children))
-
-                    # relations = db.relations.find({'user_id': {'$in': cur_step}}, {'_id':0, 'user_id':1, 'parents':1})
-                    # parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
-
-                    # Set the related coefficient of the children observations equal to 1.
-                    j = 0
-                    for child in children:
-                        # if child not in parents_dic:
-                        #     continue
-                        # child_parents = parents_dic[child]
-                        rel = db.relations.find_one({'user_id': child}, {'_id': 0, 'parents': 1})
-                        if rel is None:
-                            continue
-                        child_parents = rel['parents']
-                        parent_sizes[child] = len(child_parents)
-
-                        obs = observations.setdefault(child, 0)
-                        index = child_parents.index(uid)
-                        obs |= 1 << (len(child_parents) - index - 1)
-                        observations[child] = obs
-                        if child not in activated:
-                            cascade_seqs.setdefault(child, [(0, 0)])
-                            cascade_seqs[child].append((obs, 0))
-                        j += 1
-                        if j % 1000 == 0:
-                            logger.debug('%d children done', j)
-
-                    i += 1
-                    logger.debug('%d users done', i)
-
-                count += 1
-                if count % 1000 == 0:
-                    logger.info('%d cascades done', count)
-
-                # Add current sequence of pairs (observation, state) to the MEMM evidences.
-                logger.info('adding sequences of current cascade ...')
-                for uid in cascade_seqs:
-                    # dim = len(rel_dic[uid]['parents'])
-                    dim = parent_sizes[uid]
-                    evidences.setdefault(uid, {
-                        'dimension': dim,
-                        'sequences': []
-                    })
-                    evidences[uid]['sequences'].append(cascade_seqs[uid])
-                cascade_seqs = {}
-
-            evid_manager.insert(self.project, evidences)
-            evid_manager.create_index(self.project)
+            evid_manager.insert(evidences)
+            evid_manager.create_index()
 
         return evidences
 
