@@ -25,17 +25,17 @@ class Validation(object):
     def precision(self):
         if len(self.output) == 0:
             return 1
-        return float(self.tp) / len(self.output)
+        return self.tp / len(self.output)
 
     def recall(self):
         if len(self.true_output) == 0:
             return 1
-        return float(self.tp) / len(self.true_output)
+        return self.tp / len(self.true_output)
 
     def f1(self):
         if self.tp == 0:
             return 0
-        return 2 * float(self.tp) / (2 * self.tp + self.fp + self.fn)
+        return 2 * self.tp / (2 * self.tp + self.fp + self.fn)
 
     def fpr(self):
         """

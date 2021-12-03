@@ -1,12 +1,12 @@
 import traceback
 
-from db.managers import EvidenceManager, DBManager
+from db.managers import EvidenceManager, DBManager, MEMMManager
 from memm.memm import MEMM, MemmException
 from settings import logger
 from utils.time_utils import Timer
 
 
-def train_memms(evidences):
+def train_memms(evidences, save_in_db=False, project=None):
     user_ids = list(evidences.keys())
     logger.debugv('training memms started')
     memms = {}
@@ -24,8 +24,14 @@ def train_memms(evidences):
         if count % 1000 == 0:
             logger.debug('%d memms trained', count)
 
+            if save_in_db:
+                logger.debug('inserting MEMMs into db ...')
+                MEMMManager(project).insert(memms)
+                memms = {}
+
     logger.debugv('training memms finished')
-    return memms
+    if not save_in_db:
+        return memms
 
 
 def test_memms(children, parents_dic, observations, active_ids, memms, threshold):

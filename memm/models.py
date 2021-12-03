@@ -3,7 +3,6 @@ import multiprocessing
 import random
 from multiprocessing.pool import Pool
 
-from bson import ObjectId
 from pympler.asizeof import asizeof
 
 import settings
@@ -12,15 +11,8 @@ from memm.asyncronizables import train_memms, test_memms, test_memms_eco, extrac
 from db.exceptions import DataDoesNotExist
 from db.managers import MEMMManager, DBManager, EvidenceManager
 from db.decorators import graceful_auto_reconnect
-# from neo4j.models import Neo4jGraph
 from settings import logger
-from utils.text_utils import columnize
 from utils.time_utils import Timer
-
-MEMM_EVID_FILE_NAME = 'memm/evidence'
-
-
-# MEMM_EVID_FILE_NAME = 'memm/evidence-5d88f41e86887707d4526076'
 
 
 class MEMMModel:
@@ -37,12 +29,12 @@ class MEMMModel:
         evid_manager = EvidenceManager(self.project)
 
         try:
+            logger.info('loading MEMM evidences ...')
             evidences = evid_manager.get_many()
 
         except DataDoesNotExist:
             logger.info('no evidences found! extraction started')
             evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
-            cascade_seqs = {}  # dictionary of user id's to the sequences of ObsPair instances for this current cascade
             act_seqs = self.project.load_or_extract_act_seq()
 
             logger.info('extracting sequences from %d cascades ...', len(train_set))
@@ -109,6 +101,7 @@ class MEMMModel:
         del evidences  # to free RAM
         pool.close()
         pool.join()
+        memms = {}
 
         # Collect results of the processes.
         logger.debug('assembling multiprocessed results of MEMM training ...')
@@ -116,8 +109,10 @@ class MEMMModel:
             memms_i = res.get()
             user_ids_i = list(memms_i.keys())
             for uid in user_ids_i:
-                self.__memms[uid] = memms_i.pop(uid)  # to free RAM
+                memms[uid] = memms_i.pop(uid)  # to free RAM
         logger.debug('assembling done')
+
+        return memms
 
     def __fit_by_evidences(self, train_set):
         evidences = self.__prepare_evidences(train_set)
@@ -133,9 +128,9 @@ class MEMMModel:
             big_ev[uid] = evidences.pop(uid)  # to free RAM
         for uid in notbig_user_ids:
             notbig_ev[uid] = evidences.pop(uid)  # to free RAM
+        del evidences
 
         # Train not-big evidences multi-processing in multi-processing mode.
-
         parts_count = 5
         part_size = int(math.ceil(len(notbig_user_ids) / parts_count))
 
@@ -146,14 +141,16 @@ class MEMMModel:
             for uid in part_j:
                 evidences_j[uid] = notbig_ev.pop(uid)  # to free RAM
             logger.info("training %d MEMM's related to part %d of users ...", len(part_j), j + 1)
-            self.__fit_multiproc(evidences_j)
+            memms = self.__fit_multiproc(evidences_j)
+
+            logger.info('inserting MEMMs into db ...')
+            MEMMManager(self.project).insert(memms)
+        del memms, evidences_j
 
         # Train big evidences sequentially.
         logger.info('training %d big MEMMs sequentially', len(big_ev))
-        memms = train_memms(big_ev)
+        train_memms(big_ev, save_in_db=True, project=self.project)
         del big_ev
-        for uid in big_user_ids:
-            self.__memms[uid] = memms.pop(uid)  # to free RAM
 
         logger.info('training MEMMs finished')
 
@@ -164,14 +161,15 @@ class MEMMModel:
         :return:            self
         """
         logger.info('loading MEMMs from db ...')
-        self.__memms = self.__load_memms()
+        self.__memms = MEMMManager(self.project).fetch_all()
 
         # Train MEMMs if they are not saved in DB.
         if not self.__memms:
             logger.info('MEMMs do not exist in db. They will be trained')
             self.__fit_by_evidences(train_set)
-            logger.info('inserting MEMMs into db ...')
-            self.__save_memms(self.__memms)
+
+            # logger.info('inserting MEMMs into db ...')
+            self.__memms = MEMMManager(self.project).fetch_all()
 
         return self
 
@@ -361,9 +359,3 @@ class MEMMModel:
                                       {'_id': 0, 'user_id': 1, 'parents': 1})
         parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
         return parents_dic
-
-    def __save_memms(self, memms):
-        MEMMManager(self.project).insert(memms)
-
-    def __load_memms(self):
-        return MEMMManager(self.project).fetch_all()
