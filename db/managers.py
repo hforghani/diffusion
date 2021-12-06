@@ -4,6 +4,7 @@ import gridfs
 import pymongo
 from bson import ObjectId, Binary
 import numpy as np
+from scipy.sparse import csr_matrix
 
 from db.exceptions import DataDoesNotExist
 from memm.memm import MEMM
@@ -159,8 +160,8 @@ class MEMMManager:
     def __get_doc(self, memm):
         doc = {
             'lambda': memm.Lambda.tolist(),
-            'tpm': Binary(pickle.dumps(memm.TPM, protocol=2)),
-            'all_obs_arr': Binary(pickle.dumps(memm.all_obs_arr, protocol=2)),
+            'tpm': pickle.dumps(memm.TPM, protocol=2),
+            'all_obs_arr': pickle.dumps(csr_matrix(memm.all_obs_arr), protocol=2),
             'map_obs_index': {str(key): value for key, value in memm.map_obs_index.items()},
             'orig_indexes': memm.orig_indexes
         }
@@ -178,7 +179,7 @@ class MEMMManager:
         memm = MEMM()
         memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
         memm.TPM = pickle.loads(memm_data['tpm'])
-        memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr'])
+        memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr']).toarray()
         memm.map_obs_index = {int(key): value for key, value in memm_data['map_obs_index'].items()}
         memm.orig_indexes = memm_data['orig_indexes']
         return memm
@@ -190,11 +191,13 @@ class MEMMManager:
         i3 = data.index(b'all_obs_arr')
         i4 = data.index(b'map_obs_index')
 
+        # print('tpm binary dump =', data[i2 + 15: i3 - 8])
+        # print('all_obs_arr dump =', data[i3 + 23: i4 - 8])
         memm_data['lambda'] = eval(data[i1 + 9: i2 - 3])
-        memm_data['tpm'] = eval(data[i2 + 6: i3 - 3])
-        memm_data['all_obs_arr'] = eval(data[i3 + 14: i4 - 3])
+        memm_data['tpm'] = eval(data[i2 + 15: i3 - 8])
+        memm_data['all_obs_arr'] = eval(data[i3 + 23: i4 - 8])
         two_last_keys = eval(b"{" + data[i4 - 1:])
         memm_data.update(two_last_keys)
-        logger.debug('saved memm: %s', memm_data)
+        # logger.debug('saved memm: %s', memm_data)
 
         return memm_data
