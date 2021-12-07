@@ -4,7 +4,6 @@ import gridfs
 import pymongo
 from bson import ObjectId, Binary
 import numpy as np
-from scipy.sparse import csr_matrix
 
 from db.exceptions import DataDoesNotExist
 from memm.memm import MEMM
@@ -125,8 +124,13 @@ class EvidenceManager:
 class MEMMManager:
     def __init__(self, project):
         self.project = project
-        mongo_client = pymongo.MongoClient(MONGO_URL)
-        self.db = mongo_client[f'{DB_NAME}_memm_{project.project_name}']
+        self.client = pymongo.MongoClient(MONGO_URL)
+        self.db_name = f'{DB_NAME}_memm_{project.project_name}'
+        self.db = self.client[self.db_name]
+
+    def db_exists(self):
+        db_names = self.client.list_database_names()
+        return self.db_name in db_names
 
     def insert(self, memms):
         fs = gridfs.GridFS(self.db)
@@ -143,10 +147,13 @@ class MEMMManager:
     def fetch_all(self):
         fs = gridfs.GridFS(self.db)
         memms = {}
-
+        i = 0
         for doc in fs.find():
             memm = self.__doc_to_memm(doc)
             memms[doc.user_id] = memm
+            i += 1
+            if i % 10000 == 0:
+                logger.debug('%d MEMMs fetched', i)
         return memms
 
     def fetch_one(self, user_id):
@@ -161,7 +168,7 @@ class MEMMManager:
         doc = {
             'lambda': memm.Lambda.tolist(),
             'tpm': pickle.dumps(memm.TPM, protocol=2),
-            'all_obs_arr': pickle.dumps(csr_matrix(memm.all_obs_arr), protocol=2),
+            'all_obs_arr': pickle.dumps(memm.all_obs_arr, protocol=2),
             'map_obs_index': {str(key): value for key, value in memm.map_obs_index.items()},
             'orig_indexes': memm.orig_indexes
         }
@@ -179,7 +186,7 @@ class MEMMManager:
         memm = MEMM()
         memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
         memm.TPM = pickle.loads(memm_data['tpm'])
-        memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr']).toarray()
+        memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr'])
         memm.map_obs_index = {int(key): value for key, value in memm_data['map_obs_index'].items()}
         memm.orig_indexes = memm_data['orig_indexes']
         return memm

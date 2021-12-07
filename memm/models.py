@@ -3,6 +3,9 @@ import multiprocessing
 import random
 from multiprocessing.pool import Pool
 
+import psutil
+import pymongo
+from pymongo.errors import PyMongoError
 from pympler.asizeof import asizeof
 
 import settings
@@ -10,7 +13,7 @@ from cascade.models import CascadeNode, CascadeTree
 from memm.asyncronizables import train_memms, test_memms, test_memms_eco, extract_evidences
 from db.exceptions import DataDoesNotExist
 from db.managers import MEMMManager, DBManager, EvidenceManager
-from db.decorators import graceful_auto_reconnect
+from db.reconnection import rerun_auto_reconnect, reconnect
 from settings import logger
 from utils.time_utils import Timer
 
@@ -160,16 +163,32 @@ class MEMMModel:
         :param train_set:   cascade id's in training set
         :return:            self
         """
-        logger.info('loading MEMMs from db ...')
-        self.__memms = MEMMManager(self.project).fetch_all()
+        manager = MEMMManager(self.project)
 
         # Train MEMMs if they are not saved in DB.
-        if not self.__memms:
+        if not manager.db_exists():
             logger.info('MEMMs do not exist in db. They will be trained')
             self.__fit_by_evidences(train_set)
 
-            # logger.info('inserting MEMMs into db ...')
-            self.__memms = MEMMManager(self.project).fetch_all()
+        logger.info('loading MEMMs from db ...')
+        # In the case of memory leak, it raises AutoReconnect. Then it loads each MEMM one by one
+        # at the test stage via get_memm function.
+        try:
+            self.__memms = manager.fetch_all()
+        except pymongo.errors.AutoReconnect as e:
+            reconnect()
+        except MemoryError:
+            """If the MEMMs size is too large, the Mongo connection will be lost due to memory leak.
+            So it will be cleaned up. Then it fetches MEMMs one by one from db at the test stage via
+            get_memm function."""
+            logger.warning('Memory error!')
+            reconnect()
+        else:
+            if psutil.virtual_memory()[2] > 80:
+                self.__memms = {}
+                logger.info('MEMMs are cleaned up due to memory leak.')
+
+        logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
 
         return self
 
@@ -190,7 +209,8 @@ class MEMMModel:
             for uid in children_i:
                 parents_dic_i[uid] = parents_dic.pop(uid)  # to free RAM
             observations_i = {uid: observations[uid] for uid in children_i}
-            memms_i = {uid: self.__memms[uid] for uid in children_i if uid in self.__memms}
+
+            memms_i = self.get_memms_dict(children_i)
 
             # Train a MEMM for each user.
             res = pool.apply_async(test_memms,
@@ -212,6 +232,14 @@ class MEMMModel:
                 active_ids.append(child_id)
 
         logger.debug('assembling done')
+
+    def get_memms_dict(self, user_ids):
+        memms = {}
+        for uid in user_ids:
+            memm = self.get_memm(uid)
+            if memm:
+                memms[uid] = memm
+        return memms
 
     def __predict_multiproc_eco(self, children, parent_node, parents_dic, observations, active_ids, threshold,
                                 next_step):
@@ -333,7 +361,7 @@ class MEMMModel:
                                                          threshold,
                                                          next_step)
                             else:
-                                memms_i = {uid: self.__memms[uid] for uid in children if uid in self.__memms}
+                                memms_i = self.get_memms_dict(children)
                                 act_children = test_memms(children, parents_dic, observations, active_ids, memms_i,
                                                           threshold)
                                 for child_id in act_children:
@@ -353,7 +381,19 @@ class MEMMModel:
 
         return tree
 
-    @graceful_auto_reconnect
+    def get_memm(self, user_id):
+        if self.__memms:
+            if user_id in self.__memms:
+                return self.__memms[user_id]
+            else:
+                return None
+        else:
+            try:
+                return MEMMManager(self.project).fetch_one(user_id)
+            except PyMongoError:
+                return None
+
+    @rerun_auto_reconnect
     def __get_parents_dic(self, children, db):
         relations = db.relations.find({'user_id': {'$in': children}},
                                       {'_id': 0, 'user_id': 1, 'parents': 1})

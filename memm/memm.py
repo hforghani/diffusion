@@ -1,6 +1,9 @@
 import numpy as np
 import scipy
 import time
+
+from scipy.sparse import csr_matrix
+
 from settings import logger
 
 
@@ -62,8 +65,7 @@ class MEMM():
         for seq in new_sequences:
             all_obs.update([pair[0] for pair in seq])
         all_obs = list(all_obs)
-        self.all_obs_arr = [obs_to_array(obs, new_dim) for obs in all_obs]
-        self.all_obs_arr = np.array(self.all_obs_arr)
+        self.all_obs_arr = csr_matrix(np.array([obs_to_array(obs, new_dim) for obs in all_obs]))
         self.map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
 
         # t0 = time.time()
@@ -132,7 +134,7 @@ class MEMM():
             # next_state = 0
             index, sim = self.__nearest_obs_index(new_obs, new_dim)
             logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
-                          array_to_str(self.all_obs_arr[index, :]), sim, self.TPM[index][1])
+                          array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.TPM[index][1])
             # Use probability * similarity when the observation not found.
             prob = self.TPM[index][1] * sim
             next_state = 1 if prob >= threshold else 0
@@ -148,8 +150,10 @@ class MEMM():
         """
         new_obs_vec = obs_to_array(obs, dim)
         zero_index = int((self.all_obs_arr == np.zeros(dim)).all(axis=1).nonzero()[0])
-        nonzero_obs = np.delete(self.all_obs_arr, zero_index, axis=0)
-        nnz_obs_num = nonzero_obs.shape[0]
+        mask = np.ones(self.all_obs_arr.shape[0], dtype=bool)
+        mask[zero_index] = False
+        nonzero_obs = self.all_obs_arr[mask]
+        nnz_obs_num = nonzero_obs.get_shape()[0]
         sim = np.sum(nonzero_obs == np.tile(new_obs_vec, (nnz_obs_num, 1)), axis=1)
         index = np.argmax(sim)
         if index >= zero_index:
