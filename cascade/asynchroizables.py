@@ -39,7 +39,7 @@ def log_trees(tree, res_tree, max_depth=None):
                                             res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
-def train_memes(method, project):
+def train_memes(method, project, multi_processed=False):
     # Create and train the model if needed.
     if method == 'mlnprac':
         model = MLN(project, method='edge', format=FileCreator.FORMAT_PRACMLN)
@@ -47,7 +47,7 @@ def train_memes(method, project):
         model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
     elif method == 'memm':
         train_set, _, _ = project.load_sets()
-        model = MEMMModel(project).fit(train_set)
+        model = MEMMModel(project).fit(train_set, multi_processed)
     elif method == 'aslt':
         model = Saito(project)
     elif method == 'avg':
@@ -119,7 +119,7 @@ def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, tre
                 f1s.append(f1)
 
                 log = f'meme {meme_id} ({count}/{len(meme_ids)}): {len(res_output)} outputs, ' \
-                          f'{len(true_output)} true, precision = {prec:.3f}, recall = {rec:.3f}, f1 = {f1:.3f}'
+                      f'{len(true_output)} true, precision = {prec:.3f}, recall = {rec:.3f}, f1 = {f1:.3f}'
                 if method in ['aslt', 'avg']:
                     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                 logger.info(log)

@@ -161,12 +161,13 @@ class MEMMManager:
             user_id = ObjectId(user_id)
         fs = gridfs.GridFS(self.db)
         doc = fs.find_one({'user_id': user_id})
+        if doc is None:
+            return None
         memm = self.__doc_to_memm(doc)
         return memm
 
     def __get_doc(self, memm):
         doc = {
-            'lambda': memm.Lambda.tolist(),
             'tpm': pickle.dumps(memm.TPM, protocol=2),
             'all_obs_arr': pickle.dumps(memm.all_obs_arr, protocol=2),
             'map_obs_index': {str(key): value for key, value in memm.map_obs_index.items()},
@@ -184,7 +185,6 @@ class MEMMManager:
             logger.debug('eval function does not work for a MEMM data with length %d. Will be divided.', doc.length)
             memm_data = self.__parse_doc(data)
         memm = MEMM()
-        memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
         memm.TPM = pickle.loads(memm_data['tpm'])
         memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr'])
         memm.map_obs_index = {int(key): value for key, value in memm_data['map_obs_index'].items()}
@@ -193,14 +193,12 @@ class MEMMManager:
 
     def __parse_doc(self, data):
         memm_data = {}
-        i1 = data.index(b'lambda')
         i2 = data.index(b'tpm')
         i3 = data.index(b'all_obs_arr')
         i4 = data.index(b'map_obs_index')
 
         # print('tpm binary dump =', data[i2 + 15: i3 - 8])
         # print('all_obs_arr dump =', data[i3 + 23: i4 - 8])
-        memm_data['lambda'] = eval(data[i1 + 9: i2 - 3])
         memm_data['tpm'] = eval(data[i2 + 15: i3 - 8])
         memm_data['all_obs_arr'] = eval(data[i3 + 23: i4 - 8])
         two_last_keys = eval(b"{" + data[i4 - 1:])

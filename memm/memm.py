@@ -21,7 +21,7 @@ def obs_to_array(obs: int, dim: int) -> np.array:
         obs_arr.append(obs_copy % 2)
         obs_copy >>= 1
     obs_arr = obs_arr[::-1]
-    return np.array(obs_arr, dtype=int)
+    return np.array(obs_arr, dtype=bool)
 
 
 def array_to_obs(arr: np.array) -> int:
@@ -42,7 +42,6 @@ def array_to_str(arr: np.array) -> str:
 
 class MEMM():
     def __init__(self):
-        self.Lambda = None
         self.TPM = None
         self.all_obs_arr = None
         self.map_obs_index = {}
@@ -68,15 +67,19 @@ class MEMM():
         self.all_obs_arr = csr_matrix(np.array([obs_to_array(obs, new_dim) for obs in all_obs]))
         self.map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
 
-        # t0 = time.time()
-        epsilon = 0.001
-
         # Get pairs of (obs, state) which their previous state is 0.
         rel_pairs, rel_indexes = self.__get_related_pairs(new_sequences, self.map_obs_index)
         # logger.debugv('rel_pairs = %s', rel_pairs)
 
-        # Create observations and states matrices for related pairs.
+        # Create matrices of observations and states for related pairs.
         obs_mat, state_mat = self.__create_matrices(rel_pairs, rel_indexes)
+
+        # If there is no state=1, set TPM manually.
+        if not np.any(state_mat):
+            obs_num = len(all_obs)
+            self.TPM = np.zeros((obs_num, 2))
+            self.TPM[:, 0] = 1
+            return self
 
         # Calculate features for observation-state pairs. Shape of f1 is obs_num * (obs_dim+1)
         features, C = self.__calc_features(obs_mat, state_mat)
@@ -86,25 +89,28 @@ class MEMM():
 
         # Initialize Lambda as 1 then learn from training data.
         # Lambda is different per s' (previous state), But here just we use s' = 0.
-        self.Lambda = np.ones(new_dim + 1)
+        Lambda = np.ones(new_dim + 1)
 
         # GIS, run until convergence
+        epsilon = 0.001
+        max_iteration = 1000
         iter_count = 0
         nnz_list = []  # for test
         while True:
             iter_count += 1
             logger.debugv("iteration = %d ...", iter_count)
-            Lambda0 = np.copy(self.Lambda)
-            self.TPM = self.__build_tpm(self.Lambda, self.all_obs_arr)
+            Lambda0 = np.copy(Lambda)
+            self.TPM = self.__build_tpm(Lambda, self.all_obs_arr)
             logger.debugv('TPM =\n%s', self.TPM)
             E = self.__build_expectation(obs_mat, self.TPM, rel_indexes)
             logger.debugv('E =\n%s', E)
-            self.Lambda = self.__build_next_lambda(self.Lambda, C, F, E)
-            logger.debugv('lambda = %s', self.Lambda)
+            Lambda = self.__build_next_lambda(Lambda, C, F, E)
+            logger.debugv('lambda = %s', Lambda)
 
-            nnz = np.count_nonzero(np.absolute(Lambda0 - self.Lambda) > epsilon)
-            nnz_list.append(nnz)
-            if nnz == 0:
+            # nnz = np.count_nonzero(np.absolute(Lambda0 - Lambda) > epsilon)
+            # nnz_list.append(nnz)
+            # if nnz == 0:
+            if np.linalg.norm(Lambda0 - Lambda) / (new_dim + 1) < epsilon or iter_count >= max_iteration:
                 # if log > 0:
                 #    logger.info('distances in iterations: %s', nnz_list)
                 #    logger.info('GIS iterations : %d', iter_count)
@@ -161,14 +167,15 @@ class MEMM():
         return index, np.max(sim) / dim
 
     def __create_matrices(self, pairs, indexes):
-        obs_array = [self.all_obs_arr[indexes[i], :] for i in range(len(pairs))]
+        obs_mat = self.all_obs_arr[indexes, :]
         state_array = [pair[1] for pair in pairs]
-        return np.array(obs_array, dtype=bool), np.array(state_array, dtype=bool)
+        return obs_mat, np.array(state_array, dtype=bool)
 
     def __calc_features(self, obs_mat, state_mat):
-        obs_num, obs_dim = obs_mat.shape
+        obs_num, obs_dim = obs_mat.get_shape()
         # features = np.logical_and(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
-        features = np.logical_not(np.logical_xor(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim)))
+        features = np.logical_not(
+            np.logical_xor(obs_mat.toarray(), np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim)))
         # C = np.max(np.sum(obs_mat, axis=1)) + 1  # C is chosen so that is greater than sum of any row.
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)

@@ -67,18 +67,53 @@ class MEMMModel:
 
         return evidences
 
-    def __separate_big_ev(self, evidences):
-        big_userids = []
-        notbig_userids = []
-        big_threshold = 60000
+    def __get_inactives(self, evidences):
+        """
+        Get totally inactive users which means they have no state 1.
+        :type evidences:
+        :return:
+        :rtype:
+        """
+        user_ids = []
         for uid in evidences:
-            if asizeof(evidences[uid]['sequences']) > big_threshold:
-                big_userids.append(uid)
+            for seq in evidences[uid]['sequences']:
+                if any(pair[1] for pair in seq):
+                    break
             else:
-                notbig_userids.append(uid)
-        # Shuffle not-big user ids' list to balance the process memory sizes.
-        random.shuffle(notbig_userids)
-        return big_userids, notbig_userids
+                user_ids.append(uid)
+        return user_ids
+
+    def __separate_big_ev(self, evidences):
+        """
+        Sort the evidences by their sizes. Choose as much small evidences to full 80% of available memory and
+        puth them in a dictionary named small_ev_user_ids. Put the others in a dictionary named large_ev_user_ids.
+        :param evidences:
+        :type evidences:
+        :return:
+        :rtype:
+        """
+        large_ev_user_ids = []
+        small_ev_user_ids = []
+        sizes = {}
+        for uid in evidences:
+            sizes[uid] = asizeof(evidences[uid]['sequences'])
+        sorted_uids = sorted(evidences.keys(), key=lambda uid: sizes[uid])
+        size_sum = 0
+        available = 0.8 * psutil.virtual_memory().available
+        logger.debugv('available memory: %d', available)
+        for uid in sorted_uids:
+            size_sum += sizes[uid]
+            if size_sum < available:
+                small_ev_user_ids.append(uid)
+            else:
+                large_ev_user_ids.append(uid)
+        # Shuffle user ids to balance the process memory sizes of processes (for small evidences).
+        random.shuffle(small_ev_user_ids)
+        random.shuffle(large_ev_user_ids)
+        logger.debugv('num of small_ev_user_ids: %d', len(small_ev_user_ids))
+        logger.debugv('size of 10 first small evidences: %s', [sizes[uid] for uid in small_ev_user_ids[:10]])
+        logger.debugv('size of 10 first large evidences: %s', [sizes[uid] for uid in large_ev_user_ids[:10]])
+        return large_ev_user_ids, small_ev_user_ids
 
     def __fit_multiproc(self, evidences):
         """
@@ -117,47 +152,61 @@ class MEMMModel:
 
         return memms
 
-    def __fit_by_evidences(self, train_set):
+    def __fit_by_evidences(self, train_set, multi_processed=False):
         evidences = self.__prepare_evidences(train_set)
 
-        # Divide evidences into some parts. Each time load a part from evidences and train the
-        # corresponding MEMMS to avoid high RAM consumption.
-        logger.info('separating big evidences ...')
-        big_user_ids, notbig_user_ids = self.__separate_big_ev(evidences)
-        logger.debug('%d big and %d not-big evidences considered', len(big_user_ids), len(notbig_user_ids))
-        big_ev = {}
-        notbig_ev = {}
-        for uid in big_user_ids:
-            big_ev[uid] = evidences.pop(uid)  # to free RAM
-        for uid in notbig_user_ids:
-            notbig_ev[uid] = evidences.pop(uid)  # to free RAM
-        del evidences
+        # Train the MEMMs of totally inactive users.
+        inactives = self.__get_inactives(evidences)
+        for uid in inactives:
+            evidences.pop(uid)  # to free RAM
+        logger.info('%d totally inactive users neglected since they have no state 1 ...', len(inactives))
 
-        # Train not-big evidences multi-processing in multi-processing mode.
-        parts_count = 5
-        part_size = int(math.ceil(len(notbig_user_ids) / parts_count))
+        if multi_processed:
+            single_process_ev = {}  # Evidences to train sequentially in a single process.
+            multi_processed_ev = {}  # Evidences to train simultaneously in multiple processes.
 
-        for j in range(parts_count):
-            logger.info('loading evidences of part %d of users', j + 1)
-            part_j = notbig_user_ids[j * part_size: (j + 1) * part_size]
-            evidences_j = {}
-            for uid in part_j:
-                evidences_j[uid] = notbig_ev.pop(uid)  # to free RAM
-            logger.info("training %d MEMM's related to part %d of users ...", len(part_j), j + 1)
-            memms = self.__fit_multiproc(evidences_j)
+            # Divide evidences into some parts. Each time load a part from evidences and train the
+            # corresponding MEMMS to avoid high RAM consumption.
+            logger.info('separating large and small evidences ...')
+            large_ev_user_ids, small_ev_user_ids = self.__separate_big_ev(evidences)
+            logger.debug('%d large and %d small evidences considered', len(large_ev_user_ids), len(small_ev_user_ids))
+            for uid in large_ev_user_ids:
+                single_process_ev[uid] = evidences.pop(uid)  # to free RAM
+            for uid in small_ev_user_ids:
+                multi_processed_ev[uid] = evidences.pop(uid)  # to free RAM
+            del evidences
 
-            logger.info('inserting MEMMs into db ...')
-            MEMMManager(self.project).insert(memms)
-        del memms, evidences_j
+            # Train not-big evidences if in multi-processed is True.
+            parts_count = 5
+            part_size = int(math.ceil(len(small_ev_user_ids) / parts_count))
 
-        # Train big evidences sequentially.
-        logger.info('training %d big MEMMs sequentially', len(big_ev))
-        train_memms(big_ev, save_in_db=True, project=self.project)
-        del big_ev
+            for j in range(parts_count):
+                logger.info('loading evidences of part %d of users', j + 1)
+                part_j = small_ev_user_ids[j * part_size: (j + 1) * part_size]
+                evidences_j = {}
+                for uid in part_j:
+                    evidences_j[uid] = multi_processed_ev.pop(uid)  # to free RAM
+                logger.info("training %d MEMM's related to part %d of users simultaneously ...", len(part_j), j + 1)
+                memms = self.__fit_multiproc(evidences_j)
+
+                logger.info('inserting MEMMs into db ...')
+                MEMMManager(self.project).insert(memms)
+            del memms, evidences_j
+
+        else:
+            single_process_ev = evidences
+
+        """
+        Train big evidences sequentially in a single process if multi_processed is True and all
+        evidences otherwise.
+        """
+        logger.info('training %d MEMMs sequentially', len(single_process_ev))
+        train_memms(single_process_ev, save_in_db=True, project=self.project)
+        del single_process_ev
 
         logger.info('training MEMMs finished')
 
-    def fit(self, train_set):
+    def fit(self, train_set, multi_processed=False):
         """
         Load MEMM's from DB if exist, otherwise train MEMM's for each user in training set.
         :param train_set:   cascade id's in training set
@@ -168,14 +217,15 @@ class MEMMModel:
         # Train MEMMs if they are not saved in DB.
         if not manager.db_exists():
             logger.info('MEMMs do not exist in db. They will be trained')
-            self.__fit_by_evidences(train_set)
+            self.__fit_by_evidences(train_set, multi_processed)
 
         logger.info('loading MEMMs from db ...')
-        # In the case of memory leak, it raises AutoReconnect. Then it loads each MEMM one by one
-        # at the test stage via get_memm function.
         try:
             self.__memms = manager.fetch_all()
-        except pymongo.errors.AutoReconnect as e:
+        except pymongo.errors.AutoReconnect:
+            """ In the case of memory leak, it may raise AutoReconnect error. Then it loads MEMMs 
+            one by one at the test stage via get_memm function. """
+            logger.warning('AutoReconnect error!')
             reconnect()
         except MemoryError:
             """If the MEMMs size is too large, the Mongo connection will be lost due to memory leak.
@@ -183,10 +233,6 @@ class MEMMModel:
             get_memm function."""
             logger.warning('Memory error!')
             reconnect()
-        else:
-            if psutil.virtual_memory()[2] > 80:
-                self.__memms = {}
-                logger.info('MEMMs are cleaned up due to memory leak.')
 
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
 
@@ -383,15 +429,9 @@ class MEMMModel:
 
     def get_memm(self, user_id):
         if self.__memms:
-            if user_id in self.__memms:
-                return self.__memms[user_id]
-            else:
-                return None
+            return self.__memms.get(user_id, None)
         else:
-            try:
-                return MEMMManager(self.project).fetch_one(user_id)
-            except PyMongoError:
-                return None
+            return MEMMManager(self.project).fetch_one(user_id)
 
     @rerun_auto_reconnect
     def __get_parents_dic(self, children, db):

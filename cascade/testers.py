@@ -32,10 +32,9 @@ class ProjectTester(abc.ABC):
     def run(self, thresholds, initial_depth, max_depth):
         """ Run the training, validation, and test stages for the project """
 
-    @time_measure()
+    @abc.abstractmethod
     def train(self):
-        model = train_memes(self.method, self.project)
-        return model
+        pass
 
     @time_measure()
     def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, multi_processed=False, model=None):
@@ -56,7 +55,7 @@ class ProjectTester(abc.ABC):
         for thr in thresholds:
             logger.info('{0} THRESHOLD = {1:.3f} {0}'.format('=' * 20, thr))
 
-            prec, rec, f1, fpr = self.test(val_set, thr, initial_depth, max_depth, multi_processed, model)
+            prec, rec, f1, fpr = self.test(val_set, thr, initial_depth, max_depth, model)
 
             precs.append(prec)
             recs.append(rec)
@@ -73,14 +72,13 @@ class ProjectTester(abc.ABC):
         return best_thr
 
     @abc.abstractmethod
-    def test(self, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False, model=None):
+    def test(self, test_set, threshold, initial_depth=0, max_depth=None, model=None):
         """
         Test by the threshold given.
         :param test_set:
         :param threshold:
         :param initial_depth:
         :param max_depth:
-        :param multi_processed:
         :param model:
         :return:
         """
@@ -133,7 +131,12 @@ class DefaultTester(ProjectTester):
         return self.test(test_set, thr, initial_depth, max_depth, model=model)
 
     @time_measure(level='debug')
-    def test(self, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False, model=None):
+    def train(self):
+        model = train_memes(self.method, self.project)
+        return model
+
+    @time_measure(level='debug')
+    def test(self, test_set, threshold, initial_depth=0, max_depth=None, model=None):
         # Load training and test sets and cascade trees.
         trees = self.project.load_trees()
 
@@ -158,8 +161,13 @@ class MultiProcTester(ProjectTester):
         logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20))
         return self.test(test_set, thr, initial_depth, max_depth)
 
+    @time_measure(level='debug')
+    def train(self):
+        model = train_memes(self.method, self.project, multi_processed=True)
+        return model
+
     @time_measure()
-    def test(self, test_set, threshold, initial_depth=0, max_depth=None, multi_processed=False, model=None):
+    def test(self, test_set, threshold, initial_depth=0, max_depth=None, model=None):
         # Load training and test sets and cascade trees.
         trees = self.project.load_trees()
 
@@ -180,7 +188,7 @@ class MultiProcTester(ProjectTester):
         # Train the memes once and save them. Then the trained model is fetched from disk and used at each process.
         # The model is not passed to each process to prevent high memory usage.
         if not MEMMManager(self.project).db_exists():
-            train_memes(self.method, self.project)
+            train_memes(self.method, self.project, multi_processed=True)
 
         pool = Pool(processes=settings.PROCESS_COUNT)
         step = int(math.ceil(float(len(test_set)) / settings.PROCESS_COUNT))
