@@ -37,14 +37,13 @@ class ProjectTester(abc.ABC):
         pass
 
     @time_measure()
-    def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, multi_processed=False, model=None):
+    def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
         """
         :param model: trained model, if None the model is trained in test method
         :param val_set: validation set. list of cascade id's
         :param thresholds: list of validation thresholds
         :param initial_depth: depth of initial nodes of tree
         :param max_depth: maximum depth of tree to which we want to predict
-        :param multi_processed: If True, run multi-processing for each cascade or for each MEMM if MEMM method is used.
         :return:
         """
         precs = []
@@ -161,11 +160,6 @@ class MultiProcTester(ProjectTester):
         logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20))
         return self.test(test_set, thr, initial_depth, max_depth)
 
-    @time_measure(level='debug')
-    def train(self):
-        model = train_memes(self.method, self.project, multi_processed=True)
-        return model
-
     @time_measure()
     def test(self, test_set, threshold, initial_depth=0, max_depth=None, model=None):
         # Load training and test sets and cascade trees.
@@ -187,8 +181,8 @@ class MultiProcTester(ProjectTester):
         """
         # Train the memes once and save them. Then the trained model is fetched from disk and used at each process.
         # The model is not passed to each process to prevent high memory usage.
-        if not MEMMManager(self.project).db_exists():
-            train_memes(self.method, self.project, multi_processed=True)
+        # if not MEMMManager(self.project).db_exists():
+        #     train_memes(self.method, self.project, multi_processed=True)
 
         pool = Pool(processes=settings.PROCESS_COUNT)
         step = int(math.ceil(float(len(test_set)) / settings.PROCESS_COUNT))
@@ -196,8 +190,8 @@ class MultiProcTester(ProjectTester):
         for j in range(0, len(test_set), step):
             meme_ids = test_set[j: j + step]
             res = pool.apply_async(test_memes_multiproc,
-                                   (meme_ids, self.method, self.project, threshold, initial_depth, max_depth, trees,
-                                    all_node_ids, self.user_ids, self.users_map))
+                                   (meme_ids, self.method, self.project, threshold, initial_depth, max_depth,
+                                    trees, all_node_ids, self.user_ids, self.users_map))
             results.append(res)
 
         pool.close()

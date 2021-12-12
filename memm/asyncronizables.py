@@ -55,11 +55,11 @@ def test_memms(children, parents_dic, observations, active_ids, memms, threshold
                     active_children.append(child_id)
                     active_ids.append(child_id)
                     logger.debug('a reshare predicted %f > %f', prob, threshold)
-            else:
-                if child_id in active_ids:
-                    logger.debugv('user %s is already activated', child_id)
-                elif child_id not in memms:
-                    logger.debugv('user %s does not have any MEMM', child_id)
+            # else:
+            #     if child_id in active_ids:
+            #         logger.debugv('user %s is already activated', child_id)
+            #     elif child_id not in memms:
+            #         logger.debugv('user %s does not have any MEMM', child_id)
 
             j += 1
             if j % 100 == 0:

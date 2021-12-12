@@ -60,6 +60,7 @@ def train_memes(method, project, multi_processed=False):
 def test_memes_multiproc(meme_ids, method, project, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
                          users_map):
     try:
+        # Train in each process due to size limit for pickling in Python multi-processing.
         model = train_memes(method, project)
         return test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
                           users_map)

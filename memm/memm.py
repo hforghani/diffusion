@@ -121,6 +121,7 @@ class MEMM():
     def predict(self, obs, dim, threshold):
         """
         Predict the state conditioned on the given observation if the previous state is 0 (inactivated).
+        :param threshold: probability threshold
         :param obs:     current observation
         :param dim:     dimension of observation vector
         :return:        predicted next state
@@ -128,19 +129,19 @@ class MEMM():
         # logger.debug('running MEMM predict method ...')
         new_obs = self.__decrease_dim_by_indexes(obs, dim, self.orig_indexes)
         new_dim = len(self.orig_indexes)
-        new_obs_bin = obs_to_str(new_obs, new_dim)
+        # new_obs_bin = obs_to_str(new_obs, new_dim)
 
         if new_obs in self.map_obs_index:
             index = self.map_obs_index[new_obs]
-            logger.debugv('obs found: %s , prob = %f', new_obs_bin, self.TPM[index][1])
+            # logger.debugv('obs found: %s , prob = %f', new_obs_bin, self.TPM[index][1])
             prob = self.TPM[index][1]
             next_state = 1 if prob >= threshold else 0
         else:
             # prob = 0
             # next_state = 0
             index, sim = self.__nearest_obs_index(new_obs, new_dim)
-            logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
-                          array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.TPM[index][1])
+            # logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
+            #               array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.TPM[index][1])
             # Use probability * similarity when the observation not found.
             prob = self.TPM[index][1] * sim
             next_state = 1 if prob >= threshold else 0
