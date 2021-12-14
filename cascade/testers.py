@@ -1,7 +1,9 @@
 import abc
 import math
+import numbers
 import os
 from multiprocessing import Pool
+from typing import Union, Tuple
 
 import numpy as np
 from matplotlib import pyplot
@@ -29,7 +31,8 @@ class ProjectTester(abc.ABC):
             self.users_map = None
 
     @abc.abstractmethod
-    def run(self, thresholds, initial_depth, max_depth):
+    def run(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int) \
+            -> Tuple[dict, dict, dict, dict]:
         """ Run the training, validation, and test stages for the project """
 
     @abc.abstractmethod
@@ -46,74 +49,76 @@ class ProjectTester(abc.ABC):
         :param max_depth: maximum depth of tree to which we want to predict
         :return:
         """
-        precs = []
-        recs = []
-        f1s = []
-        fprs = []
+        precs, recs, f1s, fprs = self.test(val_set, thresholds, initial_depth, max_depth, model)
 
-        for thr in thresholds:
-            logger.info('{0} THRESHOLD = {1:.3f} {0}'.format('=' * 20, thr))
-
-            prec, rec, f1, fpr = self.test(val_set, thr, initial_depth, max_depth, model)
-
-            precs.append(prec)
-            recs.append(rec)
-            f1s.append(f1)
-            fprs.append(fpr)
-            logger.info('precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', prec, rec, f1, fpr)
-
-        best_ind = int(np.argmax(np.array(f1s)))
-        best_f1, best_thr = f1s[best_ind], thresholds[best_ind]
+        best_thr = max(f1s, key=lambda thr: f1s[thr])
+        best_f1 = f1s[best_thr]
 
         logger.info(f'F1 max = {best_f1} in threshold = {best_thr}')
 
-        self.__save_charts(best_f1, best_ind, best_thr, f1s, fprs, precs, recs, thresholds)
+        self.__save_charts(best_thr, precs, recs, f1s, fprs, thresholds)
         return best_thr
 
     @abc.abstractmethod
-    def test(self, test_set, threshold, initial_depth=0, max_depth=None, model=None):
+    def test(self, test_set: list, thr: Union[list, numbers.Number], initial_depth: int = 0, max_depth: int = None,
+             model=None):
         """
-        Test by the threshold given.
-        :param test_set:
-        :param threshold:
-        :param initial_depth:
-        :param max_depth:
-        :param model:
-        :return:
+        Test on test set by the threshold(s) given.
+        :param test_set: list of cascade ids to test
+        :param thr: If it is a number, it is the activation threshold. If it is a list then it is
+            considered as list of thresholds. In this case the method returns a list of precisions, recals,
+            f1s, FPRs.
+        :param initial_depth: the depth to which the nodes considered as initial nodes.
+        :param max_depth: the depth to which the prediction will be done.
+        :param model: the prediction model instance (an instance of MEMMModel, AsLT, or ...)
+        :return: if the threshold is a number, returns tuple of precision, recall, f1, FPR. If a list of thresholds
+            is given, it returns tuple of list of precisions, list of recalls, etc. related to the thresholds.
         """
 
-    def _get_mean_results(self, f1s, fprs, precisions, prp1_list, prp2_list, recalls):
-        mean_prec = np.array(precisions).mean()
-        mean_rec = np.array(recalls).mean()
-        mean_fpr = np.array(fprs).mean()
-        mean_f1 = np.array(f1s).mean()
-        logger.info('{project %s} averages: precision = %.3f, recall = %.3f, f1 = %.3f' % (
-            self.project.project_name, mean_prec, mean_rec, mean_f1))
-        if self.method in ['aslt', 'avg']:
-            logger.info('prp1 avg = %.3f' % np.mean(np.array(prp1_list)))
-            logger.info('prp2 avg = %.3f' % np.mean(np.array(prp2_list)))
+    def _get_mean_results(self, precisions: dict, recalls: dict, f1s: dict, fprs: dict, prp1s: dict,
+                          prp2s: dict) -> Tuple[dict, dict, dict, dict]:
+        mean_prec = {}
+        mean_rec = {}
+        mean_fpr = {}
+        mean_f1 = {}
+        for thr in precisions:
+            mean_prec[thr] = np.array(precisions[thr]).mean()
+            mean_rec[thr] = np.array(recalls[thr]).mean()
+            mean_fpr[thr] = np.array(fprs[thr]).mean()
+            mean_f1[thr] = np.array(f1s[thr]).mean()
+            logger.info('(threshold = %.2f) averages: precision = %.3f, recall = %.3f, f1 = %.3f',
+                        thr, mean_prec[thr], mean_rec[thr], mean_f1[thr])
+            if self.method in ['aslt', 'avg']:
+                logger.info('prp1 avg = %.3f', np.mean(np.array(prp1s[thr])))
+                logger.info('prp2 avg = %.3f', np.mean(np.array(prp2s[thr])))
+
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
-    def __save_charts(self, best_f1, best_ind, best_thres, f1s, fprs, precs, recs, thresholds):
+    def __save_charts(self, best_thr: float, precs: dict, recs: dict, f1s: dict, fprs: dict, thresholds: list):
+        precs_list = [precs[thr] for thr in thresholds]
+        recs_list = [recs[thr] for thr in thresholds]
+        f1s_list = [f1s[thr] for thr in thresholds]
+        fprs_list = [fprs[thr] for thr in thresholds]
+
         pyplot.figure(1)
         pyplot.subplot(221)
-        pyplot.plot(thresholds, precs)
+        pyplot.plot(thresholds, precs_list)
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
-        pyplot.scatter([best_thres], [precs[best_ind]], c='r', marker='o')
+        pyplot.scatter([best_thr], [precs[best_thr]], c='r', marker='o')
         pyplot.title('precision')
         pyplot.subplot(222)
-        pyplot.plot(thresholds, recs)
-        pyplot.scatter([best_thres], [recs[best_ind]], c='r', marker='o')
+        pyplot.plot(thresholds, recs_list)
+        pyplot.scatter([best_thr], [recs[best_thr]], c='r', marker='o')
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.title('recall')
         pyplot.subplot(223)
-        pyplot.plot(thresholds, f1s)
-        pyplot.scatter([best_thres], [best_f1], c='r', marker='o')
+        pyplot.plot(thresholds, f1s_list)
+        pyplot.scatter([best_thr], [f1s[best_thr]], c='r', marker='o')
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.title('F1')
         pyplot.subplot(224)
-        pyplot.plot(fprs, recs)
-        pyplot.scatter([fprs[best_ind]], [recs[best_ind]], c='r', marker='o')
+        pyplot.plot(fprs_list, recs_list)
+        pyplot.scatter([fprs[best_thr]], [recs[best_thr]], c='r', marker='o')
         pyplot.title('ROC curve')
         pyplot.axis([0, 1, 0, 1])
         pyplot.savefig(os.path.join(self.project.project_path, 'validation_results.png'))
@@ -135,7 +140,13 @@ class DefaultTester(ProjectTester):
         return model
 
     @time_measure(level='debug')
-    def test(self, test_set, threshold, initial_depth=0, max_depth=None, model=None):
+    def test(self, test_set: list, thr: Union[list, numbers.Number], initial_depth: int = 0, max_depth: int = None,
+             model=None):
+        if isinstance(thr, numbers.Number):
+            thresholds = [thr]
+        else:
+            thresholds = thr
+
         # Load training and test sets and cascade trees.
         trees = self.project.load_trees()
 
@@ -144,24 +155,45 @@ class DefaultTester(ProjectTester):
 
         logger.info('number of memes : %d' % len(test_set))
 
-        precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_memes(test_set, self.method, model, threshold,
+        precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_memes(test_set, self.method, model, thresholds,
                                                                           initial_depth, max_depth, trees,
                                                                           all_node_ids, self.user_ids,
                                                                           self.users_map)
-
-        return self._get_mean_results(f1s, fprs, precisions, prp1_list, prp2_list, recalls)
+        mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
+                                                                        prp2_list)
+        if isinstance(thr, numbers.Number):
+            return mean_prec[thr], mean_rec[thr], mean_f1[thr], mean_fpr[thr]
+        else:
+            return mean_prec, mean_rec, mean_f1, mean_fpr
 
 
 class MultiProcTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
         _, val_set, test_set = self.project.load_sets()
+
+        # Train the memes once and save them. Then the trained model is fetched from disk and used at each process.
+        # The model is not passed to each process due to pickling size limit.
+        if not MEMMManager(self.project).db_exists():
+            self.train()
+
         logger.info('{0} VALIDATION {0}'.format('=' * 20))
         thr = self.validate(val_set, thresholds, initial_depth, max_depth)
-        logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20))
+        logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
         return self.test(test_set, thr, initial_depth, max_depth)
 
-    @time_measure()
-    def test(self, test_set, threshold, initial_depth=0, max_depth=None, model=None):
+    @time_measure(level='debug')
+    def train(self):
+        model = train_memes(self.method, self.project, multi_processed=True)
+        return model
+
+    @time_measure(level='debug')
+    def test(self, test_set: list, thr: Union[list, numbers.Number], initial_depth: int = 0, max_depth: int = None,
+             model=None):
+        if isinstance(thr, numbers.Number):
+            thresholds = [thr]
+        else:
+            thresholds = thr
+
         # Load training and test sets and cascade trees.
         trees = self.project.load_trees()
 
@@ -171,47 +203,50 @@ class MultiProcTester(ProjectTester):
         logger.info('number of memes : %d' % len(test_set))
 
         precisions, recalls, f1s, fprs, prp1_list, prp2_list \
-            = self.__test_multi_processed(test_set, threshold, initial_depth, max_depth, trees, all_node_ids)
+            = self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, all_node_ids)
 
-        return self._get_mean_results(f1s, fprs, precisions, prp1_list, prp2_list, recalls)
+        mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
+                                                                        prp2_list)
+        if isinstance(thr, numbers.Number):
+            return mean_prec[thr], mean_rec[thr], mean_f1[thr], mean_fpr[thr]
+        else:
+            return mean_prec, mean_rec, mean_f1, mean_fpr
 
-    def __test_multi_processed(self, test_set, threshold, initial_depth, max_depth, trees, all_node_ids):
+    def __test_multi_processed(self, test_set: list, thresholds: list, initial_depth: int, max_depth: int, trees: dict,
+                               all_node_ids: list):
         """
         Create a process pool to distribute the prediction.
         """
-        # Train the memes once and save them. Then the trained model is fetched from disk and used at each process.
-        # The model is not passed to each process to prevent high memory usage.
-        # if not MEMMManager(self.project).db_exists():
-        #     train_memes(self.method, self.project, multi_processed=True)
-
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(float(len(test_set)) / settings.PROCESS_COUNT))
+        process_count = min(settings.PROCESS_COUNT, len(test_set))
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(float(len(test_set)) / process_count))
         results = []
         for j in range(0, len(test_set), step):
             meme_ids = test_set[j: j + step]
             res = pool.apply_async(test_memes_multiproc,
-                                   (meme_ids, self.method, self.project, threshold, initial_depth, max_depth,
+                                   (meme_ids, self.method, self.project, thresholds, initial_depth, max_depth,
                                     trees, all_node_ids, self.user_ids, self.users_map))
             results.append(res)
 
         pool.close()
         pool.join()
 
-        prp1_list = []
-        prp2_list = []
-        precisions = []
-        recalls = []
-        fprs = []
-        f1s = []
+        prp1_list = {thr: [] for thr in thresholds}
+        prp2_list = {thr: [] for thr in thresholds}
+        precisions = {thr: [] for thr in thresholds}
+        recalls = {thr: [] for thr in thresholds}
+        fprs = {thr: [] for thr in thresholds}
+        f1s = {thr: [] for thr in thresholds}
 
         # Collect results of the processes.
         for res in results:
             r1, r2, r3, r4, r5, r6 = res.get()
-            precisions.extend(r1)
-            recalls.extend(r2)
-            fprs.extend(r3)
-            recalls.extend(r4)
-            prp1_list.extend(r5)
-            prp2_list.extend(r6)
+            for thr in thresholds:
+                precisions[thr].extend(r1[thr])
+                recalls[thr].extend(r2[thr])
+                fprs[thr].extend(r3[thr])
+                recalls[thr].extend(r4[thr])
+                prp1_list[thr].extend(r5[thr])
+                prp2_list[thr].extend(r6[thr])
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list

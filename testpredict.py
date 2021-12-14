@@ -6,6 +6,8 @@ from cascade.models import Project
 import settings
 from cascade.testers import MultiProcTester, DefaultTester
 from settings import logger
+from utils.time_utils import time_measure
+
 
 # import pydevd_pycharm
 #
@@ -36,8 +38,8 @@ class Command:
         parser.add_argument("-u", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
                             help="run tests on multiple processes")
 
+    @time_measure('info')
     def handle(self, args):
-        start = time.time()
         method = args.method
         project_name = args.project
 
@@ -66,8 +68,6 @@ class Command:
         prec, rec, f1, fpr = tester.run(thresholds, args.initial_depth, args.max_depth)
 
         logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', prec, rec, f1, fpr)
-
-        logger.info('command done in %.2f min' % ((time.time() - start) / 60))
 
 
 if __name__ == '__main__':

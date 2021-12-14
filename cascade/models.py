@@ -95,6 +95,7 @@ class CascadeTree(object):
                 raise ValueError('tree must be a list of root nodes')
             self.roots = roots
             self.depth = self.__calc_depth()
+            self._id_to_node = {node.user_id: node for node in self.nodes()}
 
     @classmethod
     def extract_cascade(cls, meme_id):
@@ -118,7 +119,10 @@ class CascadeTree(object):
                 nodes[user_id] = CascadeNode(user_id)
 
         with Timer('TREE: creating diffusion edges', level='debug'):
-            # Create diffusion edge if a user reshares to another for the first time. Note that reshares are sorted by time.
+            """
+            Create diffusion edge if a user reshares to another for the first time. Note that reshares are 
+            sorted by time.
+            """
             logger.debug('TREE: reshares count = %d' % reshares.count())
             roots = []
             for reshare in reshares:
@@ -240,6 +244,9 @@ class CascadeTree(object):
     def render(self, digest=False):
         return '\n'.join([root.render(digest) for root in self.roots])
 
+    def get_node(self, user_id: ObjectId) -> CascadeNode:
+        return self._id_to_node[user_id]
+
 
 class ActSequence(object):
     """
@@ -316,24 +323,32 @@ class AsLT(object):
         pass
 
     # @profile
-    def predict(self, initial_tree, threshold=None, max_step=None, user_ids=None, users_map=None):
+    def predict(self, initial_tree, thresholds: list = None, max_step: int = None, user_ids: list = None,
+                users_map: dict = None) -> dict:
         """
-        Predict activation cascade in the future starting from initial nodes in self.tree.
-        Set the final tree again in self.tree.
-        :param initial_tree:    Initial tree of activated nodes
-        :param threshold:       Threshold of activation probability. IF None, threshold is sampled randomly.
-        :param user_ids:        List of possible users for activation. All of users if value is None.
-        :return:                Returns self.tree
+        Predict activation cascade in the future starting from initial nodes given. Return a dict containing
+        a tree for each threshold given.
+        :param initial_tree:    initial tree of activated nodes
+        :param thresholds:       list of thresholds of activation probability
+        :param max_step:       maximum step to which prediction is done
+        :param user_ids:        list of possible users for activation. All of users if value is None.
+        :param users_map:   dictionary of user ids to their indexes
+        :return:    dictionary of thresholds to trees
         """
-        if not isinstance(initial_tree, CascadeTree):
-            raise ValueError('tree must be a CascadeTree')
         if not hasattr(self, 'w') or not hasattr(self, 'r'):
             raise Exception('No w and r parameters found. Train the AsLT first.')
-        tree = initial_tree.copy()
+
+        """
+        Create dictionary of predicted trees related to thresholds:
+        trees = { threshold1: tree1, threshold2: tree2, ... }
+        """
+        trees = {thr: initial_tree.copy() for thr in thresholds}
 
         # Initialize values.
-        cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        activated = tree.node_ids()
+        cur_step_nodes = sorted(initial_tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
+        max_thr = max(thresholds)
+        cur_step = [(node, max_thr) for node in cur_step_nodes]
+        active_ids = set(initial_tree.node_ids())
         self.probabilities = {}
         db = DBManager().db
 
@@ -343,22 +358,18 @@ class AsLT(object):
         self.user_ids = user_ids
         self.users_map = users_map
 
-        thresholds = {}
-
         # Iterate on steps. For each step try to activate other nodes.
-        step = 0
-        while cur_step and (max_step is None or step < max_step):
+        step = 1
+        while cur_step and (max_step is None or step <= max_step):
             t0 = time.time()
-            step += 1
-            logger.debug('step {} on {} users ...'.format(step, len(cur_step)))
+            logger.debug('step %d on %d users ...', step, len(cur_step))
 
             next_step = []
 
             # Iterate on current step nodes to check if a child will be activated.
-            for node in cur_step:
+            for node, max_predicted_thr in cur_step:
                 u = node.user_id  # sender user id
                 u_i = self.users_map[u]
-                # w_u = np.squeeze(np.array(w[u_i, :].todense()))  # weights of the children of u
                 w_u = self.w[u_i, :]
                 if w_u.nnz:
                     logger.debugv('weights of user %s :\n' + '\n'.join(
@@ -369,57 +380,40 @@ class AsLT(object):
                 for i in range(w_u.nnz):
                     v_i = w_u.indices[i]
                     v = user_ids[v_i]  # receiver (child) user id
-                    if v in activated:
+                    if v in active_ids:
                         logger.debugv('user %s is already activated', v)
                         continue
-                    if v not in self.probabilities:
-                        self.probabilities[v] = 0
-                        # self.probabilities[v] += w_u[v_i]
-                    self.probabilities[v] += w_u.data[i]
-                    logger.debugv('probability of user %s = %f', v, self.probabilities[v])
+                    prob = self.probabilities[v] = self.probabilities.get(v, 0) + w_u.data[i]
+                    logger.debugv('probability of user %s = %f', v, prob)
+                    child_max_pred_thr = None
 
-                    # Set the threshold or sample it randomly if None.
-                    if threshold is None:
-                        if v_i in thresholds:
-                            thresh = thresholds[v_i]
-                        else:
-                            thresh = random.random()
-                            thresholds[v_i] = thresh
-                    else:
-                        thresh = threshold
+                    for thr in thresholds:
+                        if thr <= prob and thr <= max_predicted_thr:
+                            # Get delay parameter.
+                            delay_param = self.r[v_i]
 
-                    if self.probabilities[v] >= thresh:
-                        # Get delay parameter.
-                        delay_param = self.r[v_i]
-
-                        # Sample delay from exponential distribution and calculate the receive time.
-                        delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
-                        if delay > self.max_delay: delay = self.max_delay
-
-                        # if delay_param > 0:
-                        #     delay = np.random.exponential(delay_param)  # in days
-                        # else:
-                        #     logger.warn('delay param = {}'.format(delay_param))
-                        #     delay = 1000    # a very large delay!
-
-                        send_dt = str_to_datetime(node.datetime)
-                        try:
+                            # Set the delay to mean of exponential distribution with parameter delay_param.
+                            delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
+                            if delay > self.max_delay:
+                                delay = self.max_delay
+                            send_dt = str_to_datetime(node.datetime)
                             receive_dt = send_dt + timedelta(days=delay)
-                        except:
-                            logger.debug('send_dt: {}, delay: {}'.format(send_dt, delay))
-                            raise
 
-                        # Add it to the tree.
-                        child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
-                        # child = CascadeNode(v)
-                        node.children.append(child)
-                        activated.append(v)
-                        next_step.append(child)
-                        logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thresh)
-            cur_step = sorted(next_step, key=lambda n: n.datetime)
+                            # Add it to the tree.
+                            child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
+                            trees[thr].get_node(v).children.append(child)
+                            child_max_pred_thr = thr
+                            logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
+
+                    if child_max_pred_thr is not None:
+                        next_step.append((child, child_max_pred_thr))
+                        active_ids.add(v)
+
+            cur_step = sorted(next_step, key=lambda n: n[0].datetime)
             logger.debug('step %d done, time = %.2f s' % (step, time.time() - t0))
+            step += 1
 
-        return tree
+        return trees
 
 
 class IC(object):
@@ -435,6 +429,7 @@ class IC(object):
         pass
 
     def predict(self, initial_tree, threshold=None, user_ids=None):
+        # TODO: Change threshold to thresholds as a list of thresholds.
         if not isinstance(initial_tree, CascadeTree):
             raise ValueError('tree must be CascadeTree')
         tree = initial_tree.copy()

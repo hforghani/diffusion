@@ -254,6 +254,8 @@ class Saito(AsLT):
         user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
         user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
         meme_map = {str(train_set[i]): i for i in range(len(train_set))}
+        logger.info('train set size = %d', len(train_set))
+        logger.info('user space size = %d', len(user_map))
 
         # Set initial values of w and r.
         try:
@@ -445,8 +447,9 @@ class Saito(AsLT):
     @time_measure()
     def calc_phi_h_mp(self, data, graph, w, r, h, meme_ids, meme_map, user_map):
         m_count = len(meme_ids)
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        process_count = 3
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(float(m_count) / process_count))
         results = []
         for j in range(0, m_count, step):
             subset = meme_ids[j: j + step]
@@ -469,8 +472,9 @@ class Saito(AsLT):
     @time_measure()
     def calc_phi_g_mp(self, data, graph, w, g, meme_ids, meme_map, user_map):
         m_count = len(meme_ids)
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        process_count = 3
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(float(m_count) / process_count))
         results = []
         for j in range(0, m_count, step):
             subset = meme_ids[j: j + step]

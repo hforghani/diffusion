@@ -49,13 +49,13 @@ def time_report(t, unit):
     if unit is None:
         unit = select_unit(t)
     if unit == TimeUnit.SECONDS:
-        return f'{t} s'
+        return f'{t:.1f} s'
     elif unit == TimeUnit.MINUTES:
-        return f'{round(t / 60)} m'
+        return f'{t / 60:.1f} m'
     elif unit == TimeUnit.HOURS:
-        return f'{round(t / (60 * 60))} h'
+        return f'{t / (60 * 60):.1f} h'
     elif unit == TimeUnit.DAYS:
-        return f'{round(t / (60 * 60 * 24))} days'
+        return f'{t / (60 * 60 * 24):.1f} days'
     else:
         raise ValueError(f'invalid unit "{unit}"')
 

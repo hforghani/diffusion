@@ -1,6 +1,8 @@
 import traceback
+from typing import Tuple
 
 from cascade.avg import LTAvg
+from cascade.models import Project
 from cascade.saito import Saito
 
 from cascade.validation import Validation
@@ -57,10 +59,12 @@ def train_memes(method, project, multi_processed=False):
     return model
 
 
-def test_memes_multiproc(meme_ids, method, project, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
-                         users_map):
+def test_memes_multiproc(meme_ids: list, method, project: Project, threshold: list, initial_depth: int, max_depth: int,
+                         trees: dict, all_node_ids: list, user_ids: list, users_map: dict) \
+        -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
-        # Train in each process due to size limit for pickling in Python multi-processing.
+        # Train (or fetch trained models from db) in each process due to size limit for pickling in Python
+        # multi-processing.
         model = train_memes(method, project)
         return test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
                           users_map)
@@ -69,64 +73,70 @@ def test_memes_multiproc(meme_ids, method, project, threshold, initial_depth, ma
         raise
 
 
-def test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids, users_map):
+def test_memes(meme_ids: list, method: str, model, thresholds: list, initial_depth: int, max_depth: int, trees: dict,
+               all_node_ids: list, user_ids: list, users_map: dict) -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
-        prp1_list = []
-        prp2_list = []
-        precisions = []
-        recalls = []
-        fprs = []
-        f1s = []
+        prp1_list = {thr: [] for thr in thresholds}
+        prp2_list = {thr: [] for thr in thresholds}
+        precisions = {thr: [] for thr in thresholds}
+        recalls = {thr: [] for thr in thresholds}
+        fprs = {thr: [] for thr in thresholds}
+        f1s = {thr: [] for thr in thresholds}
         max_step = max_depth - initial_depth if max_depth is not None else None
         count = 1
 
         for meme_id in meme_ids:
             tree = trees[meme_id]
 
+            logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
+
             # Copy roots in a new tree.
             initial_tree = tree.copy(initial_depth)
 
             # Predict remaining nodes.
             with Timer('prediction', level='debug'):
-                logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
                 # TODO: apply max_depth for all methods.
                 if method in ['mlnprac', 'mlnalch']:
-                    res_tree = model.predict(meme_id, initial_tree, threshold=threshold)
+                    res_trees = model.predict(meme_id, initial_tree, threshold=thresholds)
                 elif method in ['aslt', 'avg']:
-                    res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, user_ids=user_ids,
-                                             users_map=users_map)
+                    res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
+                                              user_ids=user_ids,
+                                              users_map=users_map)
                 elif method == 'memm':
-                    res_tree = model.predict(initial_tree, threshold=threshold, max_step=max_step, multiprocessed=False)
+                    res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
+                                              multiprocessed=False)
 
             # Evaluate the results.
             with Timer('evaluating results', level='debug'):
-                meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)
+                logger.debug('thresholds = %s', thresholds)
+                for thr in thresholds:
+                    res_tree = res_trees[thr]
+                    meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)
 
-            if method in ['aslt', 'avg']:
-                prp = meas.prp(model.probabilities)
-                prp1 = prp[0] if prp else 0
-                prp2 = prp[1] if len(prp) > 1 else 0
-                prp1_list.append(prp1)
-                prp2_list.append(prp2)
+                    if method in ['aslt', 'avg']:
+                        prp = meas.prp(model.probabilities)
+                        prp1 = prp[0] if prp else 0
+                        prp2 = prp[1] if len(prp) > 1 else 0
+                        prp1_list[thr].append(prp1)
+                        prp2_list[thr].append(prp2)
 
-            with Timer('reporting results', level='debug'):
-                prec = meas.precision()
-                rec = meas.recall()
-                fpr = meas.fpr()
-                f1 = meas.f1()
-                precisions.append(prec)
-                recalls.append(rec)
-                fprs.append(fpr)
-                f1s.append(f1)
+                    prec = meas.precision()
+                    rec = meas.recall()
+                    fpr = meas.fpr()
+                    f1 = meas.f1()
+                    precisions[thr].append(prec)
+                    recalls[thr].append(rec)
+                    fprs[thr].append(fpr)
+                    f1s[thr].append(f1)
 
-                log = f'meme {meme_id} ({count}/{len(meme_ids)}): {len(res_output)} outputs, ' \
-                      f'{len(true_output)} true, precision = {prec:.3f}, recall = {rec:.3f}, f1 = {f1:.3f}'
-                if method in ['aslt', 'avg']:
-                    log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-                logger.info(log)
-                # Notice: This line takes too much execution time:
-                # log_trees(tree, res_tree, max_depth)
-                count += 1
+                    log = f'meme {meme_id} ({count}/{len(meme_ids)}) threshold = {thr} : {len(res_output)} outputs, ' \
+                          f'{len(true_output)} true, precision = {prec:.3f}, recall = {rec:.3f}, f1 = {f1:.3f}'
+                    if method in ['aslt', 'avg']:
+                        log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
+                    logger.info(log)
+                    # log_trees(tree, res_trees, max_depth) # Notice: This line takes too much execution time:
+
+            count += 1
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
 

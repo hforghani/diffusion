@@ -1,5 +1,4 @@
 import math
-import multiprocessing
 import random
 from multiprocessing.pool import Pool
 
@@ -10,7 +9,7 @@ from pympler.asizeof import asizeof
 
 import settings
 from cascade.models import CascadeNode, CascadeTree
-from memm.asyncronizables import train_memms, test_memms, test_memms_eco, extract_evidences
+from memm.asyncronizables import train_memms, extract_evidences
 from db.exceptions import DataDoesNotExist
 from db.managers import MEMMManager, DBManager, EvidenceManager
 from db.reconnection import rerun_auto_reconnect, reconnect
@@ -238,99 +237,11 @@ class MEMMModel:
 
         return self
 
-    def __predict_multiproc(self, children, parent_node, parents_dic, observations, active_ids, threshold, next_step):
-        children_copy = children.copy()
-        random.shuffle(children_copy)
-
-        process_count = multiprocessing.cpu_count() - 1
-        # process_count = 4
-        logger.debug('starting %d processes to predict by MEMMs', process_count)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(len(children) / process_count))
-        results = []
-
-        for i in range(process_count):
-            children_i = children[i * step: (i + 1) * step]
-            parents_dic_i = {}
-            for uid in children_i:
-                parents_dic_i[uid] = parents_dic.pop(uid)  # to free RAM
-            observations_i = {uid: observations[uid] for uid in children_i}
-
-            memms_i = self.get_memms_dict(children_i)
-
-            # Train a MEMM for each user.
-            res = pool.apply_async(test_memms,
-                                   (children_i, parents_dic_i, observations_i, active_ids, memms_i, threshold))
-            results.append(res)
-
-        del parents_dic  # to free RAM
-        pool.close()
-        pool.join()
-
-        # Collect results of the processes.
-        logger.debug('assembling multi-processed results of MEMM predictions ...')
-        for res in results:
-            act_children = res.get()
-            for child_id in act_children:
-                child = CascadeNode(child_id)
-                parent_node.children.append(child)
-                next_step.append(child)
-                active_ids.append(child_id)
-
-        logger.debug('assembling done')
-
-    def get_memms_dict(self, user_ids):
-        memms = {}
-        for uid in user_ids:
-            memm = self.get_memm(uid)
-            if memm:
-                memms[uid] = memm
-        return memms
-
-    def __predict_multiproc_eco(self, children, parent_node, parents_dic, observations, active_ids, threshold,
-                                next_step):
-        children_copy = children.copy()
-        random.shuffle(children_copy)
-
-        process_count = multiprocessing.cpu_count() - 1
-        # process_count = 4
-        logger.debug('starting %d processes to predict by MEMMs', process_count)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(len(children) / process_count))
-        results = []
-
-        for i in range(process_count):
-            children_i = children[i * step: (i + 1) * step]
-            parents_dic_i = {}
-            for uid in children_i:
-                parents_dic_i[uid] = parents_dic.pop(uid)  # to free RAM
-            observations_i = {uid: observations[uid] for uid in children_i}
-
-            # Train a MEMM for each user.
-            res = pool.apply_async(test_memms_eco,
-                                   (children_i, parents_dic_i, observations_i, self.project, active_ids, threshold))
-            results.append(res)
-
-        del parents_dic  # to free RAM
-        pool.close()
-        pool.join()
-
-        # Collect results of the processes.
-        logger.debug('assembling multi-processed results of MEMM predictions ...')
-        for res in results:
-            act_children = res.get()
-            for child_id in act_children:
-                child = CascadeNode(child_id)
-                parent_node.children.append(child)
-                next_step.append(child)
-                active_ids.append(child_id)
-
-        logger.debug('assembling done')
-
-    def predict(self, initial_tree, threshold=None, max_step=None, multiprocessed=True):
+    def predict(self, initial_tree: CascadeTree, thresholds: list, max_step: int = None,
+                multiprocessed: bool = True) -> dict:
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
-        :return:         Predicted tree
+        :return: dictionary of predicted tree for thresholds
         """
         db = DBManager().db
         ch_timer = Timer('get children', level='debug')
@@ -338,17 +249,28 @@ class MEMMModel:
         obs_timer = Timer('observations', level='debug')
         m_timer = Timer('MEMM predict', level='debug')
 
-        if not isinstance(initial_tree, CascadeTree):
-            raise ValueError('tree must be CascadeTree')
-        tree = initial_tree.copy()
+        """
+        Create dictionary of predicted trees related to thresholds:
+        trees = { threshold1: tree1, threshold2: tree2, ... }
+        """
+        trees = {thr: initial_tree.copy() for thr in thresholds}
 
-        # Find initially activated nodes.
-        cur_step = sorted(tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        active_ids = initial_tree.node_ids()
+        # Initialize values.
+        cur_step_nodes = sorted(initial_tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
+        max_thr = max(thresholds)
+        cur_step = [(node, max_thr) for node in cur_step_nodes]
+        active_ids = set(initial_tree.node_ids())
         step_num = 1
 
-        # Create dictionary of current observations of the nodes.
-        observations = {uid: 0 for uid in active_ids}
+        """
+            Create dictionary of current observations of the nodes for each threshold:
+            observations = {
+                            threshold1: {user_id1: obs1, user_id2: obs2, ...},
+                            threshold2: {user_id1: obs1, user_id2: obs2, ...},
+                            ...
+                            }
+        """
+        observations = {thr: {uid: 0 for uid in active_ids} for thr in thresholds}
 
         # Predict the cascade tree.
         # At each iteration find newly activated nodes based on MEMM probabilities and add them to the tree.
@@ -358,12 +280,12 @@ class MEMMModel:
             next_step = []
 
             with ch_timer:
-                relations = db.relations.find({'user_id': {'$in': [n.user_id for n in cur_step]}},
+                relations = db.relations.find({'user_id': {'$in': [item[0].user_id for item in cur_step]}},
                                               {'_id': 0, 'user_id': 1, 'children': 1})
                 children_dic = {rel['user_id']: rel['children'] for rel in relations}
 
             i = 0
-            for node in cur_step:
+            for node, max_predicted_thr in cur_step:
                 node_id = node.user_id
                 children = children_dic.pop(node_id, [])  # to get and free RAM
                 # rel = db.relations.find_one({'user_id': node_id}, {'_id': 0, 'children': 1})
@@ -373,48 +295,55 @@ class MEMMModel:
                     logger.debug('user %s has %d children:', node_id, len(children))
                     # logger.debugv('\n' + columnize([str(child_id) for child_id in children], 4))
 
-                    # Add all children if threshold is 0.
-                    if threshold == 0:
+                    with p_timer:
+                        parents_dic = self.__get_parents_dic(children, db)
+
+                    with obs_timer:
+                        for thr in thresholds:
+                            if thr <= max_predicted_thr:
+                                for child_id in children:
+                                    obs = observations[thr].setdefault(child_id, 0)
+                                    parents = parents_dic[child_id]
+                                    index = parents.index(node_id)
+                                    obs |= 1 << (len(parents) - index - 1)
+                                    observations[thr][child_id] = obs
+                            else:
+                                break
+
+                    with m_timer:
                         j = 0
-                        inact_children = set(children) - set(active_ids)
-                        for child_id in inact_children:
-                            child = CascadeNode(child_id)
-                            node.children.append(child)
-                            next_step.append(child)
-                            active_ids.append(child_id)
+                        for child_id in children:
+
+                            if child_id not in active_ids:
+                                memm = self.get_memm(child_id)
+
+                                if memm is not None:
+                                    parents = parents_dic[child_id]
+                                    child_max_pred_thr = None
+
+                                    for thr in thresholds:
+                                        if thr <= max_predicted_thr:
+                                            obs = observations[thr][child_id]
+                                            logger.debugv('testing reshare to user %s ...', child_id)
+                                            prob = memm.get_prob(obs, len(parents))
+
+                                            if prob >= thr:
+                                                child = CascadeNode(child_id)
+                                                trees[thr].get_node(node_id).children.append(child)
+                                                child_max_pred_thr = thr
+                                                logger.debug('a reshare predicted %f >= %f', prob, thr)
+
+                                    if child_max_pred_thr is not None:
+                                        next_step.append((child, child_max_pred_thr))
+                                        active_ids.add(child_id)
+                                else:
+                                    logger.debugv('user %s does not have any MEMM', child_id)
+                            else:
+                                logger.debugv('user %s is already activated', child_id)
+
                             j += 1
                             if j % 100 == 0:
-                                logger.debugv('%d / %d of children iterated', j, len(inact_children))
-
-                    elif threshold < 1:
-                        with p_timer:
-                            parents_dic = self.__get_parents_dic(children, db)
-
-                        with obs_timer:
-                            for child_id in children:
-                                obs = observations.setdefault(child_id, 0)
-                                parents = parents_dic[child_id]
-                                index = parents.index(node_id)
-                                obs |= 1 << (len(parents) - index - 1)
-                                observations[child_id] = obs
-
-                        with m_timer:
-                            if len(children) > 150000 and multiprocessed:
-                                self.__predict_multiproc_eco(children, node, parents_dic, observations, active_ids,
-                                                             threshold, next_step)
-                            elif len(children) > 1000 and multiprocessed:
-                                self.__predict_multiproc(children, node, parents_dic, observations, active_ids,
-                                                         threshold,
-                                                         next_step)
-                            else:
-                                memms_i = self.get_memms_dict(children)
-                                act_children = test_memms(children, parents_dic, observations, active_ids, memms_i,
-                                                          threshold)
-                                for child_id in act_children:
-                                    child = CascadeNode(child_id)
-                                    node.children.append(child)
-                                    next_step.append(child)
-                                    active_ids.append(child_id)
+                                logger.debugv('%d / %d of children iterated', j, len(children))
 
                 i += 1
                 logger.debug('%d / %d nodes of current step done', i, len(cur_step))
@@ -425,7 +354,7 @@ class MEMMModel:
         for timer in [ch_timer, p_timer, obs_timer, m_timer]:
             timer.report_sum()
 
-        return tree
+        return trees
 
     def get_memm(self, user_id):
         if self.__memms:

@@ -159,6 +159,7 @@ class MLN(object):
             raise ValueError('invalid method "%s"' % self.method)
 
     def predict_by_edges(self, meme_id, initial_tree, threshold, log=False):
+        # TODO: Implement by thresholds instead of single threshold.
         # Load results of mln inference and put it in self.edges .
         edges = self.load_edge_results(meme_id)
 
@@ -172,6 +173,7 @@ class MLN(object):
         return res_tree
 
     def predict_by_nodes(self, meme_id, initial_tree, threshold, log=False):
+        # TODO: Implement by thresholds instead of single threshold.
         # Load results of mln inference and put it in self.edges .
         nodes = self.load_node_results(meme_id, log)
 

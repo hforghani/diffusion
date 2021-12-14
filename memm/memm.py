@@ -32,6 +32,14 @@ def array_to_obs(arr: np.array) -> int:
     return obs
 
 
+def sparse_to_obs(arr: csr_matrix) -> int:
+    obs = 0
+    dim = max(arr.shape)
+    for ind in arr.nonzero()[1]:
+        obs |= 1 << (dim - ind - 1)
+    return obs
+
+
 def obs_to_str(obs: int, dim: int) -> str:
     return '{:>0{w}}'.format(bin(obs)[2:], w=dim)
 
@@ -42,10 +50,12 @@ def array_to_str(arr: np.array) -> str:
 
 class MEMM():
     def __init__(self):
+        # TODO: Remove TPM, map_obs_index.
         self.TPM = None
         self.all_obs_arr = None
         self.map_obs_index = {}
         self.orig_indexes = []
+        self.map_obs_prob = {}
 
     def fit(self, evidence):
         """
@@ -116,7 +126,35 @@ class MEMM():
                 #    logger.info('GIS iterations : %d', iter_count)
                 break
 
+        for obs, index in self.map_obs_index.items():
+            self.map_obs_prob[obs] = self.TPM[index][1]
+
         return self
+
+    def get_prob(self, obs: int, dim: int) -> float:
+        """
+        Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
+        :param obs:     current observation
+        :param dim:     dimension of observation vector
+        """
+        # logger.debug('running MEMM predict method ...')
+        new_obs = self.__decrease_dim_by_indexes(obs, dim, self.orig_indexes)
+        new_dim = len(self.orig_indexes)
+        # new_obs_bin = obs_to_str(new_obs, new_dim)
+
+        if new_obs in self.map_obs_prob:
+            return self.map_obs_prob[new_obs]
+        else:
+            # prob = 0
+            index, sim = self.__nearest_obs_index(new_obs, new_dim)
+            # logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
+            #               array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.tpm[index][1])
+            # use probability * similarity when the observation not found.
+            nearest_obs = sparse_to_obs(self.all_obs_arr[index, :])
+            prob = self.map_obs_prob[nearest_obs] * sim
+
+            self.map_obs_prob[new_obs] = prob
+            return prob
 
     def predict(self, obs, dim, threshold):
         """
@@ -126,26 +164,8 @@ class MEMM():
         :param dim:     dimension of observation vector
         :return:        predicted next state
         """
-        # logger.debug('running MEMM predict method ...')
-        new_obs = self.__decrease_dim_by_indexes(obs, dim, self.orig_indexes)
-        new_dim = len(self.orig_indexes)
-        # new_obs_bin = obs_to_str(new_obs, new_dim)
-
-        if new_obs in self.map_obs_index:
-            index = self.map_obs_index[new_obs]
-            # logger.debugv('obs found: %s , prob = %f', new_obs_bin, self.TPM[index][1])
-            prob = self.TPM[index][1]
-            next_state = 1 if prob >= threshold else 0
-        else:
-            # prob = 0
-            # next_state = 0
-            index, sim = self.__nearest_obs_index(new_obs, new_dim)
-            # logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
-            #               array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.TPM[index][1])
-            # Use probability * similarity when the observation not found.
-            prob = self.TPM[index][1] * sim
-            next_state = 1 if prob >= threshold else 0
-
+        prob = self.get_prob(obs, dim)
+        next_state = int(prob >= threshold)
         return next_state, prob
 
     def __nearest_obs_index(self, obs: int, dim: int):
