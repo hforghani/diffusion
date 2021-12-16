@@ -17,12 +17,12 @@ logger.setLevel(settings.LOG_LEVEL)
 
 def create_roots(path):
     """
-    Create memes and their root posts reading the file Root_Content.txt .
+    Create cascades and their root posts reading the file Root_Content.txt .
     :param path: path of the file Root_Content.txt
     """
     posts = []
-    post_memes = []
-    memes_map = {}
+    post_cascades = []
+    cascades_map = {}
     i = 0
     db = DBManager().db
 
@@ -40,9 +40,9 @@ def create_roots(path):
                 content = [int(index) for index in line.split(' ') if index]
                 post_id_obj = ObjectId('{:024d}'.format(int(post_id)))
                 posts.append({'_id': post_id_obj})
-                meme_id = db.memes.insert_one({'text': content}).inserted_id
-                post_memes.append({'post_id': post_id_obj, 'meme_id': meme_id})
-                memes_map[post_id] = meme_id
+                cascade_id = db.memes.insert_one({'text': content}).inserted_id
+                post_cascades.append({'post_id': post_id_obj, 'meme_id': cascade_id})
+                cascades_map[post_id] = cascade_id
                 post_id = None
 
                 i += 1
@@ -50,19 +50,19 @@ def create_roots(path):
                     logger.info('%d posts read' % i)
                 if i % 100000 == 0:
                     db.posts.insert_many(posts)
-                    db.postmemes.insert_many(post_memes)
-                    logger.info('%d memes and their original posts created' % i)
+                    db.postmemes.insert_many(post_cascades)
+                    logger.info('%d cascades and their original posts created' % i)
                     posts = []
-                    post_memes = []
+                    post_cascades = []
 
             line = f.readline()
 
     if posts:
         db.posts.insert_many(posts)
-        db.postmemes.insert_many(post_memes)
-        logger.info('%d memes and their original posts created' % i)
+        db.postmemes.insert_many(post_cascades)
+        logger.info('%d cascades and their original posts created' % i)
 
-    return memes_map
+    return cascades_map
 
 
 def to_user_id(number):
@@ -137,12 +137,12 @@ def create_users(paths):
 
 
 # @profile
-def create_retweets(path, start_index, users_map, user_ids, memes_map):
+def create_retweets(path, start_index, users_map, user_ids, cascades_map):
     i = 0
     t0 = time.time()
     db = DBManager().db
-    memes_count = db.memes.count()
-    post_memes = []
+    cascades_count = db.memes.count()
+    post_cascades = []
     reshares = []
 
     # if 'start_index' is specified, ignore lower indexes.
@@ -154,23 +154,23 @@ def create_retweets(path, start_index, users_map, user_ids, memes_map):
 
         while True:
             i += 1
-            resh_list, pm_list = read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring)
+            resh_list, pm_list = read_one_cascade_reshares(f, users_map, user_ids, cascades_map, ignoring)
             if resh_list is None and pm_list is None:
                 break
             reshares.extend(resh_list)
-            post_memes.extend(pm_list)
+            post_cascades.extend(pm_list)
 
-            if (not ignoring or i == start_index) and (len(post_memes) > 10000 or len(reshares) > 10000):
+            if (not ignoring or i == start_index) and (len(post_cascades) > 10000 or len(reshares) > 10000):
                 logger.info(
-                    'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-                if post_memes or reshares:
-                    db.postmemes.insert_many(post_memes)
+                    'saving %d post cascades and %d reshares ...' % (len(post_cascades), len(reshares)))
+                if post_cascades or reshares:
+                    db.postmemes.insert_many(post_cascades)
                     db.reshares.insert_many(reshares)
-                    post_memes = []
+                    post_cascades = []
                     reshares = []
                     logger.info('time : %d s' % (time.time() - t0))
                     t0 = time.time()
-                logger.info('{:.0f}% done. processing from post number {} ...'.format(i / memes_count * 100, i))
+                logger.info('{:.0f}% done. processing from post number {} ...'.format(i / cascades_count * 100, i))
 
             elif ignoring and i % 100 == 0:
                 logger.info('ignoring posts: %d' % i)
@@ -185,12 +185,12 @@ def create_retweets(path, start_index, users_map, user_ids, memes_map):
 
     # Save the remaining relations.
     logger.info(
-        'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-    db.postmemes.insert_many(post_memes)
+        'saving %d post cascades and %d reshares ...' % (len(post_cascades), len(reshares)))
+    db.postmemes.insert_many(post_cascades)
     db.reshares.insert_many(reshares)
 
 
-def read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring=False):
+def read_one_cascade_reshares(f, users_map, user_ids, cascade_map, ignoring=False):
     # Read root post data.
     db = DBManager().db
     line = None
@@ -213,26 +213,26 @@ def read_one_meme_reshares(f, users_map, user_ids, memes_map, ignoring=False):
                             {'$set': {'datetime': original_time, 'author_id': original_uid}})
         db.postmemes.update_one({'post_id': original_pid},
                                 {'$set': {'datetime': original_time, 'author_id': original_uid}})
-    meme_id = memes_map[str(original_pid)]
+    cascade_id = cascade_map[str(original_pid)]
 
     # Read retweets number.
     line = f.readline().strip()
     retweet_num = int(line)
 
-    meme_reshares = []
-    meme_postmemes = []
+    cascade_reshares = []
+    cascade_postmemes = []
     # resh_pairs = set()
     posts_map = {str(original_uid): {'_id': original_pid, 'datetime': original_time}}
 
     for i in range(retweet_num):
-        reshares, post_memes = read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignoring)
-        meme_reshares.extend(reshares)
-        meme_postmemes.extend(post_memes)
+        reshares, post_cascades = read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, ignoring)
+        cascade_reshares.extend(reshares)
+        cascade_postmemes.extend(post_cascades)
 
-    return meme_reshares, meme_postmemes
+    return cascade_reshares, cascade_postmemes
 
 
-def read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignoring=False):
+def read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, ignoring=False):
     db = DBManager().db
 
     # Read retweet data.
@@ -284,11 +284,11 @@ def read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignorin
         f.seek(last_pos)
 
     reshares = []
-    post_memes = []
+    post_cascades = []
 
     if not ignoring:
 
-        # Create posts, postmemes, and reshares for the edges not visited before.
+        # Create posts, postcascades, and reshares for the edges not visited before.
         for i in range(len(uid_list) - 1):
             resh_dt = retweet_time - timedelta(microseconds=(len(uid_list) - i - 2) * 10)
             src, dst = uid_list[i], uid_list[i + 1]
@@ -306,27 +306,27 @@ def read_one_reshare_seq(f, meme_id, original_uid, users_map, posts_map, ignorin
             resh = {'post_id': post_id, 'reshared_post_id': resh_post_id, 'datetime': resh_dt,
                     'user_id': dst, 'ref_user_id': src, 'ref_datetime': resh_post['datetime']}
             reshares.append(resh)
-            post_memes.append({'post_id': post_id, 'meme_id': meme_id, 'datetime': resh_dt})
+            post_cascades.append({'post_id': post_id, 'meme_id': cascade_id, 'datetime': resh_dt})
             posts_map[str(dst)] = {'_id': post_id, 'datetime': resh_dt}
             # resh_pairs.add((str(src), str(dst)))
 
-    return reshares, post_memes
+    return reshares, post_cascades
 
 
-def calc_memes_values():
+def calc_cascades_values():
     db = DBManager().db
     count = db.memes.count()
     save_step = 10 ** 6
 
-    logger.info('query of meme sizes (number of users) ...')
-    meme_sizes = db.postmemes.aggregate([{'$group': {'_id': {'meme_id': '$meme_id', 'user_id': '$author_id'}}},
+    logger.info('query of cascade sizes (number of users) ...')
+    cascade_sizes = db.postmemes.aggregate([{'$group': {'_id': {'meme_id': '$meme_id', 'user_id': '$author_id'}}},
                                          {'$group': {'_id': '$meme_id', 'size': {'$sum': 1}}}],
                                         allowDiskUse=True)
 
     logger.info('saving ...')
     operations = []
     i = 0
-    for doc in meme_sizes:
+    for doc in cascade_sizes:
         operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'size': doc['count']}}))
         i += 1
         if i % save_step == 0:
@@ -335,14 +335,14 @@ def calc_memes_values():
             logger.info('%d%% done', i * 100 / count)
     db.memes.bulk_write(operations)
 
-    logger.info('query of meme counts ...')
-    meme_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
+    logger.info('query of cascade counts ...')
+    cascade_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
                                          allowDiskUse=True)
 
     logger.info('saving ...')
     operations = []
     i = 0
-    for doc in meme_counts:
+    for doc in cascade_counts:
         operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'count': doc['count']}}))
         i += 1
         if i % save_step == 0:

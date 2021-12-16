@@ -52,7 +52,7 @@ class Command:
             "--multiple",
             action="store_true",
             dest="multiple",
-            help="create multiple test evidence files each for a meme"
+            help="create multiple test evidence files each for a cascade"
         )
 
     def __init__(self):

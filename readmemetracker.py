@@ -56,21 +56,21 @@ class Command:
             "--entities",
             action="store_true",
             dest="entities",
-            help="just create meme, user_account, and post entities"
+            help="just create cascade, user_account, and post entities"
         )
         parser.add_argument(
             "-r",
             "--relations",
             action="store_true",
             dest="relations",
-            help="just create post_meme and reshare relations"
+            help="just create post_cascade and reshare relations"
         )
         parser.add_argument(
             "-t",
             "--text",
             action="store_true",
             dest="post_texts",
-            help="Set post texts according to their memes"
+            help="Set post texts according to their cascades"
         )
 
     def handle(self, args):
@@ -107,10 +107,10 @@ class Command:
                 logger.info('======== creating relations ...')
                 self.create_relations(temp_data_path, start_index=args.start_index)
 
-            # Set the meme count, first time, and last time attributes of memes.
+            # Set the cascade count, first time, and last time attributes of cascades.
             if args.set_attributes:
-                logger.info('======== setting counts and publication times for the memes ...')
-                self.calc_memes_values()
+                logger.info('======== setting counts and publication times for the cascades ...')
+                self.calc_cascade_values()
 
             logger.info('======== command done in %f min' % ((time.time() - start) / 60))
         except:
@@ -119,11 +119,11 @@ class Command:
 
     def create_entities(self, path):
         urls = {}
-        memes = set()
+        cascades = set()
         i = 0
         db = DBManager().db
 
-        logger.info('reading urls and memes from dataset ...')
+        logger.info('reading urls and cascades from dataset ...')
         with open(path, encoding="utf8") as f:
             line = f.readline()
 
@@ -138,43 +138,43 @@ class Command:
                 elif char == 'T':  # time line
                     urls[post_url] = str_to_datetime(text)
                 elif char == 'Q':
-                    memes.add(text)
+                    cascades.add(text)
                 elif char == 'L':
                     link_url = self.truncate_url(text)
                     if link_url not in urls:
                         urls[link_url] = None
                 line = f.readline()
         logger.info('%d posts read' % i)
-        logger.info('{} memes extracted from dataset'.format(len(memes)))
+        logger.info('{} cascades extracted from dataset'.format(len(cascades)))
 
-        logger.info('extracting new memes ...')
+        logger.info('extracting new cascades ...')
         step = 3 * 10 ** 6
         m_count = db.memes.count()
         cursor = db.memes.find({}, {'_id': 0, 'text': 1}, no_cursor_timeout=True)
         i = 0
         for m in cursor:
             i += 1
-            memes.discard(m['text'])
+            cascades.discard(m['text'])
             if i % step == 0:
                 logger.info('{:.0f}% done'.format(i / m_count * 100))
         cursor.close()
 
-        logger.info('creating %d new memes ...' % len(memes))
-        meme_entities = []
+        logger.info('creating %d new cascades ...' % len(cascades))
+        cascade_entities = []
         i = 0
-        for text in memes:
-            meme_entities.append({'text': text})
+        for text in cascades:
+            cascade_entities.append({'text': text})
             i += 1
             if i % 100000 == 0:
-                db.memes.insert_many(meme_entities)
-                logger.info('%d memes created' % i)
-                meme_entities = []
+                db.memes.insert_many(cascade_entities)
+                logger.info('%d cascades created' % i)
+                cascade_entities = []
 
-        if meme_entities:
-            db.memes.insert_many(meme_entities)
-        logger.info('%d memes created' % len(meme_entities))
-        del memes
-        del meme_entities
+        if cascade_entities:
+            db.memes.insert_many(cascade_entities)
+        logger.info('%d cascades created' % len(cascade_entities))
+        del cascades
+        del cascade_entities
 
         logger.info('extracting new urls ...')
         step = 10 ** 7
@@ -265,8 +265,8 @@ class Command:
         source_ids = []
         post_id = None
         datetime = None
-        meme_ids = []
-        post_memes = []
+        cascade_ids = []
+        post_cascades = []
         reshares = []
         i = 0
         t0 = time.time()
@@ -288,11 +288,11 @@ class Command:
 
                     if (not ignoring or i == start_index) and i % 10000 == 0:
                         logger.info(
-                            'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-                        if post_memes or reshares:
-                            db.postmemes.insert_many(post_memes)
+                            'saving %d post cascades and %d reshares ...' % (len(post_cascades), len(reshares)))
+                        if post_cascades or reshares:
+                            db.postmemes.insert_many(post_cascades)
                             db.reshares.insert_many(reshares)
-                            post_memes = []
+                            post_cascades = []
                             reshares = []
                             logger.info('time : %d s' % (time.time() - t0))
                             t0 = time.time()
@@ -314,23 +314,22 @@ class Command:
 
                 if char == 'P':  # post line
                     if post_id is not None:
-                        pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
-                        post_memes.extend(pm)
+                        pm, resh = self.get_post_rels(post_id, datetime, cascade_ids, source_ids)
+                        post_cascades.extend(pm)
                         reshares.extend(resh)
                     if '/' not in text:
                         post_id = ObjectId(text)
                     else:
                         raise Exception("invalid post id: '{}'".format(text))
                     source_ids = []
-                    meme_ids = []
+                    cascade_ids = []
                 elif char == 'T':  # time line
                     datetime = str_to_datetime(text)
-                elif char == 'Q':  # meme line
+                elif char == 'Q':  # cascade line
                     if ' ' not in text:
-                        meme_id = ObjectId(text)
-                        meme_ids.append(meme_id)
+                        cascade_ids.append(ObjectId(text))
                     else:
-                        logger.info("meme '{}' ignored".format(text))
+                        logger.info("cascade '{}' ignored".format(text))
                 elif char == 'L':  # link line
                     if '/' not in text:
                         source_ids.append(ObjectId(text))
@@ -343,18 +342,18 @@ class Command:
                 line = f.readline()
 
         # Add the relations of the last post.
-        pm, resh = self.get_post_rels(post_id, datetime, meme_ids, source_ids)
-        post_memes.extend(pm)
+        pm, resh = self.get_post_rels(post_id, datetime, cascade_ids, source_ids)
+        post_cascades.extend(pm)
         reshares.extend(resh)
 
         # Save the remaining relations.
         logger.info(
-            'saving %d post memes and %d reshares ...' % (len(post_memes), len(reshares)))
-        db.postmemes.insert_many(post_memes)
+            'saving %d post cascades and %d reshares ...' % (len(post_cascades), len(reshares)))
+        db.postmemes.insert_many(post_cascades)
         db.reshares.insert_many(reshares)
 
     # @profile
-    def get_post_rels(self, post_id, datetime, meme_ids, source_ids):
+    def get_post_rels(self, post_id, datetime, cascade_ids, source_ids):
         """
         Create PostMeme and Reshare instances for the referenced links. Just create the instances not inserting in the db.
         """
@@ -365,11 +364,11 @@ class Command:
         if post is None:
             raise Exception('post does not exist with id {}'.format(post_id))
 
-        # Assign the memes to the post.
-        post_memes = [{'post_id': post_id,
+        # Assign the cascades to the post.
+        post_cascades = [{'post_id': post_id,
                        'meme_id': mid,
                        'datetime': datetime,
-                       'author_id': post['author_id']} for mid in meme_ids]
+                       'author_id': post['author_id']} for mid in cascade_ids]
 
         # Create reshares if the post is reshared.
         reshares = []
@@ -386,26 +385,26 @@ class Command:
                                  'user_id': post['author_id'], 'ref_user_id': src_post['author_id'],
                                  'ref_datetime': src_post['datetime']})
 
-        return post_memes, reshares
+        return post_cascades, reshares
 
     def create_temp(self, path, temp_path):
         db = DBManager().db
 
-        # Replace meme texts with meme ids and create temporary data files.
+        # Replace cascade texts with cascade ids and create temporary data files.
         from_path = path
-        memes_count = db.memes.count()
+        cascades_count = db.memes.count()
         step = 10 ** 7
         i = 0
         t0 = time.time()
-        for offset in range(0, memes_count, step):
-            to_path = '{}.memes{}'.format(temp_path, i)
+        for offset in range(0, cascades_count, step):
+            to_path = '{}.cascades{}'.format(temp_path, i)
             if not os.path.exists(to_path):
-                end = min(offset + step, memes_count)
-                logger.info('loading memes map from {} to {} ...'.format(offset, end))
-                memes_map = self.load_memes(offset, step)
-                logger.info('replacing meme texts with meme ids from {} to {} ...'.format(offset, end))
-                self.replace(from_path, to_path, 'Q', memes_map)
-                del memes_map
+                end = min(offset + step, cascades_count)
+                logger.info('loading cascades map from {} to {} ...'.format(offset, end))
+                cascades_map = self.load_cascades(offset, step)
+                logger.info('replacing cascade texts with cascade ids from {} to {} ...'.format(offset, end))
+                self.replace(from_path, to_path, 'Q', cascades_map)
+                del cascades_map
                 logger.info('done in %.2f min' % ((time.time() - t0) / 60))
             i += 1
             from_path = to_path
@@ -466,23 +465,23 @@ class Command:
 
                 fout.writelines(out_lines)
 
-    def load_memes(self, offset=0, limit=None):
+    def load_cascades(self, offset=0, limit=None):
         """
-        Get map of meme texts to meme id's.
+        Get map of cascade texts to cascade id's.
         :return:
         """
         db = DBManager().db
-        memes_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
+        cascades_map = pygtrie.StringTrie()  # A trie data structure that maps from cascade texts to ids
         pipelines = [{'$sort': SON([('_id', 1)])},
                      {'$project': {'_id': 1, 'text': 1}}]
         if limit is not None or offset > 0:
             pipelines.append({'$skip': offset})
             if limit is not None:
                 pipelines.append({'$limit': limit})
-        memes = db.memes.aggregate(pipelines)
-        for meme in memes:
-            memes_map[meme['text']] = meme['_id']
-        return memes_map
+        cascades = db.memes.aggregate(pipelines)
+        for cascade in cascades:
+            cascades_map[cascade['text']] = cascade['_id']
+        return cascades_map
 
     def load_posts(self, offset=0, limit=None):
         """
@@ -490,7 +489,7 @@ class Command:
         :return:
         """
         db = DBManager().db
-        posts_map = pygtrie.StringTrie()  # A trie data structure that maps from meme texts to ids
+        posts_map = pygtrie.StringTrie()  # A trie data structure that maps from cascade texts to ids
         pipelines = [{'$sort': SON([('_id', 1)])},
                      {'$project': {'_id': 1, 'url': 1}}]
         if limit is not None or offset > 0:
@@ -503,20 +502,20 @@ class Command:
             posts_map[post['url']] = post['_id']
         return posts_map
 
-    def calc_memes_values(self):
+    def calc_cascade_values(self):
         db = DBManager().db
         count = db.memes.count()
         save_step = 10 ** 6
 
-        logger.info('query of meme sizes (number of users) ...')
-        meme_sizes = db.postmemes.aggregate([{'$group': {'_id': {'meme_id': '$meme_id', 'user_id': '$author_id'}}},
+        logger.info('query of cascade sizes (number of users) ...')
+        cascade_sizes = db.postmemes.aggregate([{'$group': {'_id': {'meme_id': '$meme_id', 'user_id': '$author_id'}}},
                                              {'$group': {'_id': '$_id.meme_id', 'size': {'$sum': 1}}}],
                                             allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
         i = 0
-        for doc in meme_sizes:
+        for doc in cascade_sizes:
             operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'size': doc['size']}}))
             i += 1
             if i % save_step == 0:
@@ -525,14 +524,14 @@ class Command:
                 logger.info('%d%% done', i * 100 / count)
         db.memes.bulk_write(operations)
 
-        logger.info('query of number of posts of memes ...')
-        meme_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
+        logger.info('query of number of posts of cascades ...')
+        cascade_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
                                              allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
         i = 0
-        for doc in meme_counts:
+        for doc in cascade_counts:
             operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'count': doc['count']}}))
             i += 1
             if i % save_step == 0:

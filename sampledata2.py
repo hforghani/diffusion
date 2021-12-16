@@ -23,7 +23,7 @@ class Command:
         parser.add_argument("-n", "--number", type=int,
                             help="number of samples consisting training, validation and test sets")
         parser.add_argument("-d", "--mindepth", type=int, dest="min_depth", default=0,
-                            help="minimum depth of cascade trees of memes")
+                            help="minimum depth of cascade trees")
         parser.add_argument("-p", "--project", type=str, help="project name")
 
     def __init__(self):
@@ -43,14 +43,14 @@ class Command:
 
             logger.debug('query: %s', query)
             db = DBManager().db
-            memes = list(db.memes.find(query, ['_id']))
-            memes = [m['_id'] for m in memes]
+            cascades = list(db.memes.find(query, ['_id']))
+            cascades = [m['_id'] for m in cascades]
 
-            if len(memes) < args.number:
+            if len(cascades) < args.number:
                 raise ValueError(
-                    f'Number of cascades between min and max size ({len(memes)}) is less than given sample number')
+                    f'Number of cascades between min and max size ({len(cascades)}) is less than given sample number')
 
-            samples = list(np.random.choice(memes, args.number, replace=False))
+            samples = list(np.random.choice(cascades, args.number, replace=False))
             samples = [str(_id) for _id in samples]
             random.shuffle(samples)
 

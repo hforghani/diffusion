@@ -252,12 +252,12 @@ class Saito(AsLT):
         train_set, _, _ = self.project.load_sets()
         graph, sequences = self.project.load_or_extract_graph_seq()
 
-        # Create maps from users and memes db id's to their matrix id's.
-        logger.info('creating user and meme id maps ...')
+        # Create maps from users and cascades db id's to their matrix id's.
+        logger.info('creating user and cascade id maps ...')
         db = DBManager().db
         user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
         user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
-        meme_map = {str(train_set[i]): i for i in range(len(train_set))}
+        cascade_map = {str(train_set[i]): i for i in range(len(train_set))}
         logger.info('train set size = %d', len(train_set))
         logger.info('user space size = %d', len(user_map))
 
@@ -282,7 +282,7 @@ class Saito(AsLT):
                     logger.info('h loaded')
                 except:
                     logger.info('calculating h ...')
-                    h = self.calc_h_mp(sequences, graph, w, r, train_set, meme_map, user_map)
+                    h = self.calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map)
                     self.project.save_param(h, 'h', ParamTypes.SPARSE)
 
                 try:
@@ -290,7 +290,7 @@ class Saito(AsLT):
                     logger.info('g loaded')
                 except:
                     logger.info('calculating g ...')
-                    g = self.calc_g_mp(sequences, graph, w, r, train_set, meme_map, user_map)
+                    g = self.calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map)
                     self.project.save_param(g, 'g', ParamTypes.SPARSE)
 
                 try:
@@ -298,12 +298,12 @@ class Saito(AsLT):
                 except:
                     logger.info('calculating phi_h ...')
                     # if i == 0 or len(user_map) ** 2 * len(train_set) < 10 ** 9:
-                    args = (sequences, graph, w, r, h, train_set, meme_map, user_map)
+                    args = (sequences, graph, w, r, h, train_set, cascade_map, user_map)
                     logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
-                    phi_h = self.calc_phi_h_mp(sequences, graph, w, r, h, train_set, meme_map, user_map)
+                    phi_h = self.calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map)
                     # else:
                     #     with Timer('calc_phi_h'):
-                    #         seq2 = {meme_map[str(mid)]: sequences[mid] for mid in sequences}
+                    #         seq2 = {cascade_map[str(mid)]: sequences[mid] for mid in sequences}
                     #         phi_h = calc_phi_h(seq2, graph, w, r, h, user_map)
                     self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
                     del phi_h
@@ -314,12 +314,12 @@ class Saito(AsLT):
                 except:
                     logger.info('calculating phi_g ...')
                     # if i == 0 or len(user_map) ** 2 * len(train_set) < 10 ** 9:
-                    args = (sequences, graph, w, g, train_set, meme_map, user_map)
+                    args = (sequences, graph, w, g, train_set, cascade_map, user_map)
                     logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
-                    phi_g = self.calc_phi_g_mp(sequences, graph, w, g, train_set, meme_map, user_map)
+                    phi_g = self.calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map)
                     # else:
                     #     with Timer('calc_phi_g'):
-                    #         seq2 = {meme_map[str(mid)]: sequences[mid] for mid in sequences}
+                    #         seq2 = {cascade_map[str(mid)]: sequences[mid] for mid in sequences}
                     #         phi_g = calc_phi_g(seq2, graph, w, g, user_map)
                     self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
                     del phi_g
@@ -329,9 +329,9 @@ class Saito(AsLT):
                     logger.info('psi loaded')
                 except:
                     logger.info('calculating psi ...')
-                    args = (sequences, graph, w, r, g, train_set, meme_map, user_map)
+                    args = (sequences, graph, w, r, g, train_set, cascade_map, user_map)
                     logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
-                    psi = self.calc_psi_mp(sequences, graph, w, r, g, train_set, meme_map, user_map)
+                    psi = self.calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map)
                     self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
 
                 del g
@@ -340,14 +340,14 @@ class Saito(AsLT):
 
                 logger.info('estimating r ...')
                 last_r = r
-                r = self.calc_r(sequences, graph, phi_h, psi, user_ids, train_set, meme_map, user_map)
+                r = self.calc_r(sequences, graph, phi_h, psi, user_ids, train_set, cascade_map, user_map)
 
                 phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
                 logger.info('phi_g loaded')
 
                 logger.info('estimating w ...')
                 last_w = w
-                w = self.calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, meme_map)
+                w = self.calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, cascade_map)
 
                 del phi_h
                 del phi_g
@@ -407,15 +407,15 @@ class Saito(AsLT):
         return w, r
 
     @time_measure()
-    def calc_h_mp(self, data, graph, w, r, meme_ids, meme_map, user_map):
+    def calc_h_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map):
         u_count = len(user_map)
-        m_count = len(meme_ids)
+        m_count = len(cascade_ids)
         pool = Pool(processes=settings.PROCESS_COUNT)
         step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
         results = []
         for j in range(0, m_count, step):
-            subset = meme_ids[j: j + step]
-            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
+            subset = cascade_ids[j: j + step]
+            sequences = {cascade_map[str(mid)]: data[mid] for mid in subset}
             res = pool.apply_async(calc_h, (sequences, graph, w, r, user_map))
             results.append(res)
 
@@ -436,15 +436,15 @@ class Saito(AsLT):
         return h
 
     @time_measure()
-    def calc_g_mp(self, data, graph, w, r, meme_ids, meme_map, user_map):
+    def calc_g_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map):
         u_count = len(user_map)
-        m_count = len(meme_ids)
+        m_count = len(cascade_ids)
         pool = Pool(processes=settings.PROCESS_COUNT)
         step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
         results = []
         for j in range(0, m_count, step):
-            subset = meme_ids[j: j + step]
-            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
+            subset = cascade_ids[j: j + step]
+            sequences = {cascade_map[str(mid)]: data[mid] for mid in subset}
             res = pool.apply_async(calc_g, (sequences, graph, w, r, user_map))
             results.append(res)
 
@@ -465,14 +465,14 @@ class Saito(AsLT):
         return g
 
     @time_measure()
-    def calc_phi_h_mp(self, data, graph, w, r, h, meme_ids, meme_map, user_map):
-        m_count = len(meme_ids)
+    def calc_phi_h_mp(self, data, graph, w, r, h, cascade_ids, cascade_map, user_map):
+        m_count = len(cascade_ids)
         pool = Pool(processes=settings.PROCESS_COUNT)
         step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
         results = []
         for j in range(0, m_count, step):
-            subset = meme_ids[j: j + step]
-            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
+            subset = cascade_ids[j: j + step]
+            sequences = {cascade_map[str(mid)]: data[mid] for mid in subset}
             res = pool.apply_async(calc_phi_h, (sequences, graph, w, r, h, user_map))
             results.append(res)
 
@@ -480,7 +480,7 @@ class Saito(AsLT):
         pool.join()
 
         # Collect results of the processes.
-        phi_h = [None for _ in range(len(meme_ids))]
+        phi_h = [None for _ in range(len(cascade_ids))]
         for i in range(len(results)):
             phi_h_subset = results[i].get()
             for mindex, mat in phi_h_subset.items():
@@ -489,14 +489,14 @@ class Saito(AsLT):
         return phi_h
 
     @time_measure()
-    def calc_phi_g_mp(self, data, graph, w, g, meme_ids, meme_map, user_map):
-        m_count = len(meme_ids)
+    def calc_phi_g_mp(self, data, graph, w, g, cascade_ids, cascade_map, user_map):
+        m_count = len(cascade_ids)
         pool = Pool(processes=settings.PROCESS_COUNT)
         step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
         results = []
         for j in range(0, m_count, step):
-            subset = meme_ids[j: j + step]
-            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
+            subset = cascade_ids[j: j + step]
+            sequences = {cascade_map[str(mid)]: data[mid] for mid in subset}
             res = pool.apply_async(calc_phi_g, (sequences, graph, w, g, user_map))
             results.append(res)
 
@@ -504,7 +504,7 @@ class Saito(AsLT):
         pool.join()
 
         # Collect results of the processes.
-        phi_g = [None for _ in range(len(meme_ids))]
+        phi_g = [None for _ in range(len(cascade_ids))]
         for i in range(len(results)):
             phi_g_subset = results[i].get()
             for mindex, mat in phi_g_subset.items():
@@ -513,14 +513,14 @@ class Saito(AsLT):
         return phi_g
 
     @time_measure()
-    def calc_psi_mp(self, data, graph, w, r, g, meme_ids, meme_map, user_map):
-        m_count = len(meme_ids)
+    def calc_psi_mp(self, data, graph, w, r, g, cascade_ids, cascade_map, user_map):
+        m_count = len(cascade_ids)
         pool = Pool(processes=settings.PROCESS_COUNT)
         step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
         results = []
         for j in range(0, m_count, step):
-            subset = meme_ids[j: j + step]
-            sequences = {meme_map[str(mid)]: data[mid] for mid in subset}
+            subset = cascade_ids[j: j + step]
+            sequences = {cascade_map[str(mid)]: data[mid] for mid in subset}
             res = pool.apply_async(calc_psi, (sequences, graph, w, r, g, user_map))
             results.append(res)
 
@@ -528,7 +528,7 @@ class Saito(AsLT):
         pool.join()
 
         # Collect results of the processes.
-        psi = [None for _ in range(len(meme_ids))]
+        psi = [None for _ in range(len(cascade_ids))]
         for i in range(len(results)):
             psi_subset = results[i].get()
             for mindex, mat in psi_subset.items():
@@ -537,14 +537,14 @@ class Saito(AsLT):
         return psi
 
     @time_measure()
-    def calc_r(self, data, graph, phi_h, psi, user_ids, meme_ids, meme_map, user_map):
+    def calc_r(self, data, graph, phi_h, psi, user_ids, cascade_ids, cascade_map, user_map):
         u_count = len(user_ids)
         r = np.ones(u_count, np.float32)
 
         logger.info('\textracting sigma domains ...')
         m_set1 = {v: [] for v in user_ids}
         m_set2 = {v: [] for v in user_ids}
-        for m in meme_ids:
+        for m in cascade_ids:
             for v in data[m].users:
                 m_set1[v].append(m)
             for v in data[m].get_rond_set(graph):
@@ -559,7 +559,7 @@ class Saito(AsLT):
             phi_time_sum = 0
             psi_time_sum = 0
             for m in set(m_set1[v]) | set(m_set2[v]):
-                m_i = meme_map[str(m)]
+                m_i = cascade_map[str(m)]
                 cascade = data[m]
                 active_parents = cascade.get_active_parents(v, graph)
                 if not active_parents:
@@ -599,7 +599,7 @@ class Saito(AsLT):
         return r
 
     @time_measure()
-    def calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, meme_ids, meme_map):
+    def calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, cascade_ids, cascade_map):
         u_count = len(user_ids)
 
         logger.info('\textracting sigma domains ...')
@@ -607,7 +607,7 @@ class Saito(AsLT):
         muv_set1 = {edge: [] for edge in graph.edges()}
         muv_set2 = {edge: [] for edge in graph.edges()}
         muv_set3 = {edge: [] for edge in graph.edges()}
-        for m in meme_ids:
+        for m in cascade_ids:
             cascade = data[m]
             for v in cascade.users:
                 for u in cascade.get_active_parents(v, graph):
@@ -632,11 +632,11 @@ class Saito(AsLT):
             phi_g_sum = 0
             psi_sum = 0
             if muv_set1[(u, v)]:
-                phi_h_sum = np.array([phi_h[meme_map[str(m)]][u_i, v_i] for m in muv_set1[(u, v)]]).sum()
+                phi_h_sum = np.array([phi_h[cascade_map[str(m)]][u_i, v_i] for m in muv_set1[(u, v)]]).sum()
             if muv_set2[(u, v)]:
-                phi_g_sum = np.array([phi_g[meme_map[str(m)]][u_i, v_i] for m in muv_set2[(u, v)]]).sum()
+                phi_g_sum = np.array([phi_g[cascade_map[str(m)]][u_i, v_i] for m in muv_set2[(u, v)]]).sum()
             if muv_set3[(u, v)]:
-                psi_sum = np.array([psi[meme_map[str(m)]][u_i, v_i] for m in muv_set3[(u, v)]]).sum()
+                psi_sum = np.array([psi[cascade_map[str(m)]][u_i, v_i] for m in muv_set3[(u, v)]]).sum()
             val = phi_h_sum + phi_g_sum + psi_sum
             if val:
                 values.append(val)
@@ -653,7 +653,7 @@ class Saito(AsLT):
         for v in graph.nodes():
             v_i = user_map[str(v)]
             if mv_set2[v]:
-                phi_g_sum = np.array([phi_g[meme_map[str(m)]][v_i, v_i] for m in mv_set2[v]]).sum()
+                phi_g_sum = np.array([phi_g[cascade_map[str(m)]][v_i, v_i] for m in mv_set2[v]]).sum()
                 if phi_g_sum:
                     values.append(phi_g_sum)
                     rows.append(v_i)

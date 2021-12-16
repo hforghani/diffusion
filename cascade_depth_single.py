@@ -67,7 +67,7 @@ class Command:
                     node_depths[dest_uid] = dest_depth
                     if dest_depth > depth:
                         depth = dest_depth
-                        logger.info('meme %s has now depth %d', cascade_id, depth)
+                        logger.info('cascade %s has now depth %d', cascade_id, depth)
 
             if i % step == 0:
                 avg = (time.time() - t0) / i

@@ -41,7 +41,7 @@ def log_trees(tree, res_tree, max_depth=None):
                                             res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
-def train_memes(method, project, multi_processed=False):
+def train_cascades(method, project, multi_processed=False):
     # Create and train the model if needed.
     if method == 'mlnprac':
         model = MLN(project, method='edge', format=FileCreator.FORMAT_PRACMLN)
@@ -59,22 +59,22 @@ def train_memes(method, project, multi_processed=False):
     return model
 
 
-def test_memes_multiproc(meme_ids: list, method, project: Project, threshold: list, initial_depth: int, max_depth: int,
-                         trees: dict, all_node_ids: list, user_ids: list, users_map: dict) \
+def test_cascades_multiproc(cascade_ids: list, method, project: Project, threshold: list, initial_depth: int, max_depth: int,
+                            trees: dict, all_node_ids: list, user_ids: list, users_map: dict) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
         # Train (or fetch trained models from db) in each process due to size limit for pickling in Python
         # multi-processing.
-        model = train_memes(method, project)
-        return test_memes(meme_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
-                          users_map)
+        model = train_cascades(method, project)
+        return test_cascades(cascade_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
+                             users_map)
     except:
         logger.error(traceback.format_exc())
         raise
 
 
-def test_memes(meme_ids: list, method: str, model, thresholds: list, initial_depth: int, max_depth: int, trees: dict,
-               all_node_ids: list, user_ids: list, users_map: dict) -> Tuple[dict, dict, dict, dict, dict, dict]:
+def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initial_depth: int, max_depth: int, trees: dict,
+                  all_node_ids: list, user_ids: list, users_map: dict) -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
         prp1_list = {thr: [] for thr in thresholds}
         prp2_list = {thr: [] for thr in thresholds}
@@ -85,10 +85,10 @@ def test_memes(meme_ids: list, method: str, model, thresholds: list, initial_dep
         max_step = max_depth - initial_depth if max_depth is not None else None
         count = 1
 
-        for meme_id in meme_ids:
-            tree = trees[meme_id]
+        for cid in cascade_ids:
+            tree = trees[cid]
 
-            logger.info('running prediction with method <%s> on meme <%s>', method, meme_id)
+            logger.info('running prediction with method <%s> on cascade <%s>', method, cid)
 
             # Copy roots in a new tree.
             initial_tree = tree.copy(initial_depth)
@@ -97,7 +97,7 @@ def test_memes(meme_ids: list, method: str, model, thresholds: list, initial_dep
             with Timer('prediction', level='debug'):
                 # TODO: apply max_depth for all methods.
                 if method in ['mlnprac', 'mlnalch']:
-                    res_trees = model.predict(meme_id, initial_tree, threshold=thresholds)
+                    res_trees = model.predict(cid, initial_tree, threshold=thresholds)
                 elif method in ['aslt', 'avg']:
                     res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
                                               user_ids=user_ids,
@@ -129,7 +129,7 @@ def test_memes(meme_ids: list, method: str, model, thresholds: list, initial_dep
                     fprs[thr].append(fpr)
                     f1s[thr].append(f1)
 
-                    log = f'meme {meme_id} ({count}/{len(meme_ids)}) threshold = {thr} : {len(res_output)} outputs, ' \
+                    log = f'cascade {cid} ({count}/{len(cascade_ids)}) threshold = {thr} : {len(res_output)} outputs, ' \
                           f'{len(true_output)} true, precision = {prec:.3f}, recall = {rec:.3f}, f1 = {f1:.3f}'
                     if method in ['aslt', 'avg']:
                         log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)

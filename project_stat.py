@@ -35,7 +35,7 @@ class Command:
             cascade_ids = training + validation + test
             db = DBManager().db
             cascades = db.memes.find({'_id': {'$in': cascade_ids}}, ['_id', 'depth', 'size'])
-            print(f'{"meme id":30}{"size":10}{"depth":10}')
+            print(f'{"cascade id":30}{"size":10}{"depth":10}')
             for cascade in cascades:
                 print(f'{str(cascade["_id"]):30}{cascade["size"]:<10}{cascade["depth"]:<10}')
             logger.info('command done in %f min' % ((time.time() - start) / 60))

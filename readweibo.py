@@ -6,7 +6,7 @@ import time
 
 from db.managers import DBManager
 import settings
-from cascade.weibo import create_users, create_roots, create_retweets, extract_relations, calc_memes_values
+from cascade.weibo import create_users, create_roots, create_retweets, extract_relations, calc_cascades_values
 
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('readweibo')
@@ -77,28 +77,28 @@ class Command:
                     users.rewind()
                     user_ids = {u['_id'] for u in users}
 
-                # Create memes and their root posts.
+                # Create cascades and their root posts.
                 if args.roots_file:
-                    logger.info('======== creating memes and roots ...')
-                    memes_map = create_roots(args.roots_file)
+                    logger.info('======== creating cascades and roots ...')
+                    cascades_map = create_roots(args.roots_file)
                 elif args.retweets_file:
                     logger.info('collecting posts map ...')
-                    postmemes = db.postmemes.find({}, ['post_id', 'meme_id'])
-                    memes_map = {str(pm['post_id']): pm['meme_id'] for pm in postmemes}
+                    post_cascades = db.postmemes.find({}, ['post_id', 'meme_id'])
+                    cascades_map = {str(pm['post_id']): pm['meme_id'] for pm in post_cascades}
 
                 # Create retweet data and complete original posts fields.
                 if args.retweets_file:
                     logger.info('======== creating retweets ...')
-                    create_retweets(args.retweets_file, args.start_index, users_map, user_ids, memes_map)
+                    create_retweets(args.retweets_file, args.start_index, users_map, user_ids, cascades_map)
 
                 if args.relations_file and args.uidlist_file:
                     logger.info('======== creating following graph ...')
                     extract_relations(args.relations_file, args.uidlist_file)
 
-            # Set the meme count, first time, and last time attributes of memes.
+            # Set the cascade count, first time, and last time attributes of cascades.
             if args.set_attributes:
-                logger.info('======== setting counts and publication times for the memes ...')
-                calc_memes_values()
+                logger.info('======== setting counts and publication times for the cascades ...')
+                calc_cascades_values()
 
             logger.info('======== command done in %f min' % ((time.time() - start) / 60))
         except:

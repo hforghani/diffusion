@@ -14,13 +14,13 @@ logger.setLevel(settings.LOG_LEVEL)
 
 
 class Command:
-    help = 'Display cascade tree of a meme from a project'
+    help = 'Display cascade tree of a cascade from a project'
 
     def add_arguments(self, parser):
         parser.add_argument(
-            'meme_id',
+            'cascade_id',
             type=str,
-            help='meme id',
+            help='cascade id',
         )
         parser.add_argument(
             '-p',
@@ -35,13 +35,13 @@ class Command:
     @time_measure()
     def handle(self, args):
         try:
-            meme_id = args.meme_id
+            cascade_id = args.cascade_id
             if args.project:
                 project = Project(args.project)
                 trees = project.load_trees()
-                tree = trees[ObjectId(meme_id)]
+                tree = trees[ObjectId(cascade_id)]
             else:
-                tree = CascadeTree.extract_cascade(meme_id)
+                tree = CascadeTree.extract_cascade(cascade_id)
 
             logger.info('\n' + tree.render())
         except:

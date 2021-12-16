@@ -11,8 +11,8 @@ from sklearn.cluster import DBSCAN, KMeans
 from settings import logger, BASE_PATH
 
 
-logger.info('loading the meme-user matrix ...')
-loader = np.load(os.path.join(BASE_PATH, 'data/weibo_meme_user_mat.npz'))
+logger.info('loading the cascade-user matrix ...')
+loader = np.load(os.path.join(BASE_PATH, 'data/weibo_cascade_user_mat.npz'))
 mat = sparse.csr_matrix((loader['data'], loader['indices'], loader['indptr']), shape=loader['shape'],
                         dtype=np.float32)
 
@@ -23,4 +23,4 @@ logger.info('clustering ...')
 labels = model.fit_predict(mat)
 
 logger.info('clustering done. saving results ...')
-np.save(os.path.join(BASE_PATH, 'data/weibo_meme_labels2.npy'), labels)
+np.save(os.path.join(BASE_PATH, 'data/weibo_cascade_labels2.npy'), labels)

@@ -9,7 +9,7 @@ import numpy as np
 from matplotlib import pyplot
 
 import settings
-from cascade.asynchroizables import train_memes, test_memes, test_memes_multiproc
+from cascade.asynchroizables import train_cascades, test_cascades, test_cascades_multiproc
 from db.managers import DBManager, MEMMManager
 from settings import logger
 from utils.time_utils import time_measure
@@ -140,7 +140,7 @@ class DefaultTester(ProjectTester):
 
     @time_measure(level='debug')
     def train(self):
-        model = train_memes(self.method, self.project)
+        model = train_cascades(self.method, self.project)
         return model
 
     @time_measure(level='debug')
@@ -157,12 +157,12 @@ class DefaultTester(ProjectTester):
         all_node_ids = self.project.get_all_nodes()
         # all_node_ids = self.user_ids
 
-        logger.info('number of memes : %d' % len(test_set))
+        logger.info('number of cascades : %d' % len(test_set))
 
-        precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_memes(test_set, self.method, model, thresholds,
-                                                                          initial_depth, max_depth, trees,
-                                                                          all_node_ids, self.user_ids,
-                                                                          self.users_map)
+        precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_cascades(test_set, self.method, model, thresholds,
+                                                                             initial_depth, max_depth, trees,
+                                                                             all_node_ids, self.user_ids,
+                                                                             self.users_map)
         mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
                                                                         prp2_list)
         if isinstance(thr, numbers.Number):
@@ -175,7 +175,7 @@ class MultiProcTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
         _, val_set, test_set = self.project.load_sets()
 
-        # Train the memes once and save them. Then the trained model is fetched from disk and used at each process.
+        # Train the cascades once and save them. Then the trained model is fetched from disk and used at each process.
         # The model is not passed to each process due to pickling size limit.
         if not MEMMManager(self.project).db_exists():
             self.train()
@@ -187,7 +187,7 @@ class MultiProcTester(ProjectTester):
 
     @time_measure(level='debug')
     def train(self):
-        model = train_memes(self.method, self.project, multi_processed=True)
+        model = train_cascades(self.method, self.project, multi_processed=True)
         return model
 
     @time_measure(level='debug')
@@ -204,7 +204,7 @@ class MultiProcTester(ProjectTester):
         all_node_ids = self.project.get_all_nodes()
         # all_node_ids = self.user_ids
 
-        logger.info('number of memes : %d' % len(test_set))
+        logger.info('number of cascades : %d' % len(test_set))
 
         precisions, recalls, f1s, fprs, prp1_list, prp2_list \
             = self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, all_node_ids)
@@ -226,9 +226,9 @@ class MultiProcTester(ProjectTester):
         step = int(math.ceil(float(len(test_set)) / process_count))
         results = []
         for j in range(0, len(test_set), step):
-            meme_ids = test_set[j: j + step]
-            res = pool.apply_async(test_memes_multiproc,
-                                   (meme_ids, self.method, self.project, thresholds, initial_depth, max_depth,
+            cascade_ids = test_set[j: j + step]
+            res = pool.apply_async(test_cascades_multiproc,
+                                   (cascade_ids, self.method, self.project, thresholds, initial_depth, max_depth,
                                     trees, all_node_ids, self.user_ids, self.users_map))
             results.append(res)
 

@@ -29,34 +29,34 @@ class MLN(object):
         self.format = format
         self.method = method
 
-    def load_edge_results(self, meme_id, log=False):
+    def load_edge_results(self, cascade_id, log=False):
         """
         Read "activates" predicates from MLN results file or get it from memory if exists.
-        :param meme_id: meme id
+        :param cascade_id: cascade id
         :param log:     whether log messages or not
         :return:        list of EdgeProb instances
         """
-        if meme_id in self.edges:
-            return self.edges[meme_id]
+        if cascade_id in self.edges:
+            return self.edges[cascade_id]
 
         else:
-            self.edges[meme_id] = []
+            self.edges[cascade_id] = []
 
             data_path = os.path.join(settings.BASEPATH, 'data', self.project.project_name)
             if self.format == FileCreator.FORMAT_PRACMLN:
                 results_file_path = os.path.join(data_path, 'results-pracmln',
-                                                 '%s-m%d-gibbs.results' % (self.project.project_name, meme_id))
+                                                 '%s-m%d-gibbs.results' % (self.project.project_name, cascade_id))
             elif self.format == FileCreator.FORMAT_ALCHEMY2:
                 if self.method == 'edge':
                     results_file_path = os.path.join(data_path, 'results-alchemy2-activates',
                                                      'results-%s-%s-m%d.results' % (
                                                          self.project.project_name, FileCreator.FORMAT_ALCHEMY2,
-                                                         meme_id))
+                                                         cascade_id))
                 else:
                     results_file_path = os.path.join(data_path, 'results-alchemy2',
                                                      'results-%s-%s-m%d.results' % (
                                                          self.project.project_name, FileCreator.FORMAT_ALCHEMY2,
-                                                         meme_id))
+                                                         cascade_id))
 
             else:
                 raise ValueError('invalid format "%s"' % self.format)
@@ -65,7 +65,7 @@ class MLN(object):
                 logger.info('loading mln results ...')
 
             if not os.path.exists(results_file_path):
-                logger.warn('results file for meme %d does not exist', meme_id)
+                logger.warn('results file for cascade %d does not exist', cascade_id)
                 return []
 
             with open(results_file_path) as f:
@@ -84,47 +84,47 @@ class MLN(object):
                     groups = match.groups()
 
                     if self.format == FileCreator.FORMAT_PRACMLN:
-                        prob, user1, user2, meme = float(groups[0]), int(groups[1]), int(groups[2]), int(groups[3])
+                        prob, user1, user2, cascade = float(groups[0]), int(groups[1]), int(groups[2]), int(groups[3])
                     else:
-                        user1, user2, meme, prob = int(groups[0]), int(groups[1]), int(groups[2]), float(groups[3])
+                        user1, user2, cascade, prob = int(groups[0]), int(groups[1]), int(groups[2]), float(groups[3])
 
-                    self.edges[meme].append(EdgeProb(user1, user2, prob))
+                    self.edges[cascade].append(EdgeProb(user1, user2, prob))
                     line = f.readline()
 
-            return self.edges[meme_id]
+            return self.edges[cascade_id]
 
-    def load_node_results(self, meme_id, log=False):
+    def load_node_results(self, cascade_id, log=False):
         """
         Read "isActivated" predicates from MLN results file or get it from memory if exists.
-        :param meme_id: meme id
+        :param cascade_id: cascade id
         :param log:     whether log messages or not
         :return:        list of NodeProb instances
         """
-        if meme_id in self.nodes:
-            return self.nodes[meme_id]
+        if cascade_id in self.nodes:
+            return self.nodes[cascade_id]
 
         else:
-            self.nodes[meme_id] = []
+            self.nodes[cascade_id] = []
 
             data_path = os.path.join(settings.BASEPATH, 'data', self.project.project_name)
             if self.format == FileCreator.FORMAT_PRACMLN:
                 results_file_path = os.path.join(data_path, 'results-pracmln',
                                                  '%s-m%d-isActivated-gibbs.results' % (
-                                                     self.project.project_name, meme_id))
+                                                     self.project.project_name, cascade_id))
             elif self.format == FileCreator.FORMAT_ALCHEMY2:
                 results_file_path = os.path.join(data_path, 'results-alchemy2',
                                                  'results-%s-%s-m%d.results' % (
-                                                     self.project.project_name, FileCreator.FORMAT_ALCHEMY2, meme_id))
+                                                     self.project.project_name, FileCreator.FORMAT_ALCHEMY2, cascade_id))
             else:
                 raise ValueError('invalid format "%s"' % self.format)
 
             if not os.path.exists(results_file_path):
                 if log:
-                    logger.warn('results file for meme %d does not exist', meme_id)
+                    logger.warn('results file for cascade %d does not exist', cascade_id)
                 return []
 
             if log:
-                logger.info('loading mln results of meme %d ...' % meme_id)
+                logger.info('loading mln results of cascade %d ...' % cascade_id)
 
             with open(results_file_path) as f:
                 line = f.readline()
@@ -140,15 +140,15 @@ class MLN(object):
                     groups = match.groups()
 
                     if self.format == FileCreator.FORMAT_PRACMLN:
-                        prob, user, meme = float(groups[0]), int(groups[1]), int(groups[2])
+                        prob, user, cascade = float(groups[0]), int(groups[1]), int(groups[2])
                     elif self.format == FileCreator.FORMAT_ALCHEMY2:
-                        user, meme, prob = int(groups[0]), int(groups[1]), float(groups[2])
+                        user, cascade, prob = int(groups[0]), int(groups[1]), float(groups[2])
 
                     node = CascadeNode(user_id=user)
-                    self.nodes[meme].append(NodeProb(node, prob))
+                    self.nodes[cascade].append(NodeProb(node, prob))
                     line = f.readline()
 
-            return self.nodes[meme_id]
+            return self.nodes[cascade_id]
 
     def predict(self, *args, **kwargs):
         if self.method == 'node':
@@ -158,10 +158,10 @@ class MLN(object):
         else:
             raise ValueError('invalid method "%s"' % self.method)
 
-    def predict_by_edges(self, meme_id, initial_tree, threshold, log=False):
+    def predict_by_edges(self, cascade_id, initial_tree, threshold, log=False):
         # TODO: Implement by thresholds instead of single threshold.
         # Load results of mln inference and put it in self.edges .
-        edges = self.load_edge_results(meme_id)
+        edges = self.load_edge_results(cascade_id)
 
         res_tree = initial_tree.copy()
         if edges:
@@ -169,13 +169,13 @@ class MLN(object):
             self.__add_edges(res_tree, predicted_edges)
         else:
             if log:
-                logger.warn('meme id {} does not exist in MLN results'.format(meme_id))
+                logger.warn('cascade id {} does not exist in MLN results'.format(cascade_id))
         return res_tree
 
-    def predict_by_nodes(self, meme_id, initial_tree, threshold, log=False):
+    def predict_by_nodes(self, cascade_id, initial_tree, threshold, log=False):
         # TODO: Implement by thresholds instead of single threshold.
         # Load results of mln inference and put it in self.edges .
-        nodes = self.load_node_results(meme_id, log)
+        nodes = self.load_node_results(cascade_id, log)
 
         res_tree = initial_tree.copy()
         any_node = res_tree.nodes()[0]
@@ -187,7 +187,7 @@ class MLN(object):
                     node_prob.node.parent_id = any_node.user_id
         else:
             if log:
-                logger.warn('meme id {} does not exist in MLN results'.format(meme_id))
+                logger.warn('cascade id {} does not exist in MLN results'.format(cascade_id))
         return res_tree
 
     def __add_edges(self, tree, edge_probs):

@@ -9,14 +9,14 @@ from db.managers import DBManager
 from settings import logger, DB_NAME
 from utils.numpy_utils import save_sparse
 
-logger.info('mapping meme ids to indexes ...')
+logger.info('mapping cascade ids to indexes ...')
 db = DBManager().db
 cursor = db.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
-meme_ids = [m['_id'] for m in cursor]
+cascade_ids = [m['_id'] for m in cursor]
 cursor.close()
-meme_map = {str(meme_ids[i]): i for i in range(len(meme_ids))}
-m_count = len(meme_ids)
-del meme_ids
+cascade_map = {str(cascade_ids[i]): i for i in range(len(cascade_ids))}
+m_count = len(cascade_ids)
+del cascade_ids
 
 logger.info('mapping user ids to indexes ...')
 cursor = db.users.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
@@ -26,7 +26,7 @@ user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
 u_count = len(user_ids)
 del user_ids
 
-# meme_user_mat = sparse.lil_matrix((m_count, u_count), dtype=bool)
+# cascade_user_mat = sparse.lil_matrix((m_count, u_count), dtype=bool)
 
 logger.info('mapping posts to authors ...')
 cursor = db.posts.find({}, {'_id', 'author_id'}, no_cursor_timeout=True)
@@ -34,40 +34,40 @@ post_author_map = {str(u['_id']): user_map[str(u['author_id'])] for u in cursor}
 cursor.close()
 del user_map
 
-logger.info('reading postmemes ...')
-meme_users = set()
+logger.info('reading postcascades ...')
+cascade_users = set()
 i = 0
 
 cursor = db.postmemes.find({}, {'_id': 0, 'post_id': 1, 'meme_id': 1}, no_cursor_timeout=True)
 for pm in cursor:
     post_id = str(pm['post_id'])
     user_ind = post_author_map[post_id]
-    meme_id = str(pm['meme_id'])
-    meme_users.add((meme_map[meme_id], user_ind))
-    # meme_user_mat[meme_map[meme_id], user_map[user_id]] = 1
+    cascade_id = str(pm['meme_id'])
+    cascade_users.add((cascade_map[cascade_id], user_ind))
+    # cascade_user_mat[cascade_map[cascade_id], user_map[user_id]] = 1
 
     i += 1
     if i % 1000 == 0:
-        logger.info('%d postmemes read', i)
+        logger.info('%d postcascades read', i)
 
 cursor.close()
 del post_author_map
-del meme_map
+del cascade_map
 
 # logger.info('converting to csr ...')
-# meme_user_mat = meme_user_mat.tocsr()
+# cascade_user_mat = cascade_user_mat.tocsr()
 
 logger.info('creating matrix ...')
 row_ind = []
 col_ind = []
-for r, c in meme_users:
+for r, c in cascade_users:
     row_ind.append(r)
     col_ind.append(c)
-del meme_users
-meme_user_mat = sparse.csr_matrix((np.ones(len(row_ind)), (np.array(row_ind), np.array(col_ind))),
-                                  shape=(m_count, u_count), dtype=bool)
+del cascade_users
+cascade_user_mat = sparse.csr_matrix((np.ones(len(row_ind)), (np.array(row_ind), np.array(col_ind))),
+                                     shape=(m_count, u_count), dtype=bool)
 del row_ind
 del col_ind
 
 logger.info('saving into file ...')
-save_sparse(f'../data/{DB_NAME}_meme_user_mat.npz', meme_user_mat)
+save_sparse(f'../data/{DB_NAME}_cascade_user_mat.npz', cascade_user_mat)

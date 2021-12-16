@@ -98,13 +98,13 @@ class CascadeTree(object):
             self._id_to_node = {node.user_id: node for node in self.nodes()}
 
     @classmethod
-    def extract_cascade(cls, meme_id):
+    def extract_cascade(cls, cascade_id):
         with Timer('TREE: fetching posts', level='debug'):
-            # Fetch posts related to the meme and reshares.
-            if isinstance(meme_id, str):
-                meme_id = ObjectId(meme_id)
+            # Fetch posts related to the cascade and reshares.
+            if isinstance(cascade_id, str):
+                cascade_id = ObjectId(cascade_id)
             db = DBManager().db
-            post_ids = db.postmemes.distinct('post_id', {'meme_id': meme_id})
+            post_ids = db.postmemes.distinct('post_id', {'meme_id': cascade_id})
             posts = db.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
 
             user_ids = list(set([p['author_id'] for p in posts]))
@@ -557,10 +557,10 @@ class Project(object):
         sample_set_path = os.path.join(self.project_path, 'samples.json')
         if os.path.exists(sample_set_path):
             data = json.load(open(sample_set_path))
-            train_memes, val_memes, test_memes = data['training'], data['validation'], data['test']
-            self.training = [ObjectId(_id) for _id in train_memes]
-            self.validation = [ObjectId(_id) for _id in val_memes]
-            self.test = [ObjectId(_id) for _id in test_memes]
+            train_cascades, val_cascades, test_cascades = data['training'], data['validation'], data['test']
+            self.training = [ObjectId(_id) for _id in train_cascades]
+            self.validation = [ObjectId(_id) for _id in val_cascades]
+            self.test = [ObjectId(_id) for _id in test_cascades]
         else:
             raise Exception('Data sample not found. Run sampledata command.')
 
@@ -568,7 +568,7 @@ class Project(object):
 
     def load_trees(self):
         """
-        Load trees of memes in training and test sets.
+        Load trees of cascades in training and test sets.
         :return:
         """
         # Load trees from the json file.
@@ -577,7 +577,7 @@ class Project(object):
             trees = {ObjectId(key): value for key, value in trees.items()}
             # Convert tree dictionaries to tree objects.
             logger.debug('converting trees to objects ...')
-            trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
+            trees = {cascades_id: CascadeTree().from_dict(tree) for cascades_id, tree in trees.items()}
             logger.debug('done')
         except FileNotFoundError:
             try:
@@ -587,26 +587,26 @@ class Project(object):
 
                 # Keep just trees of the training and test set.
                 trees = {ObjectId(key): value for key, value in trees.items()}
-                trees = {meme_id: trees[meme_id] for meme_id in self.training + self.test}
+                trees = {cascades_id: trees[cascades_id] for cascades_id in self.training + self.test}
                 # Save trees for the project.
                 self.save_param(trees, 'trees', ParamTypes.JSON)
                 # Convert tree dictionaries to tree objects.
                 logger.debug('converting trees to objects ...')
-                trees = {meme_id: CascadeTree().from_dict(tree) for meme_id, tree in trees.items()}
+                trees = {cascades_id: CascadeTree().from_dict(tree) for cascades_id, tree in trees.items()}
                 logger.debug('done')
             except FileNotFoundError:
                 logger.info('trees not found. extracting ...')
                 trees = {}
                 i = 0
-                all_memes = self.training + self.validation + self.test
-                count = len(all_memes)
-                for meme_id in all_memes:
-                    tree = CascadeTree().extract_cascade(meme_id)
-                    trees[meme_id] = tree
+                all_cascades = self.training + self.validation + self.test
+                count = len(all_cascades)
+                for cascade_id in all_cascades:
+                    tree = CascadeTree().extract_cascade(cascade_id)
+                    trees[cascade_id] = tree
                     i += 1
                     if i % 10 == 0:
                         logger.info('%d%% done', i * 100 / count)
-                trees_dict = {str(meme_id): tree.get_dict() for meme_id, tree in trees.items()}
+                trees_dict = {str(cascade_id): tree.get_dict() for cascade_id, tree in trees.items()}
                 self.save_param(trees_dict, 'trees', ParamTypes.JSON)  # Save trees for the project.
 
         self.trees = trees
@@ -614,7 +614,7 @@ class Project(object):
 
     def load_or_extract_graph(self, graph_type=GraphTypes.RESHARES):
         """
-        Load or extract the graph of memes in training set.
+        Load or extract the graph of cascades in training set.
         :return:
         """
         graph_fname = 'graph'
@@ -624,7 +624,7 @@ class Project(object):
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
 
         except:  # If graph data does not exist.
-            post_ids = self.__get_memes_post_ids(train_set)
+            post_ids = self.__get_cascades_post_ids(train_set)
             if graph_type == GraphTypes.RESHARES:
                 graph = self.__extract_reshare_graph(post_ids, train_set, graph_fname)
             else:
@@ -634,7 +634,7 @@ class Project(object):
 
     def load_or_extract_act_seq(self):
         """
-        Load or extract list of activation sequences of memes in training set.
+        Load or extract list of activation sequences of cascades in training set.
         :return:
         """
         seq_fname = 'sequences'
@@ -649,7 +649,7 @@ class Project(object):
                 sequences[ObjectId(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
 
         except Exception as e:  # If graph data does not exist.
-            post_ids = self.__get_memes_post_ids(train_set)
+            post_ids = self.__get_cascades_post_ids(train_set)
             sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
 
         return sequences
@@ -671,7 +671,7 @@ class Project(object):
             graph = relabel_nodes(graph, {n: ObjectId(n) for n in graph.nodes()})
 
         except:  # If graph does not exist.
-            post_ids = self.__get_memes_post_ids(train_set)
+            post_ids = self.__get_cascades_post_ids(train_set)
             if graph_type == GraphTypes.RESHARES:
                 graph = self.__extract_reshare_graph(post_ids, train_set, graph_fname)
             else:
@@ -687,32 +687,32 @@ class Project(object):
 
         except:  # If sequence data does not exist.
             if post_ids is None:
-                post_ids = self.__get_memes_post_ids(train_set)
+                post_ids = self.__get_cascades_post_ids(train_set)
             sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
 
         return graph, sequences
 
     @time_measure()
-    def __get_memes_post_ids(self, meme_ids):
+    def __get_cascades_post_ids(self, cascade_ids):
         logger.info('querying posts ids ...')
         db = DBManager().db
         post_ids = [pm['post_id'] for pm in
-                    db.postmemes.find({'meme_id': {'$in': meme_ids}}, {'_id': 0, 'post_id': 1})]
+                    db.postmemes.find({'meme_id': {'$in': cascade_ids}}, {'_id': 0, 'post_id': 1})]
         return post_ids
 
-    def __extract_act_seq(self, posts_ids, meme_ids, seq_fname):
+    def __extract_act_seq(self, posts_ids, cascade_ids, seq_fname):
         """
-        Extract list of activation sequences from given meme id's.
+        Extract list of activation sequences from given cascade id's.
         :param posts_ids:   list of posts id's
-        :param meme_ids:    meme id's
+        :param cascade_ids:    cascade id's
         :param seq_fname:   the file name to save activation sequences data
         :return:            list of ActSequence's
         """
         t0 = time.time()
         logger.info('extracting act. sequences from %d posts ...' % len(posts_ids))
         post_count = len(posts_ids)
-        users = {m: [] for m in meme_ids}
-        times = {m: [] for m in meme_ids}
+        users = {m: [] for m in cascade_ids}
+        times = {m: [] for m in cascade_ids}
 
         db = DBManager().db
 
@@ -725,12 +725,12 @@ class Project(object):
             try:
                 for post in posts:
                     if post['datetime'] is not None:
-                        for pm in db.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': meme_ids}},
+                        for pc in db.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': cascade_ids}},
                                                     {'_id': 0, 'meme_id': 1}):
-                            meme_id = pm['meme_id']
-                            if post['author_id'] not in users[meme_id]:
-                                users[meme_id].append(post['author_id'])
-                                times[meme_id].append(post['datetime'])
+                            cascade_id = pc['meme_id']
+                            if post['author_id'] not in users[cascade_id]:
+                                users[cascade_id].append(post['author_id'])
+                                times[cascade_id].append(post['datetime'])
                     i += 1
                     if i % (post_count / 10) == 0:
                         logger.info('%d%% posts done' % (i * 100 / post_count))
@@ -742,17 +742,17 @@ class Project(object):
         logger.info('setting relative times and max times ...')
         max_t = {}
         i = 0
-        for meme in db.memes.find({'_id': {'$in': meme_ids}}, ['last_time', 'first_time']):
-            mid = meme['_id']
-            times[mid] = [(t - meme['first_time']).total_seconds() / (3600.0 * 24) for t in
+        for cascade in db.memes.find({'_id': {'$in': cascade_ids}}, ['last_time', 'first_time']):
+            mid = cascade['_id']
+            times[mid] = [(t - cascade['first_time']).total_seconds() / (3600.0 * 24) for t in
                           times[mid]]  # number of days
-            max_t[mid] = (meme['last_time'] - meme['first_time']).total_seconds() / (3600.0 * 24)  # number of days
+            max_t[mid] = (cascade['last_time'] - cascade['first_time']).total_seconds() / (3600.0 * 24)  # number of days
             i += 1
-            if i % (len(meme_ids) / 10) == 0:
-                logger.info('%d%% done' % (i * 100 / len(meme_ids)))
+            if i % (len(cascade_ids) / 10) == 0:
+                logger.info('%d%% done' % (i * 100 / len(cascade_ids)))
 
         sequences = {}
-        for m in meme_ids:
+        for m in cascade_ids:
             if users[m]:
                 sequences[m] = ActSequence(users[m], times[m], max_t[m])
 
@@ -788,11 +788,11 @@ class Project(object):
             reshares.sort(key=lambda resh: resh['datetime'])
             return reshares
 
-    def __extract_reshare_graph(self, post_ids, meme_ids, graph_fname):
+    def __extract_reshare_graph(self, post_ids, cascade_ids, graph_fname):
         """
-        Extract graph from given meme id's.
-        :param post_ids:    list of posts id's related to memes
-        :param meme_ids:    list of memes id's
+        Extract graph from given cascade id's.
+        :param post_ids:    list of posts id's related to cascades
+        :param cascade_ids:    list of cascades id's
         :param graph_fname: the file name to save graph data
         :return:            directed graph of all reshares
         """
@@ -807,7 +807,7 @@ class Project(object):
 
         logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
         edges = []
-        meme_ids = set(meme_ids)
+        cascade_ids = set(cascade_ids)
         i = 0
 
         # Iterate on reshares to extract graph edges.
@@ -815,12 +815,12 @@ class Project(object):
             user_id = resh['user_id']
             ref_user_id = resh['ref_user_id']
             if user_id != ref_user_id:
-                src_meme_ids = {pm['meme_id'] for pm in
+                src_cascade_ids = {pm['meme_id'] for pm in
                                 db.postmemes.find({'post_id': resh['reshared_post_id']}, {'_id': 0, 'meme_id': 1})}
-                dest_meme_ids = {pm['meme_id'] for pm in
+                dest_cascade_ids = {pm['meme_id'] for pm in
                                  db.postmemes.find({'post_id': resh['post_id']}, {'_id': 0, 'meme_id': 1})}
-                common_memes = meme_ids & src_meme_ids & dest_meme_ids
-                if common_memes:
+                common_cascade = cascade_ids & src_cascade_ids & dest_cascade_ids
+                if common_cascade:
                     edges.append((ref_user_id, user_id))
             i += 1
             if i % (resh_count / 10) == 0:

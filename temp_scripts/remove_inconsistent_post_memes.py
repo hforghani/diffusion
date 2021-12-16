@@ -4,7 +4,7 @@ from db.managers import DBManager
 import settings
 
 logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('remove_inconsistent_post_memes')
+logger = logging.getLogger('remove_inconsistent_post_cascades')
 logger.setLevel(settings.LOG_LEVEL)
 
 i = 0

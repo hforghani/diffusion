@@ -7,7 +7,7 @@ from settings import logger
 
 if __name__ == '__main__':
     db = DBManager().db
-    logger.info('extracting postmemes without author ...')
+    logger.info('extracting postcascades without author ...')
     post_ids = db.postmemes.find({'author': None}, {'post_id': 1, '_id': 0})
     post_ids_done = set()
     count = post_ids.count()
@@ -25,6 +25,6 @@ if __name__ == '__main__':
         post_ids_done.add(p['post_id'])
         if i * 100 // count > last_percent:
             last_percent = i * 100 // count
-            logger.info('{}% done. author_id of {} postmemes set'.format(last_percent, i))
+            logger.info('{}% done. author_id of {} postcascades set'.format(last_percent, i))
 
     logger.info('100% done')

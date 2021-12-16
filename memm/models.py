@@ -45,8 +45,8 @@ class MEMMModel:
             step = int(math.ceil(float(len(train_set)) / settings.PROCESS_COUNT))
             results = []
             for j in range(0, len(train_set), step):
-                meme_ids = train_set[j: j + step]
-                res = pool.apply_async(extract_evidences, (meme_ids, act_seqs))
+                cascade_ids = train_set[j: j + step]
+                res = pool.apply_async(extract_evidences, (cascade_ids, act_seqs))
                 results.append(res)
 
             pool.close()

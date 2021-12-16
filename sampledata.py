@@ -28,7 +28,7 @@ class Command:
             "--usersnum",
             type=int,
             dest="users_num",
-            help="number of users which we want to sample their memes",
+            help="number of users which we want to sample their cascades",
         )
         parser.add_argument(
             "-d",
@@ -36,7 +36,7 @@ class Command:
             type=int,
             dest="min_depth",
             default=0,
-            help="minimum depth of cascade trees of memes",
+            help="minimum depth of cascade trees of cascades",
         )
         parser.add_argument(
             "-r",
@@ -67,72 +67,72 @@ class Command:
 
             if args.sample_num:
                 # if args.users_num:
-                #     # Sample a limited number of user id's and get their memes. Then sample memes from this set.
+                #     # Sample a limited number of user id's and get their cascades. Then sample cascades from this set.
                 #     logger.info('sampling users ...')
                 #     user_samples = [u['_id'] for u in mongodb.users.aggregate([{'$sample': {'size': args.users_num}},
                 #                                                                {'$project': {'_id': 1}}])]
-                #     logger.info('sampling memes ...')
+                #     logger.info('sampling cascades ...')
                 #     post_ids = [p['_id'] for p in mongodb.posts.find({'author_id': {'$in': user_samples}}, ['_id'])]
-                #     user_memes = [pm['meme_id'] for pm in
-                #                   mongodb.postmemes.find({'post_id': {'$in': post_ids}}, {'_id': 0, 'meme_id': 1})]
-                #     query = {'_id': {'$in': user_memes}}
+                #     user_cascades = [pm['cascade_id'] for pm in
+                #                   mongodb.postcascades.find({'post_id': {'$in': post_ids}}, {'_id': 0, 'cascade_id': 1})]
+                #     query = {'_id': {'$in': user_cascades}}
                 #     if args.min_depth:
                 #         query['depth'] = {'$gte': args.min_depth}
-                #     meme_ids = [m['_id'] for m in mongodb.memes.aggregate([
+                #     cascade_ids = [m['_id'] for m in mongodb.cascades.aggregate([
                 #         {'$match': query},
                 #         {'$sample': {'size': args.sample_num}},
                 #         {'$project': {'_id': 1}}
                 #     ])]
                 # else:
-                #     # Sample sample_num memes with minimum depth if given.
-                #     logger.info('sampling memes ...')
+                #     # Sample sample_num cascades with minimum depth if given.
+                #     logger.info('sampling cascades ...')
                 #     query = {}
                 #     if args.min_depth:
                 #         query = {'depth': {'$gte': args.min_depth}}
-                #     meme_ids = [m['_id'] for m in mongodb.memes.aggregate([
+                #     cascade_ids = [m['_id'] for m in mongodb.cascades.aggregate([
                 #         {'$match': query},
                 #         {'$sample': {'size': args.sample_num}},
                 #         {'$project': {'_id': 1}}
                 #     ])]
 
-                selected = np.load(os.path.join(BASE_PATH, 'data/weibo_meme_labels2.npy'))
-                logger.info('fetching all meme ids ...')
+                selected = np.load(os.path.join(BASE_PATH, 'data/weibo_cascade_labels2.npy'))
+                logger.info('fetching all cascade ids ...')
                 cursor = db.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
-                all_meme_ids = [m['_id'] for m in cursor]
+                all_cascade_ids = [m['_id'] for m in cursor]
                 cursor.close()
-                selected_memes = np.array([str(mid) for mid in all_meme_ids])[selected]
-                selected_memes = [ObjectId(mid) for mid in selected_memes]
-                query = {'_id': {'$in': selected_memes}}
+                selected_cascades = np.array([str(mid) for mid in all_cascade_ids])[selected]
+                selected_cascades = [ObjectId(mid) for mid in selected_cascades]
+                query = {'_id': {'$in': selected_cascades}}
                 if args.min_depth:
                     query['depth'] = {'$gte': args.min_depth}
-                logger.info('sampling memes ...')
-                meme_ids = [m['_id'] for m in db.memes.aggregate([
+                logger.info('sampling cascades ...')
+                cascade_ids = [m['_id'] for m in db.memes.aggregate([
                     {'$match': query},
                     {'$sample': {'size': args.sample_num}},
                     {'$project': {'_id': 1}}
                 ])]
 
             else:
-                # Get all memes.
-                # TODO: Load selected memes.
-                logger.info('sampling memes ...')
+                # Get all cascades.
+                # TODO: Load selected cascades.
+                logger.info('sampling cascades ...')
                 query = {}
                 if args.min_depth:
                     query = {'depth': {'$gte': args.min_depth}}
-                meme_ids = [m['_id'] for m in db.memes.find(query, ['_id'])]
-                shuffle(meme_ids)
+                cascade_ids = [m['_id'] for m in db.memes.find(query, ['_id'])]
+                shuffle(cascade_ids)
 
-            if not meme_ids:
-                raise Exception('no memes sampled; change the command arguments')
-            elif args.sample_num and len(meme_ids) < args.sample_num:
-                logger.warn('number of sampled memes is less than "number" argument')
+            if not cascade_ids:
+                raise Exception('no cascades sampled; change the command arguments')
+            elif args.sample_num and len(cascade_ids) < args.sample_num:
+                logger.warn('number of sampled cascades is less than "number" argument')
 
             # Separate training and test sets.
             ratio = args.ratio
-            train_num = int(ratio * len(meme_ids))
-            meme_ids = [str(m_id) for m_id in meme_ids]
-            train_set = meme_ids[:train_num]
-            test_set = meme_ids[train_num:]
+            train_num = int(ratio * len(cascade_ids))
+            cascade_ids = [str(m_id) for m_id in cascade_ids]
+            train_set = cascade_ids[:train_num]
+            test_set = cascade_ids[train_num:]
 
             project = Project(project_name)
             project.save_sets(train_set, [], test_set)

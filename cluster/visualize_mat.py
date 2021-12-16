@@ -14,11 +14,11 @@ from sklearn.decomposition import TruncatedSVD
 import numpy as np
 from settings import BASE_PATH, logger
 
-logger.info('loading the meme-user matrix ...')
-loader = np.load(os.path.join(BASE_PATH, 'data/weibo_meme_user_mat.npz'))
+logger.info('loading the cascade-user matrix ...')
+loader = np.load(os.path.join(BASE_PATH, 'data/weibo_cascade_user_mat.npz'))
 mat = sparse.csr_matrix((loader['data'], loader['indices'], loader['indptr']), shape=loader['shape'],
                         dtype=np.float32)
-labels = np.load(os.path.join(BASE_PATH, 'data/weibo_meme_labels2.npy'))
+labels = np.load(os.path.join(BASE_PATH, 'data/weibo_cascade_labels2.npy'))
 
 logger.info('running truncated SVD ...')
 clf = TruncatedSVD(2)
@@ -29,7 +29,7 @@ center = np.array([(6, 0)])
 dist = distance.cdist(center, transformed, 'euclidean')
 dist = dist.flatten()
 labels2 = np.logical_and(labels2, dist < 2)
-np.save(os.path.join(BASE_PATH, 'data/weibo_meme_selected.npy'), labels2)
+np.save(os.path.join(BASE_PATH, 'data/weibo_cascade_selected.npy'), labels2)
 
 
 label_values = np.unique(labels2)

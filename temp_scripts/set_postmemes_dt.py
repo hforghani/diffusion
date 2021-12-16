@@ -22,6 +22,6 @@ if __name__ == '__main__':
         post_ids_done.add(p['post_id'])
         if i * 100 // count > last_percent:
             last_percent = i * 100 // count
-            logger.info('{}% done. datetime of {} postmemes set'.format(last_percent, i))
+            logger.info('{}% done. datetime of {} postcascades set'.format(last_percent, i))
 
     logger.info('100% done')

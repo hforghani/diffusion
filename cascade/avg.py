@@ -20,7 +20,7 @@ class LTAvg(AsLT):
     def fit(self, calc_weights=True, calc_delays=True, continue_calc=False):
         train_set, _, _ = self.project.load_sets()
 
-        logger.info('querying posts of the memes ...')
+        logger.info('querying posts of the cascades ...')
         db = DBManager().db
         posts_ids = [pm['post_id'] for pm in
                      db.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id']).sort('datetime')]

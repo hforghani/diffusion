@@ -9,10 +9,10 @@ from db.managers import DBManager
 
 def handle(logger):
     db = DBManager().db
-    logger.info('creating an index for memes ...')
+    logger.info('creating an index for cascades ...')
     db.memes.create_indexes([IndexModel('depth'), IndexModel('size')])
-    logger.info('creating indexes for postmemes ...')
-    db.postmemes.create_indexes([IndexModel('meme_id'), IndexModel('post_id'), IndexModel('datetime')])
+    logger.info('creating indexes for postcascades ...')
+    db.postmemes.create_indexes([IndexModel('cascade_id'), IndexModel('post_id'), IndexModel('datetime')])
     logger.info('creating indexes for posts ...')
     db.posts.create_indexes([IndexModel('author_id'), IndexModel('datetime')])
     logger.info('creating indexes for reshares ...')

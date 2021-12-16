@@ -17,7 +17,7 @@ logger.setLevel(settings.LOG_LEVEL)
 
 
 class Command:
-    help = 'Calculate meme depths.'
+    help = 'Calculate cascade depths.'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -38,33 +38,33 @@ class Command:
 
     def load_data(self, do_continue):
         i = 0
-        depths = {}     # dictionary of meme id's to their depths
-        tree_nodes = {}  # dictionary of meme id's to their tree nodes data. Each tree nodes data is a dictionary of user id's to their depths.
+        depths = {}     # dictionary of cascade id's to their depths
+        tree_nodes = {}  # dictionary of cascade id's to their tree nodes data. Each tree nodes data is a dictionary of user id's to their depths.
 
-        if do_continue and os.path.exists('data/memedepths/i.json') and os.path.exists(
-                'data/memedepths/depths.json') and os.path.exists('data/memedepths/tree_nodes.json'):
+        if do_continue and os.path.exists('data/cascade_depths/i.json') and os.path.exists(
+                'data/cascade_depths/depths.json') and os.path.exists('data/cascade_depths/tree_nodes.json'):
             logger.info('loading temp data ...')
-            with open('data/memedepths/i.json') as f:
+            with open('data/cascade_depths/i.json') as f:
                 i = json.load(f)['i']
-            with open('data/memedepths/depths.json') as f:
+            with open('data/cascade_depths/depths.json') as f:
                 depths = json.load(f)
                 depths = {ObjectId(key): value for key, value in depths.items()}
-            with open('data/memedepths/tree_nodes.json') as f:
+            with open('data/cascade_depths/tree_nodes.json') as f:
                 tree_nodes = json.load(f)
-                tree_nodes = {ObjectId(meme_id): {ObjectId(user_id): depth for user_id, depth in meme_data.items()} for
-                              meme_id, meme_data in tree_nodes.items()}
+                tree_nodes = {ObjectId(cascade_id): {ObjectId(user_id): depth for user_id, depth in cascade_data.items()} for
+                              cascade_id, cascade_data in tree_nodes.items()}
             logger.info('data loaded')
 
         return i, depths, tree_nodes
 
     def save_data(self, i, depths, tree_nodes):
-        if not os.path.exists('data/memedepths'):
-            os.mkdir('data/memedepths')
-        with open('data/memedepths/i.json', 'w') as f:
+        if not os.path.exists('data/cascade_depths'):
+            os.mkdir('data/cascade_depths')
+        with open('data/cascade_depths/i.json', 'w') as f:
             json.dump({'i': i}, f)
-        with open('data/memedepths/depths.json', 'w') as f:
+        with open('data/cascade_depths/depths.json', 'w') as f:
             json.dump({str(key): value for key, value in depths.items()}, f, indent=4)
-        with open('data/memedepths/tree_nodes.json', 'w') as f:
+        with open('data/cascade_depths/tree_nodes.json', 'w') as f:
             json.dump({str(key): {str(user_id): value for user_id, value in nodes.items()} for key, nodes in
                        tree_nodes.items()}, f, indent=4)
 
@@ -82,8 +82,8 @@ class Command:
         i, depths, tree_nodes = self.load_data(do_continue)
         """
         i : Number of iterated reshares 
-        depths: dictionary of meme id's to their depths
-        tree_nodes: dictionary of meme id's to their tree nodes data. Each tree nodes data is a dictionary of 
+        depths: dictionary of cascade id's to their depths
+        tree_nodes: dictionary of cascade id's to their tree nodes data. Each tree nodes data is a dictionary of 
                     user id's to their depths.
         """
         if i > 0:
@@ -99,29 +99,29 @@ class Command:
             src_uid, dest_uid = resh['ref_user_id'], resh['user_id']
 
             if src_uid != dest_uid:
-                ref_memes = {m['meme_id'] for m in
+                ref_cascades = {m['meme_id'] for m in
                              db.postmemes.find({'post_id': resh['reshared_post_id']}, {'meme_id': 1})}
-                memes = {m['meme_id'] for m in
+                cascades = {m['meme_id'] for m in
                          db.postmemes.find({'post_id': resh['post_id']}, {'meme_id': 1})}
-                common_memes = ref_memes & memes
+                common_cascades = ref_cascades & cascades
 
-                for meme_id in common_memes:
-                    if meme_id not in depths:
-                        depths[meme_id] = 1
-                        tree_nodes[meme_id] = {src_uid: 0, dest_uid: 1}
-                        # logger.info('meme {} has depth 1'.format(meme_id))
+                for cascade_id in common_cascades:
+                    if cascade_id not in depths:
+                        depths[cascade_id] = 1
+                        tree_nodes[cascade_id] = {src_uid: 0, dest_uid: 1}
+                        # logger.info('cascade {} has depth 1'.format(cascade_id))
 
                     else:
-                        nodes = tree_nodes[meme_id]
+                        nodes = tree_nodes[cascade_id]
                         if src_uid not in nodes:
                             nodes[src_uid] = 0
 
                         if dest_uid not in nodes:
                             depth = nodes[src_uid] + 1
                             nodes[dest_uid] = depth
-                            if depth > depths[meme_id]:
-                                depths[meme_id] = depth
-                                #logger.info('meme {} has now depth {}'.format(meme_id, depths[meme_id]))
+                            if depth > depths[cascade_id]:
+                                depths[cascade_id] = depth
+                                #logger.info('cascade {} has now depth {}'.format(cascade_id, depths[cascade_id]))
 
             if i % step == 0:
                 logger.info('%d reshares done', i)
@@ -145,8 +145,8 @@ class Command:
         reshares.close()
 
         logger.info('saving non-zero depths ...')
-        for meme_id, depth in depths.items():
-            db.memes.find_one_and_update({'_id': meme_id}, {'$set': {'depth': depth}})
+        for cascade_id, depth in depths.items():
+            db.memes.find_one_and_update({'_id': cascade_id}, {'$set': {'depth': depth}})
 
         logger.info('saving zero depths ...')
         db.memes.update_many({'depth': None}, {'$set': {'depth': 0}})
