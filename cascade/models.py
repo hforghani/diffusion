@@ -401,7 +401,7 @@ class AsLT(object):
 
                             # Add it to the tree.
                             child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
-                            trees[thr].get_node(v).children.append(child)
+                            trees[thr].get_node(u).children.append(child)
                             child_max_pred_thr = thr
                             logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
 

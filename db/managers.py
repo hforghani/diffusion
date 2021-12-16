@@ -167,15 +167,11 @@ class MEMMManager:
         return memm
 
     def __get_doc(self, memm):
-        # TODO: Remove TPM and map_obs_index and add map_obs_prob.
         doc = {
-            'tpm': pickle.dumps(memm.TPM, protocol=2),
+            'map_obs_prob': memm.map_obs_prob,
             'all_obs_arr': pickle.dumps(memm.all_obs_arr, protocol=2),
-            'map_obs_index': {str(key): value for key, value in memm.map_obs_index.items()},
             'orig_indexes': memm.orig_indexes
         }
-        if isinstance(doc['orig_indexes'], dict):
-            doc['orig_indexes'] = sorted(list(doc['orig_indexes'].values()))
         return doc
 
     def __doc_to_memm(self, doc):
@@ -188,12 +184,15 @@ class MEMMManager:
         memm = MEMM()
         memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr'])
         memm.orig_indexes = memm_data['orig_indexes']
-        # TODO: Read map_obs_prob directly from doc and remove TPM and map_obs_index.
-        TPM = pickle.loads(memm_data['tpm'])
-        map_obs_index = {int(key): value for key, value in memm_data['map_obs_index'].items()}
-        memm.map_obs_prob = {}
-        for obs, index in map_obs_index.items():
-            memm.map_obs_prob[obs] = TPM[index][1]
+        # TODO: Remove TPM and map_obs_index.
+        if 'map_obs_prob' in memm_data:
+            memm.map_obs_prob = memm_data['map_obs_prob']
+        elif 'tpm' in memm_data and 'map_obs_index' in memm_data:
+            TPM = pickle.loads(memm_data['tpm'])
+            map_obs_index = {int(key): value for key, value in memm_data['map_obs_index'].items()}
+            memm.map_obs_prob = {obs: TPM[index][1] for obs, index in map_obs_index.items()}
+        else:
+            raise ValueError('no map_obs_prob data!')
         return memm
 
     def __parse_doc(self, data):

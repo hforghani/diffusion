@@ -3,6 +3,7 @@ import traceback
 from multiprocessing import Pool
 
 import numpy as np
+from pympler.asizeof import asizeof
 from scipy import sparse
 from sklearn.preprocessing import normalize
 
@@ -137,6 +138,7 @@ def calc_phi_h(sequences, graph, w, r, h, user_map):
             if m_count >= 10 and i % (m_count // 10) == 0:
                 logger.debug('\t%d%% done', i * 100 // m_count)
 
+        logger.debug('size of phi_h subset: %f G', asizeof(phi_h) / 1024 ** 3)
         return phi_h
     except:
         logger.error(traceback.format_exc())
@@ -180,6 +182,7 @@ def calc_phi_g(sequences, graph, w, g, user_map):
             if m_count >= 10 and i % (m_count // 10) == 0:
                 logger.debug('\t%d%% done', i * 100 // m_count)
 
+        logger.debug('size of phi_h subset: %f G', asizeof(phi_g) / 1024 ** 3)
         return phi_g
     except:
         logger.error(traceback.format_exc())
@@ -224,6 +227,7 @@ def calc_psi(sequences, graph, w, r, g, user_map):
             if m_count >= 10 and i % (m_count // 10) == 0:
                 logger.debug('\t%d%% done', i * 100 // m_count)
 
+        logger.debug('size of phi_h subset: %f G', asizeof(psi) / 1024 ** 3)
         return psi
     except:
         logger.error(traceback.format_exc())
@@ -293,15 +297,30 @@ class Saito(AsLT):
                     self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
                 except:
                     logger.info('calculating phi_h ...')
+                    # if i == 0 or len(user_map) ** 2 * len(train_set) < 10 ** 9:
+                    args = (sequences, graph, w, r, h, train_set, meme_map, user_map)
+                    logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
                     phi_h = self.calc_phi_h_mp(sequences, graph, w, r, h, train_set, meme_map, user_map)
+                    # else:
+                    #     with Timer('calc_phi_h'):
+                    #         seq2 = {meme_map[str(mid)]: sequences[mid] for mid in sequences}
+                    #         phi_h = calc_phi_h(seq2, graph, w, r, h, user_map)
                     self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
                     del phi_h
+                del h
 
                 try:
                     self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
                 except:
                     logger.info('calculating phi_g ...')
+                    # if i == 0 or len(user_map) ** 2 * len(train_set) < 10 ** 9:
+                    args = (sequences, graph, w, g, train_set, meme_map, user_map)
+                    logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
                     phi_g = self.calc_phi_g_mp(sequences, graph, w, g, train_set, meme_map, user_map)
+                    # else:
+                    #     with Timer('calc_phi_g'):
+                    #         seq2 = {meme_map[str(mid)]: sequences[mid] for mid in sequences}
+                    #         phi_g = calc_phi_g(seq2, graph, w, g, user_map)
                     self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
                     del phi_g
 
@@ -310,10 +329,11 @@ class Saito(AsLT):
                     logger.info('psi loaded')
                 except:
                     logger.info('calculating psi ...')
+                    args = (sequences, graph, w, r, g, train_set, meme_map, user_map)
+                    logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
                     psi = self.calc_psi_mp(sequences, graph, w, r, g, train_set, meme_map, user_map)
                     self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
 
-                del h
                 del g
                 phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)
                 logger.info('phi_h loaded')
@@ -447,9 +467,8 @@ class Saito(AsLT):
     @time_measure()
     def calc_phi_h_mp(self, data, graph, w, r, h, meme_ids, meme_map, user_map):
         m_count = len(meme_ids)
-        process_count = 3
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(float(m_count) / process_count))
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
         results = []
         for j in range(0, m_count, step):
             subset = meme_ids[j: j + step]
@@ -472,9 +491,8 @@ class Saito(AsLT):
     @time_measure()
     def calc_phi_g_mp(self, data, graph, w, g, meme_ids, meme_map, user_map):
         m_count = len(meme_ids)
-        process_count = 3
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(float(m_count) / process_count))
+        pool = Pool(processes=settings.PROCESS_COUNT)
+        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
         results = []
         for j in range(0, m_count, step):
             subset = meme_ids[j: j + step]

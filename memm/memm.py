@@ -153,7 +153,7 @@ class MEMM():
             nearest_obs = sparse_to_obs(self.all_obs_arr[index, :])
             prob = self.map_obs_prob[nearest_obs] * sim
 
-            self.map_obs_prob[new_obs] = prob
+            # self.map_obs_prob[new_obs] = prob
             return prob
 
     def predict(self, obs, dim, threshold):
