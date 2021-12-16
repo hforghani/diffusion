@@ -88,9 +88,9 @@ class ProjectTester(abc.ABC):
             mean_f1[thr] = np.array(f1s[thr]).mean()
             logger.info('(threshold = %.2f) averages: precision = %.3f, recall = %.3f, f1 = %.3f',
                         thr, mean_prec[thr], mean_rec[thr], mean_f1[thr])
-            if self.method in ['aslt', 'avg']:
-                logger.info('prp1 avg = %.3f', np.mean(np.array(prp1s[thr])))
-                logger.info('prp2 avg = %.3f', np.mean(np.array(prp2s[thr])))
+            # if self.method in ['aslt', 'avg']:
+            #     logger.info('prp1 avg = %.3f', np.mean(np.array(prp1s[thr])))
+            #     logger.info('prp2 avg = %.3f', np.mean(np.array(prp2s[thr])))
 
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
@@ -121,7 +121,11 @@ class ProjectTester(abc.ABC):
         pyplot.scatter([fprs[best_thr]], [recs[best_thr]], c='r', marker='o')
         pyplot.title('ROC curve')
         pyplot.axis([0, 1, 0, 1])
-        pyplot.savefig(os.path.join(self.project.project_path, 'validation_results.png'))
+        results_path = os.path.join(settings.BASEPATH, 'results')
+        if not os.path.exists(results_path):
+            os.mkdir(results_path)
+        filename = os.path.join(results_path, f'{self.project.project_name}-{self.method}.png')
+        pyplot.savefig(filename)
         # pyplot.show()
 
 
@@ -231,22 +235,22 @@ class MultiProcTester(ProjectTester):
         pool.close()
         pool.join()
 
-        prp1_list = {thr: [] for thr in thresholds}
-        prp2_list = {thr: [] for thr in thresholds}
         precisions = {thr: [] for thr in thresholds}
         recalls = {thr: [] for thr in thresholds}
-        fprs = {thr: [] for thr in thresholds}
         f1s = {thr: [] for thr in thresholds}
+        fprs = {thr: [] for thr in thresholds}
+        prp1_list = {thr: [] for thr in thresholds}
+        prp2_list = {thr: [] for thr in thresholds}
 
         # Collect results of the processes.
         for res in results:
-            r1, r2, r3, r4, r5, r6 = res.get()
+            prec_subset, rec_subset, f1_subset, fpr_subset, prp1_subset, prp2_subset = res.get()
             for thr in thresholds:
-                precisions[thr].extend(r1[thr])
-                recalls[thr].extend(r2[thr])
-                fprs[thr].extend(r3[thr])
-                recalls[thr].extend(r4[thr])
-                prp1_list[thr].extend(r5[thr])
-                prp2_list[thr].extend(r6[thr])
+                precisions[thr].extend(prec_subset[thr])
+                recalls[thr].extend(rec_subset[thr])
+                f1s[thr].extend(f1_subset[thr])
+                fprs[thr].extend(fpr_subset[thr])
+                prp1_list[thr].extend(prp1_subset[thr])
+                prp2_list[thr].extend(prp2_subset[thr])
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
