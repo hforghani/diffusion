@@ -1,13 +1,11 @@
+from typing import Tuple
+
 import numpy as np
 import scipy
-import time
 
 from scipy.sparse import csr_matrix
 
 from settings import logger
-
-
-# times = [0] * 15
 
 
 class MemmException(Exception):
@@ -36,8 +34,18 @@ def sparse_to_obs(arr: csr_matrix) -> int:
     obs = 0
     dim = max(arr.shape)
     for ind in arr.nonzero()[1]:
-        obs |= 1 << (dim - ind - 1)
+        obs |= 1 << (dim - int(ind) - 1)
     return obs
+
+
+def obs_to_sparse(obs: int, dim: int) -> np.array:
+    indexes = []
+    for i in range(dim):
+        if obs % 2:
+            indexes.append(dim - i - 1)
+        obs >>= 1
+    count = len(indexes)
+    return csr_matrix(([True] * count, ([0] * count, indexes)), shape=(1, dim))
 
 
 def obs_to_str(obs: int, dim: int) -> str:
@@ -131,30 +139,37 @@ class MEMM():
 
         return self
 
-    def get_prob(self, obs: int, dim: int) -> float:
+    def get_prob(self, obs: int, dim: int, timers) -> float:
         """
         Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
         :param obs:     current observation
         :param dim:     dimension of observation vector
         """
         # logger.debug('running MEMM predict method ...')
-        new_obs = self.__decrease_dim_by_indexes(obs, dim, self.orig_indexes)
-        new_dim = len(self.orig_indexes)
-        # new_obs_bin = obs_to_str(new_obs, new_dim)
+        with timers[0]:
+            new_obs = self.__decrease_dim_by_indexes(obs, dim, self.orig_indexes)
+            new_dim = len(self.orig_indexes)
+            # new_obs_bin = obs_to_str(new_obs, new_dim)
 
-        if new_obs in self.map_obs_prob:
-            return self.map_obs_prob[new_obs]
-        else:
-            # prob = 0
-            index, sim = self.__nearest_obs_index(new_obs, new_dim)
-            # logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
-            #               array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.tpm[index][1])
-            # use probability * similarity when the observation not found.
-            nearest_obs = sparse_to_obs(self.all_obs_arr[index, :])
-            prob = self.map_obs_prob[nearest_obs] * sim
+            with timers[5]:
+                exists = new_obs in self.map_obs_prob
+            if exists:
+                with timers[1]:
+                    return self.map_obs_prob[new_obs]
+            else:
+                # prob = 0
+                with timers[2]:
+                    index, sim = self.__nearest_obs_index(new_obs, new_dim)
+                # logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
+                #               array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.tpm[index][1])
+                # use probability * similarity when the observation not found.
+                with timers[3]:
+                    nearest_obs = sparse_to_obs(self.all_obs_arr[index, :])
+                with timers[4]:
+                    prob = self.map_obs_prob[nearest_obs] * sim
 
-            # self.map_obs_prob[new_obs] = prob
-            return prob
+                # self.map_obs_prob[new_obs] = prob
+                return prob
 
     def predict(self, obs, dim, threshold):
         """
@@ -168,23 +183,16 @@ class MEMM():
         next_state = int(prob >= threshold)
         return next_state, prob
 
-    def __nearest_obs_index(self, obs: int, dim: int):
+    def __nearest_obs_index(self, obs: int, dim: int) -> Tuple[int, float]:
         """
         Get the index of the nearest observation to the observation given.
         :param obs: observation as an int number
         :param dim: number of dimensions
-        :return: a tuple of index of nearest nonzero observation and similarity rate
+        :return: a tuple of index of the nearest nonzero observation and similarity rate
         """
         new_obs_vec = obs_to_array(obs, dim)
-        zero_index = int((self.all_obs_arr == np.zeros(dim)).all(axis=1).nonzero()[0])
-        mask = np.ones(self.all_obs_arr.shape[0], dtype=bool)
-        mask[zero_index] = False
-        nonzero_obs = self.all_obs_arr[mask]
-        nnz_obs_num = nonzero_obs.get_shape()[0]
-        sim = np.sum(nonzero_obs == np.tile(new_obs_vec, (nnz_obs_num, 1)), axis=1)
-        index = np.argmax(sim)
-        if index >= zero_index:
-            index += 1
+        sim = np.sum(self.all_obs_arr[1:, :] == np.tile(new_obs_vec, (self.all_obs_arr.shape[0] - 1, 1)), axis=1)
+        index = np.argmax(sim) + 1
         return index, np.max(sim) / dim
 
     def __create_matrices(self, pairs, indexes):

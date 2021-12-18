@@ -59,22 +59,23 @@ def train_cascades(method, project, multi_processed=False):
     return model
 
 
-def test_cascades_multiproc(cascade_ids: list, method, project: Project, threshold: list, initial_depth: int, max_depth: int,
-                            trees: dict, all_node_ids: list, user_ids: list, users_map: dict) \
+def test_cascades_multiproc(cascade_ids: list, method, project: Project, threshold: list, initial_depth: int,
+                            max_depth: int, trees: dict, all_node_ids: list, user_ids: list, users_map: dict) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
         # Train (or fetch trained models from db) in each process due to size limit for pickling in Python
         # multi-processing.
         model = train_cascades(method, project)
-        return test_cascades(cascade_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids, user_ids,
-                             users_map)
+        return test_cascades(cascade_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids,
+                             user_ids, users_map)
     except:
         logger.error(traceback.format_exc())
         raise
 
 
-def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initial_depth: int, max_depth: int, trees: dict,
-                  all_node_ids: list, user_ids: list, users_map: dict) -> Tuple[dict, dict, dict, dict, dict, dict]:
+def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initial_depth: int, max_depth: int,
+                  trees: dict, all_node_ids: list, user_ids: list, users_map: dict) \
+        -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
         prp1_list = {thr: [] for thr in thresholds}
         prp2_list = {thr: [] for thr in thresholds}
@@ -108,7 +109,7 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
 
             # Evaluate the results.
             with Timer('evaluating results', level='debug'):
-                logger.debug('thresholds = %s', thresholds)
+                logs = [f'{"threshold":>10}{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
                 for thr in thresholds:
                     res_tree = res_trees[thr]
                     meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)
@@ -129,12 +130,13 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                     fprs[thr].append(fpr)
                     f1s[thr].append(f1)
 
-                    log = f'cascade {cid} ({count}/{len(cascade_ids)}) threshold = {thr} : {len(res_output)} outputs, ' \
-                          f'{len(true_output)} true, precision = {prec:.3f}, recall = {rec:.3f}, f1 = {f1:.3f}'
-                    if method in ['aslt', 'avg']:
-                        log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-                    logger.info(log)
+                    logs.append(
+                        f'{thr:10.2f}{len(res_output):10}{len(true_output):10}{prec:10.3f}{rec:10.3f}{f1:10.3f}')
+                    # if method in ['aslt', 'avg']:
+                    #     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                     # log_trees(tree, res_trees, max_depth) # Notice: This line takes too much execution time:
+
+                logger.info(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
 
             count += 1
 

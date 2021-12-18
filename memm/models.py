@@ -4,6 +4,7 @@ from multiprocessing.pool import Pool
 
 import psutil
 import pymongo
+from bson import ObjectId
 from pymongo.errors import PyMongoError
 from pympler.asizeof import asizeof
 
@@ -14,7 +15,7 @@ from db.exceptions import DataDoesNotExist
 from db.managers import MEMMManager, DBManager, EvidenceManager
 from db.reconnection import rerun_auto_reconnect, reconnect
 from settings import logger
-from utils.time_utils import Timer
+from utils.time_utils import Timer, TimeUnit, time_measure
 
 
 class MEMMModel:
@@ -205,6 +206,7 @@ class MEMMModel:
 
         logger.info('training MEMMs finished')
 
+    @time_measure(level='debug')
     def fit(self, train_set, multi_processed=False):
         """
         Load MEMM's from DB if exist, otherwise train MEMM's for each user in training set.
@@ -244,10 +246,17 @@ class MEMMModel:
         :return: dictionary of predicted tree for thresholds
         """
         db = DBManager().db
-        ch_timer = Timer('get children', level='debug')
-        p_timer = Timer('get parents', level='debug')
-        obs_timer = Timer('observations', level='debug')
-        m_timer = Timer('MEMM predict', level='debug')
+        ch_timer = Timer('get children', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        p_timer = Timer('get parents', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        obs_timer = Timer('observations', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        m_timer = Timer('MEMM predict', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        m1_timer = Timer('MEMM predict 1', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        m2_timer = Timer('MEMM predict 2', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        m3_timer = Timer('MEMM predict 3', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        m4_timer = Timer('MEMM predict 4', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        m5_timer = Timer('MEMM predict 5', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        m6_timer = Timer('MEMM predict 6', level='debug', unit=TimeUnit.SECONDS, slient=True)
+        get_prob_timers = [Timer(f'get_prob timer {i}', level='debug', unit=TimeUnit.SECONDS, slient=True) for i in range(6)]
 
         """
         Create dictionary of predicted trees related to thresholds:
@@ -270,7 +279,7 @@ class MEMMModel:
                             ...
                             }
         """
-        observations = {thr: {uid: 0 for uid in active_ids} for thr in thresholds}
+        observations = {thr: {} for thr in thresholds}
 
         # Predict the cascade tree.
         # At each iteration find newly activated nodes based on MEMM probabilities and add them to the tree.
@@ -288,54 +297,64 @@ class MEMMModel:
             for node, max_predicted_thr in cur_step:
                 node_id = node.user_id
                 children = children_dic.pop(node_id, [])  # to get and free RAM
-                # rel = db.relations.find_one({'user_id': node_id}, {'_id': 0, 'children': 1})
-                # children = rel['children'] if rel is not None else []
 
                 if children:
                     logger.debug('user %s has %d children:', node_id, len(children))
+                    # from utils.text_utils import columnize
                     # logger.debugv('\n' + columnize([str(child_id) for child_id in children], 4))
 
                     with p_timer:
                         parents_dic = self.__get_parents_dic(children, db)
 
                     with obs_timer:
-                        for thr in thresholds:
-                            if thr <= max_predicted_thr:
-                                for child_id in children:
-                                    obs = observations[thr].setdefault(child_id, 0)
-                                    parents = parents_dic[child_id]
-                                    index = parents.index(node_id)
+                        for child_id in children:
+                            parents = parents_dic[child_id]
+                            index = parents.index(node_id)
+                            for thr in thresholds:
+                                if thr <= max_predicted_thr:
+                                    obs_thr = observations[thr]
+                                    obs = obs_thr.get(child_id, 0)
                                     obs |= 1 << (len(parents) - index - 1)
-                                    observations[thr][child_id] = obs
-                            else:
-                                break
+                                    obs_thr[child_id] = obs
+                                else:
+                                    break
 
                     with m_timer:
                         j = 0
                         for child_id in children:
 
                             if child_id not in active_ids:
-                                memm = self.get_memm(child_id)
+                                with m1_timer:
+                                    memm = self.get_memm(child_id)
 
                                 if memm is not None:
-                                    parents = parents_dic[child_id]
+                                    with m2_timer:
+                                        parents = parents_dic[child_id]
                                     child_max_pred_thr = None
+                                    probs = {}
 
                                     for thr in thresholds:
                                         if thr <= max_predicted_thr:
-                                            obs = observations[thr][child_id]
-                                            logger.debugv('testing reshare to user %s ...', child_id)
-                                            prob = memm.get_prob(obs, len(parents))
+                                            with m3_timer:
+                                                obs = observations[thr][child_id]
+                                                logger.debugv('testing reshare to user %s ...', child_id)
+                                            with m4_timer:
+                                                prob = probs.get(obs, memm.get_prob(obs, len(parents), get_prob_timers))
+                                                probs[obs] = prob
 
                                             if prob >= thr:
-                                                child = CascadeNode(child_id)
-                                                trees[thr].get_node(node_id).children.append(child)
-                                                child_max_pred_thr = thr
-                                                logger.debug('a reshare predicted %f >= %f', prob, thr)
+                                                with m5_timer:
+                                                    child = CascadeNode(child_id)
+                                                    trees[thr].get_node(node_id).children.append(child)
+                                                    child_max_pred_thr = thr
+                                                    logger.debug('a reshare predicted %f >= %f', prob, thr)
+                                        else:
+                                            break
 
-                                    if child_max_pred_thr is not None:
-                                        next_step.append((child, child_max_pred_thr))
-                                        active_ids.add(child_id)
+                                    with m6_timer:
+                                        if child_max_pred_thr is not None:
+                                            next_step.append((child, child_max_pred_thr))
+                                            active_ids.add(child_id)
                                 else:
                                     logger.debugv('user %s does not have any MEMM', child_id)
                             else:
@@ -351,7 +370,8 @@ class MEMMModel:
             cur_step = next_step
             step_num += 1
 
-        for timer in [ch_timer, p_timer, obs_timer, m_timer]:
+        for timer in [ch_timer, p_timer, obs_timer, m_timer, m1_timer, m2_timer, m3_timer, m4_timer, m5_timer,
+                      m6_timer] + get_prob_timers:
             timer.report_sum()
 
         return trees

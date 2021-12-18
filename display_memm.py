@@ -22,19 +22,16 @@ def print_info(user_id, evidences, memm):
     parents = manager.db.relations.find_one({'user_id': ObjectId(user_id)}, {'parents': 1})['parents']
     parent_user_ids = [parents[index] for index in orig_indexes]
 
-    c1_width = memm.all_obs_arr.shape[1] * 2 + 10
-    print('TPM:')
-    print("{:<{w}}{:<30}{:<30}".format(' ', 0, 1, w=c1_width))
-    for i in range(memm.all_obs_arr.shape[0]):
-        obs = array_to_str(memm.all_obs_arr[i, :])
-        print("{:<{w}}{:<30}{:<30}".format(obs, memm.TPM[i, 0], memm.TPM[i, 1], w=c1_width))
-
+    print('Activation probability of observations:')
+    pp.pprint({obs_to_str(obs, new_dim): prob for obs, prob in memm.map_obs_prob.items()})
     print('\nSelected indexes:')
     pp.pprint(orig_indexes)
     print('\nUser ids of selected indexes:')
     pp.pprint(parent_user_ids)
     print('\nEvidences with decreased dimensions:')
     pp.pprint(sequences)
+    print('\nEvidences:')
+    pp.pprint([[(obs_to_str(obs, dim), state) for obs, state in seq] for seq in evidences['sequences']])
 
 
 def handle():

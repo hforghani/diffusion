@@ -81,17 +81,18 @@ class ProjectTester(abc.ABC):
         mean_rec = {}
         mean_fpr = {}
         mean_f1 = {}
+        logs = [f'{"threshold":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
         for thr in precisions:
             mean_prec[thr] = np.array(precisions[thr]).mean()
             mean_rec[thr] = np.array(recalls[thr]).mean()
             mean_fpr[thr] = np.array(fprs[thr]).mean()
             mean_f1[thr] = np.array(f1s[thr]).mean()
-            logger.info('(threshold = %.2f) averages: precision = %.3f, recall = %.3f, f1 = %.3f',
-                        thr, mean_prec[thr], mean_rec[thr], mean_f1[thr])
+            logs.append(f'{thr:10.2f}{mean_prec[thr]:10.3f}{mean_rec[thr]:10.3f}{mean_f1[thr]:10.3f}')
             # if self.method in ['aslt', 'avg']:
             #     logger.info('prp1 avg = %.3f', np.mean(np.array(prp1s[thr])))
             #     logger.info('prp2 avg = %.3f', np.mean(np.array(prp2s[thr])))
 
+        logger.info('averages:\n' + '\n'.join(logs))
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
     def __save_charts(self, best_thr: float, precs: dict, recs: dict, f1s: dict, fprs: dict, thresholds: list):

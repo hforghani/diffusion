@@ -176,26 +176,19 @@ class MEMMManager:
 
     def __doc_to_memm(self, doc):
         data = doc.read()
-        try:
-            memm_data = eval(data)
-        except OverflowError:
-            logger.debug('eval function does not work for a MEMM data with length %d. Will be divided.', doc.length)
-            memm_data = self.__parse_doc(data)
+        # try:
+        memm_data = eval(data)
+        # except OverflowError:
+        #     logger.debug('eval function does not work for a MEMM data with length %d. Will be divided.', doc.length)
+        #     memm_data = self.__parse_doc(data)
         memm = MEMM()
         memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr'])
         memm.orig_indexes = memm_data['orig_indexes']
-        # TODO: Remove TPM and map_obs_index.
-        if 'map_obs_prob' in memm_data:
-            memm.map_obs_prob = memm_data['map_obs_prob']
-        elif 'tpm' in memm_data and 'map_obs_index' in memm_data:
-            TPM = pickle.loads(memm_data['tpm'])
-            map_obs_index = {int(key): value for key, value in memm_data['map_obs_index'].items()}
-            memm.map_obs_prob = {obs: TPM[index][1] for obs, index in map_obs_index.items()}
-        else:
-            raise ValueError('no map_obs_prob data!')
+        memm.map_obs_prob = memm_data['map_obs_prob']
         return memm
 
     def __parse_doc(self, data):
+        # TODO: map_obs_prob must be replaced with tpm and map_obs_index.
         memm_data = {}
         i2 = data.index(b'tpm')
         i3 = data.index(b'all_obs_arr')
