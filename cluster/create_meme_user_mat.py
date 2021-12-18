@@ -11,7 +11,7 @@ from utils.numpy_utils import save_sparse
 
 logger.info('mapping cascade ids to indexes ...')
 db = DBManager().db
-cursor = db.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
+cursor = db.cascades.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
 cascade_ids = [m['_id'] for m in cursor]
 cursor.close()
 cascade_map = {str(cascade_ids[i]): i for i in range(len(cascade_ids))}
@@ -38,11 +38,11 @@ logger.info('reading postcascades ...')
 cascade_users = set()
 i = 0
 
-cursor = db.postmemes.find({}, {'_id': 0, 'post_id': 1, 'meme_id': 1}, no_cursor_timeout=True)
+cursor = db.postcascades.find({}, {'_id': 0, 'post_id': 1, 'cascade_id': 1}, no_cursor_timeout=True)
 for pm in cursor:
     post_id = str(pm['post_id'])
     user_ind = post_author_map[post_id]
-    cascade_id = str(pm['meme_id'])
+    cascade_id = str(pm['cascade_id'])
     cascade_users.add((cascade_map[cascade_id], user_ind))
     # cascade_user_mat[cascade_map[cascade_id], user_map[user_id]] = 1
 

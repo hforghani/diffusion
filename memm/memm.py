@@ -12,56 +12,40 @@ class MemmException(Exception):
     pass
 
 
+def obs_to_str(obs: int, dim: int) -> str:
+    return '{:>0{w}}'.format(bin(obs)[2:], w=dim)[::-1]
+
+
 def obs_to_array(obs: int, dim: int) -> np.array:
-    obs_copy = obs
     obs_arr = []
     for _ in range(dim):
-        obs_arr.append(obs_copy % 2)
-        obs_copy >>= 1
-    obs_arr = obs_arr[::-1]
+        obs_arr.append(obs % 2)
+        obs >>= 1
     return np.array(obs_arr, dtype=bool)
+
+
+def obs_to_sparse(obs: int, dim: int) -> np.array:
+    return csr_matrix(obs_to_array(obs, dim))
 
 
 def array_to_obs(arr: np.array) -> int:
     obs = 0
-    for d in arr:
-        obs <<= 1
-        obs += int(d)
+    for index in np.nonzero(arr)[0]:
+        obs |= 1 << int(index)
     return obs
 
 
 def sparse_to_obs(arr: csr_matrix) -> int:
-    obs = 0
-    dim = max(arr.shape)
-    for ind in arr.nonzero()[1]:
-        obs |= 1 << (dim - int(ind) - 1)
-    return obs
-
-
-def obs_to_sparse(obs: int, dim: int) -> np.array:
-    indexes = []
-    for i in range(dim):
-        if obs % 2:
-            indexes.append(dim - i - 1)
-        obs >>= 1
-    count = len(indexes)
-    return csr_matrix(([True] * count, ([0] * count, indexes)), shape=(1, dim))
-
-
-def obs_to_str(obs: int, dim: int) -> str:
-    return '{:>0{w}}'.format(bin(obs)[2:], w=dim)
+    return array_to_obs(arr.toarray())
 
 
 def array_to_str(arr: np.array) -> str:
-    return ''.join(str(d) for d in list(arr))
+    return ''.join(str(int(d)) for d in arr)
 
 
 class MEMM():
     def __init__(self):
-        # TODO: Remove TPM, map_obs_index.
-        self.TPM = None
         self.all_obs_arr = None
-        self.map_obs_index = {}
         self.orig_indexes = []
         self.map_obs_prob = {}
 
@@ -83,10 +67,10 @@ class MEMM():
             all_obs.update([pair[0] for pair in seq])
         all_obs = list(all_obs)
         self.all_obs_arr = csr_matrix(np.array([obs_to_array(obs, new_dim) for obs in all_obs]))
-        self.map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
+        map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
 
         # Get pairs of (obs, state) which their previous state is 0.
-        rel_pairs, rel_indexes = self.__get_related_pairs(new_sequences, self.map_obs_index)
+        rel_pairs, rel_indexes = self.__get_related_pairs(new_sequences, map_obs_index)
         # logger.debugv('rel_pairs = %s', rel_pairs)
 
         # Create matrices of observations and states for related pairs.
@@ -95,8 +79,8 @@ class MEMM():
         # If there is no state=1, set TPM manually.
         if not np.any(state_mat):
             obs_num = len(all_obs)
-            self.TPM = np.zeros((obs_num, 2))
-            self.TPM[:, 0] = 1
+            TPM = np.zeros((obs_num, 2))
+            TPM[:, 0] = 1
             return self
 
         # Calculate features for observation-state pairs. Shape of f1 is obs_num * (obs_dim+1)
@@ -118,9 +102,9 @@ class MEMM():
             iter_count += 1
             logger.debugv("iteration = %d ...", iter_count)
             Lambda0 = np.copy(Lambda)
-            self.TPM = self.__build_tpm(Lambda, self.all_obs_arr)
-            logger.debugv('TPM =\n%s', self.TPM)
-            E = self.__build_expectation(obs_mat, self.TPM, rel_indexes)
+            TPM = self.__build_tpm(Lambda, self.all_obs_arr)
+            logger.debugv('TPM =\n%s', TPM)
+            E = self.__build_expectation(obs_mat, TPM, rel_indexes)
             logger.debugv('E =\n%s', E)
             Lambda = self.__build_next_lambda(Lambda, C, F, E)
             logger.debugv('lambda = %s', Lambda)
@@ -134,8 +118,8 @@ class MEMM():
                 #    logger.info('GIS iterations : %d', iter_count)
                 break
 
-        for obs, index in self.map_obs_index.items():
-            self.map_obs_prob[obs] = self.TPM[index][1]
+        for obs, index in map_obs_index.items():
+            self.map_obs_prob[obs] = TPM[index][1]
 
         return self
 
@@ -161,7 +145,7 @@ class MEMM():
                 with timers[2]:
                     index, sim = self.__nearest_obs_index(new_obs, new_dim)
                 # logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
-                #               array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.tpm[index][1])
+                #               array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.map_obs_prob[new_obs])
                 # use probability * similarity when the observation not found.
                 with timers[3]:
                     nearest_obs = sparse_to_obs(self.all_obs_arr[index, :])
@@ -190,8 +174,10 @@ class MEMM():
         :param dim: number of dimensions
         :return: a tuple of index of the nearest nonzero observation and similarity rate
         """
-        new_obs_vec = obs_to_array(obs, dim)
-        sim = np.sum(self.all_obs_arr[1:, :] == np.tile(new_obs_vec, (self.all_obs_arr.shape[0] - 1, 1)), axis=1)
+        # new_obs_vec = obs_to_array(obs, dim)
+        # # First row is always zero, so neglected.
+        # sim = np.sum(self.all_obs_arr[1:, :] == np.tile(new_obs_vec, (self.all_obs_arr.shape[0] - 1, 1)), axis=1)
+        sim = np.array([bin(obs ^ o).count('1') for o in self.map_obs_prob])
         index = np.argmax(sim) + 1
         return index, np.max(sim) / dim
 
@@ -318,7 +304,7 @@ class MEMM():
         has_nnz_copy = has_nonzero
         for i in range(dim):
             if has_nnz_copy % 2:
-                orig_indexes.append(dim - i - 1)
+                orig_indexes.append(i)
             has_nnz_copy >>= 1
         orig_indexes.sort()
 

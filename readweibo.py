@@ -58,10 +58,10 @@ class Command:
             # Delete all data.
             if args.clear and not args.set_attributes:
                 logger.info('======== deleting data ...')
-                db.postmemes.delete_many({})
+                db.postcascades.delete_many({})
                 db.reshares.delete_many({})
                 db.posts.delete_many({})
-                db.memes.delete_many({})
+                db.cascades.delete_many({})
                 db.users.delete_many({})
 
             if not args.set_attributes:
@@ -83,8 +83,8 @@ class Command:
                     cascades_map = create_roots(args.roots_file)
                 elif args.retweets_file:
                     logger.info('collecting posts map ...')
-                    post_cascades = db.postmemes.find({}, ['post_id', 'meme_id'])
-                    cascades_map = {str(pm['post_id']): pm['meme_id'] for pm in post_cascades}
+                    post_cascades = db.postcascades.find({}, ['post_id', 'cascade_id'])
+                    cascades_map = {str(pm['post_id']): pm['cascade_id'] for pm in post_cascades}
 
                 # Create retweet data and complete original posts fields.
                 if args.retweets_file:

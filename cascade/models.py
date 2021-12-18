@@ -104,7 +104,7 @@ class CascadeTree(object):
             if isinstance(cascade_id, str):
                 cascade_id = ObjectId(cascade_id)
             db = DBManager().db
-            post_ids = db.postmemes.distinct('post_id', {'meme_id': cascade_id})
+            post_ids = db.postcascades.distinct('post_id', {'cascade_id': cascade_id})
             posts = db.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
 
             user_ids = list(set([p['author_id'] for p in posts]))
@@ -697,7 +697,7 @@ class Project(object):
         logger.info('querying posts ids ...')
         db = DBManager().db
         post_ids = [pm['post_id'] for pm in
-                    db.postmemes.find({'meme_id': {'$in': cascade_ids}}, {'_id': 0, 'post_id': 1})]
+                    db.postcascades.find({'cascade_id': {'$in': cascade_ids}}, {'_id': 0, 'post_id': 1})]
         return post_ids
 
     def __extract_act_seq(self, posts_ids, cascade_ids, seq_fname):
@@ -725,9 +725,9 @@ class Project(object):
             try:
                 for post in posts:
                     if post['datetime'] is not None:
-                        for pc in db.postmemes.find({'post_id': post['_id'], 'meme_id': {'$in': cascade_ids}},
-                                                    {'_id': 0, 'meme_id': 1}):
-                            cascade_id = pc['meme_id']
+                        for pc in db.postcascades.find({'post_id': post['_id'], 'cascade_id': {'$in': cascade_ids}},
+                                                    {'_id': 0, 'cascade_id': 1}):
+                            cascade_id = pc['cascade_id']
                             if post['author_id'] not in users[cascade_id]:
                                 users[cascade_id].append(post['author_id'])
                                 times[cascade_id].append(post['datetime'])
@@ -742,7 +742,7 @@ class Project(object):
         logger.info('setting relative times and max times ...')
         max_t = {}
         i = 0
-        for cascade in db.memes.find({'_id': {'$in': cascade_ids}}, ['last_time', 'first_time']):
+        for cascade in db.cascades.find({'_id': {'$in': cascade_ids}}, ['last_time', 'first_time']):
             mid = cascade['_id']
             times[mid] = [(t - cascade['first_time']).total_seconds() / (3600.0 * 24) for t in
                           times[mid]]  # number of days
@@ -815,10 +815,10 @@ class Project(object):
             user_id = resh['user_id']
             ref_user_id = resh['ref_user_id']
             if user_id != ref_user_id:
-                src_cascade_ids = {pm['meme_id'] for pm in
-                                db.postmemes.find({'post_id': resh['reshared_post_id']}, {'_id': 0, 'meme_id': 1})}
-                dest_cascade_ids = {pm['meme_id'] for pm in
-                                 db.postmemes.find({'post_id': resh['post_id']}, {'_id': 0, 'meme_id': 1})}
+                src_cascade_ids = {pm['cascade_id'] for pm in
+                                db.postcascades.find({'post_id': resh['reshared_post_id']}, {'_id': 0, 'cascade_id': 1})}
+                dest_cascade_ids = {pm['cascade_id'] for pm in
+                                 db.postcascades.find({'post_id': resh['post_id']}, {'_id': 0, 'cascade_id': 1})}
                 common_cascade = cascade_ids & src_cascade_ids & dest_cascade_ids
                 if common_cascade:
                     edges.append((ref_user_id, user_id))

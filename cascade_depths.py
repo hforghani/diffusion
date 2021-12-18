@@ -99,10 +99,10 @@ class Command:
             src_uid, dest_uid = resh['ref_user_id'], resh['user_id']
 
             if src_uid != dest_uid:
-                ref_cascades = {m['meme_id'] for m in
-                             db.postmemes.find({'post_id': resh['reshared_post_id']}, {'meme_id': 1})}
-                cascades = {m['meme_id'] for m in
-                         db.postmemes.find({'post_id': resh['post_id']}, {'meme_id': 1})}
+                ref_cascades = {m['cascade_id'] for m in
+                             db.postcascades.find({'post_id': resh['reshared_post_id']}, {'cascade_id': 1})}
+                cascades = {m['cascade_id'] for m in
+                         db.postcascades.find({'post_id': resh['post_id']}, {'cascade_id': 1})}
                 common_cascades = ref_cascades & cascades
 
                 for cascade_id in common_cascades:
@@ -146,10 +146,10 @@ class Command:
 
         logger.info('saving non-zero depths ...')
         for cascade_id, depth in depths.items():
-            db.memes.find_one_and_update({'_id': cascade_id}, {'$set': {'depth': depth}})
+            db.cascades.find_one_and_update({'_id': cascade_id}, {'$set': {'depth': depth}})
 
         logger.info('saving zero depths ...')
-        db.memes.update_many({'depth': None}, {'$set': {'depth': 0}})
+        db.cascades.update_many({'depth': None}, {'$set': {'depth': 0}})
 
 
 if __name__ == '__main__':

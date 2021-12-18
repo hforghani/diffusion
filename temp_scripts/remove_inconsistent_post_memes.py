@@ -15,7 +15,7 @@ logger.info('removing inconsistent posts ...')
 
 cursor = db.posts.find({'datetime': None}, ['_id'], no_cursor_timeout=True)
 for p in cursor:
-    db.postmemes.remove({'post_id': p['_id']})
+    db.postcascades.remove({'post_id': p['_id']})
     i += 1
     if i % 10000 == 0:
         logger.info('%d posts done: %.1f%%', i, i / count * 100)

@@ -256,7 +256,8 @@ class MEMMModel:
         m4_timer = Timer('MEMM predict 4', level='debug', unit=TimeUnit.SECONDS, slient=True)
         m5_timer = Timer('MEMM predict 5', level='debug', unit=TimeUnit.SECONDS, slient=True)
         m6_timer = Timer('MEMM predict 6', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        get_prob_timers = [Timer(f'get_prob timer {i}', level='debug', unit=TimeUnit.SECONDS, slient=True) for i in range(6)]
+        get_prob_timers = [Timer(f'get_prob timer {i}', level='debug', unit=TimeUnit.SECONDS, slient=True) for i in
+                           range(6)]
 
         """
         Create dictionary of predicted trees related to thresholds:
@@ -314,7 +315,7 @@ class MEMMModel:
                                 if thr <= max_predicted_thr:
                                     obs_thr = observations[thr]
                                     obs = obs_thr.get(child_id, 0)
-                                    obs |= 1 << (len(parents) - index - 1)
+                                    obs |= 1 << index
                                     obs_thr[child_id] = obs
                                 else:
                                     break

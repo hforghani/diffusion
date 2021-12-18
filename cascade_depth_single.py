@@ -39,7 +39,7 @@ class Command:
         logger.info('number of all reshares: {}'.format(count))
 
         post_ids = [pm['post_id'] for pm in
-                    db.postmemes.find({'meme_id': ObjectId(cascade_id)}, {'_id': 0, 'post_id': 1})]
+                    db.postcascades.find({'cascade_id': ObjectId(cascade_id)}, {'_id': 0, 'post_id': 1})]
 
         reshares = db.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
                                     {'_id': 0, 'user_id': 1, 'ref_user_id': 1},
@@ -81,7 +81,7 @@ class Command:
                 logger.info(
                     f'{i} reshares done. mean time: {(avg * step):.0f} s per {step}. estimated remaining time: {rem_str}')
 
-        db.memes.find_one_and_update({'_id': cascade_id}, {'$set': {'depth': depth}})
+        db.cascades.find_one_and_update({'_id': cascade_id}, {'$set': {'depth': depth}})
 
 
 if __name__ == '__main__':

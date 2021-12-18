@@ -97,7 +97,7 @@ class Command:
 
                 selected = np.load(os.path.join(BASE_PATH, 'data/weibo_cascade_labels2.npy'))
                 logger.info('fetching all cascade ids ...')
-                cursor = db.memes.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
+                cursor = db.cascades.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
                 all_cascade_ids = [m['_id'] for m in cursor]
                 cursor.close()
                 selected_cascades = np.array([str(mid) for mid in all_cascade_ids])[selected]
@@ -106,7 +106,7 @@ class Command:
                 if args.min_depth:
                     query['depth'] = {'$gte': args.min_depth}
                 logger.info('sampling cascades ...')
-                cascade_ids = [m['_id'] for m in db.memes.aggregate([
+                cascade_ids = [m['_id'] for m in db.cascades.aggregate([
                     {'$match': query},
                     {'$sample': {'size': args.sample_num}},
                     {'$project': {'_id': 1}}
@@ -119,7 +119,7 @@ class Command:
                 query = {}
                 if args.min_depth:
                     query = {'depth': {'$gte': args.min_depth}}
-                cascade_ids = [m['_id'] for m in db.memes.find(query, ['_id'])]
+                cascade_ids = [m['_id'] for m in db.cascades.find(query, ['_id'])]
                 shuffle(cascade_ids)
 
             if not cascade_ids:

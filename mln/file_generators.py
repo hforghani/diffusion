@@ -116,7 +116,7 @@ class FileCreator:
                     self.__write_isactivated(self.trees, [cascade_id], cascade_out_file, initials=True)
 
     def __write_follows(self, user_ids, user_indexes, train_cascades, out_file):
-        post_ids = Post.objects.filter(postmeme__meme_id__in=train_cascades).values_list('id', flat=True).distinct()
+        post_ids = Post.objects.filter(postcascade__cascade_id__in=train_cascades).values_list('id', flat=True).distinct()
         reshares = Reshare.objects.filter(post__in=post_ids, reshared_post__in=post_ids)
 
         logger.info('counting total reshares ...')

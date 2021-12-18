@@ -23,7 +23,7 @@ class LTAvg(AsLT):
         logger.info('querying posts of the cascades ...')
         db = DBManager().db
         posts_ids = [pm['post_id'] for pm in
-                     db.postmemes.find({'meme_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
+                     db.postcascades.find({'cascade_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
 
         if calc_weights or not calc_delays:
             self.calc_weights(posts_ids)

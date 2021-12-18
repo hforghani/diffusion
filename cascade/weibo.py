@@ -40,8 +40,8 @@ def create_roots(path):
                 content = [int(index) for index in line.split(' ') if index]
                 post_id_obj = ObjectId('{:024d}'.format(int(post_id)))
                 posts.append({'_id': post_id_obj})
-                cascade_id = db.memes.insert_one({'text': content}).inserted_id
-                post_cascades.append({'post_id': post_id_obj, 'meme_id': cascade_id})
+                cascade_id = db.cascades.insert_one({'text': content}).inserted_id
+                post_cascades.append({'post_id': post_id_obj, 'cascade_id': cascade_id})
                 cascades_map[post_id] = cascade_id
                 post_id = None
 
@@ -50,7 +50,7 @@ def create_roots(path):
                     logger.info('%d posts read' % i)
                 if i % 100000 == 0:
                     db.posts.insert_many(posts)
-                    db.postmemes.insert_many(post_cascades)
+                    db.postcascades.insert_many(post_cascades)
                     logger.info('%d cascades and their original posts created' % i)
                     posts = []
                     post_cascades = []
@@ -59,7 +59,7 @@ def create_roots(path):
 
     if posts:
         db.posts.insert_many(posts)
-        db.postmemes.insert_many(post_cascades)
+        db.postcascades.insert_many(post_cascades)
         logger.info('%d cascades and their original posts created' % i)
 
     return cascades_map
@@ -141,7 +141,7 @@ def create_retweets(path, start_index, users_map, user_ids, cascades_map):
     i = 0
     t0 = time.time()
     db = DBManager().db
-    cascades_count = db.memes.count()
+    cascades_count = db.cascades.count()
     post_cascades = []
     reshares = []
 
@@ -164,7 +164,7 @@ def create_retweets(path, start_index, users_map, user_ids, cascades_map):
                 logger.info(
                     'saving %d post cascades and %d reshares ...' % (len(post_cascades), len(reshares)))
                 if post_cascades or reshares:
-                    db.postmemes.insert_many(post_cascades)
+                    db.postcascades.insert_many(post_cascades)
                     db.reshares.insert_many(reshares)
                     post_cascades = []
                     reshares = []
@@ -186,7 +186,7 @@ def create_retweets(path, start_index, users_map, user_ids, cascades_map):
     # Save the remaining relations.
     logger.info(
         'saving %d post cascades and %d reshares ...' % (len(post_cascades), len(reshares)))
-    db.postmemes.insert_many(post_cascades)
+    db.postcascades.insert_many(post_cascades)
     db.reshares.insert_many(reshares)
 
 
@@ -211,7 +211,7 @@ def read_one_cascade_reshares(f, users_map, user_ids, cascade_map, ignoring=Fals
     if not ignoring:
         db.posts.update_one({'_id': original_pid},
                             {'$set': {'datetime': original_time, 'author_id': original_uid}})
-        db.postmemes.update_one({'post_id': original_pid},
+        db.postcascades.update_one({'post_id': original_pid},
                                 {'$set': {'datetime': original_time, 'author_id': original_uid}})
     cascade_id = cascade_map[str(original_pid)]
 
@@ -220,16 +220,16 @@ def read_one_cascade_reshares(f, users_map, user_ids, cascade_map, ignoring=Fals
     retweet_num = int(line)
 
     cascade_reshares = []
-    cascade_postmemes = []
+    cascade_postcascades = []
     # resh_pairs = set()
     posts_map = {str(original_uid): {'_id': original_pid, 'datetime': original_time}}
 
     for i in range(retweet_num):
         reshares, post_cascades = read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, ignoring)
         cascade_reshares.extend(reshares)
-        cascade_postmemes.extend(post_cascades)
+        cascade_postcascades.extend(post_cascades)
 
-    return cascade_reshares, cascade_postmemes
+    return cascade_reshares, cascade_postcascades
 
 
 def read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, ignoring=False):
@@ -306,7 +306,7 @@ def read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, igno
             resh = {'post_id': post_id, 'reshared_post_id': resh_post_id, 'datetime': resh_dt,
                     'user_id': dst, 'ref_user_id': src, 'ref_datetime': resh_post['datetime']}
             reshares.append(resh)
-            post_cascades.append({'post_id': post_id, 'meme_id': cascade_id, 'datetime': resh_dt})
+            post_cascades.append({'post_id': post_id, 'cascade_id': cascade_id, 'datetime': resh_dt})
             posts_map[str(dst)] = {'_id': post_id, 'datetime': resh_dt}
             # resh_pairs.add((str(src), str(dst)))
 
@@ -315,12 +315,12 @@ def read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, igno
 
 def calc_cascades_values():
     db = DBManager().db
-    count = db.memes.count()
+    count = db.cascades.count()
     save_step = 10 ** 6
 
     logger.info('query of cascade sizes (number of users) ...')
-    cascade_sizes = db.postmemes.aggregate([{'$group': {'_id': {'meme_id': '$meme_id', 'user_id': '$author_id'}}},
-                                         {'$group': {'_id': '$meme_id', 'size': {'$sum': 1}}}],
+    cascade_sizes = db.postcascades.aggregate([{'$group': {'_id': {'cascade_id': '$cascade_id', 'user_id': '$author_id'}}},
+                                         {'$group': {'_id': '$cascade_id', 'size': {'$sum': 1}}}],
                                         allowDiskUse=True)
 
     logger.info('saving ...')
@@ -330,13 +330,13 @@ def calc_cascades_values():
         operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'size': doc['count']}}))
         i += 1
         if i % save_step == 0:
-            db.memes.bulk_write(operations)
+            db.cascades.bulk_write(operations)
             operations = []
             logger.info('%d%% done', i * 100 / count)
-    db.memes.bulk_write(operations)
+    db.cascades.bulk_write(operations)
 
     logger.info('query of cascade counts ...')
-    cascade_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
+    cascade_counts = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'count': {'$sum': 1}}}],
                                          allowDiskUse=True)
 
     logger.info('saving ...')
@@ -346,13 +346,13 @@ def calc_cascades_values():
         operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'count': doc['count']}}))
         i += 1
         if i % save_step == 0:
-            db.memes.bulk_write(operations)
+            db.cascades.bulk_write(operations)
             operations = []
             logger.info('%d%% done', i * 100 / count)
-    db.memes.bulk_write(operations)
+    db.cascades.bulk_write(operations)
 
     logger.info('query of first times ...')
-    first_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}],
+    first_times = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'first': {'$min': '$datetime'}}}],
                                          allowDiskUse=True)
 
     logger.info('saving ...')
@@ -362,13 +362,13 @@ def calc_cascades_values():
         operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'first_time': doc['first']}}))
         i += 1
         if i % save_step == 0:
-            db.memes.bulk_write(operations)
+            db.cascades.bulk_write(operations)
             operations = []
             logger.info('%d%% done', i * 100 / count)
-    db.memes.bulk_write(operations)
+    db.cascades.bulk_write(operations)
 
     logger.info('query of last times ...')
-    last_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}],
+    last_times = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'last': {'$max': '$datetime'}}}],
                                         allowDiskUse=True)
 
     logger.info('saving ...')
@@ -378,10 +378,10 @@ def calc_cascades_values():
         operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'last_time': doc['last']}}))
         i += 1
         if i % save_step == 0:
-            db.memes.bulk_write(operations)
+            db.cascades.bulk_write(operations)
             operations = []
             logger.info('%d%% done', i * 100 / count)
-    db.memes.bulk_write(operations)
+    db.cascades.bulk_write(operations)
 
 
 def read_uidlist(uidlist_file):

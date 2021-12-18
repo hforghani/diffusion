@@ -86,10 +86,10 @@ class Command:
             # Delete all data.
             if args.clear and not args.set_attributes:
                 logger.info('======== deleting data ...')
-                db.postmemes.delete_many()
+                db.postcascades.delete_many()
                 db.reshares.delete_many()
                 db.posts.delete_many()
-                db.memes.delete_many()
+                db.cascades.delete_many()
                 db.users.delete_many()
 
             # Create instances of non-relation entities.
@@ -149,8 +149,8 @@ class Command:
 
         logger.info('extracting new cascades ...')
         step = 3 * 10 ** 6
-        m_count = db.memes.count()
-        cursor = db.memes.find({}, {'_id': 0, 'text': 1}, no_cursor_timeout=True)
+        m_count = db.cascades.count()
+        cursor = db.cascades.find({}, {'_id': 0, 'text': 1}, no_cursor_timeout=True)
         i = 0
         for m in cursor:
             i += 1
@@ -166,12 +166,12 @@ class Command:
             cascade_entities.append({'text': text})
             i += 1
             if i % 100000 == 0:
-                db.memes.insert_many(cascade_entities)
+                db.cascades.insert_many(cascade_entities)
                 logger.info('%d cascades created' % i)
                 cascade_entities = []
 
         if cascade_entities:
-            db.memes.insert_many(cascade_entities)
+            db.cascades.insert_many(cascade_entities)
         logger.info('%d cascades created' % len(cascade_entities))
         del cascades
         del cascade_entities
@@ -290,7 +290,7 @@ class Command:
                         logger.info(
                             'saving %d post cascades and %d reshares ...' % (len(post_cascades), len(reshares)))
                         if post_cascades or reshares:
-                            db.postmemes.insert_many(post_cascades)
+                            db.postcascades.insert_many(post_cascades)
                             db.reshares.insert_many(reshares)
                             post_cascades = []
                             reshares = []
@@ -349,13 +349,13 @@ class Command:
         # Save the remaining relations.
         logger.info(
             'saving %d post cascades and %d reshares ...' % (len(post_cascades), len(reshares)))
-        db.postmemes.insert_many(post_cascades)
+        db.postcascades.insert_many(post_cascades)
         db.reshares.insert_many(reshares)
 
     # @profile
     def get_post_rels(self, post_id, datetime, cascade_ids, source_ids):
         """
-        Create PostMeme and Reshare instances for the referenced links. Just create the instances not inserting in the db.
+        Create Postcascade and Reshare instances for the referenced links. Just create the instances not inserting in the db.
         """
         db = DBManager().db
 
@@ -366,7 +366,7 @@ class Command:
 
         # Assign the cascades to the post.
         post_cascades = [{'post_id': post_id,
-                       'meme_id': mid,
+                       'cascade_id': mid,
                        'datetime': datetime,
                        'author_id': post['author_id']} for mid in cascade_ids]
 
@@ -392,7 +392,7 @@ class Command:
 
         # Replace cascade texts with cascade ids and create temporary data files.
         from_path = path
-        cascades_count = db.memes.count()
+        cascades_count = db.cascades.count()
         step = 10 ** 7
         i = 0
         t0 = time.time()
@@ -478,7 +478,7 @@ class Command:
             pipelines.append({'$skip': offset})
             if limit is not None:
                 pipelines.append({'$limit': limit})
-        cascades = db.memes.aggregate(pipelines)
+        cascades = db.cascades.aggregate(pipelines)
         for cascade in cascades:
             cascades_map[cascade['text']] = cascade['_id']
         return cascades_map
@@ -504,12 +504,12 @@ class Command:
 
     def calc_cascade_values(self):
         db = DBManager().db
-        count = db.memes.count()
+        count = db.cascades.count()
         save_step = 10 ** 6
 
         logger.info('query of cascade sizes (number of users) ...')
-        cascade_sizes = db.postmemes.aggregate([{'$group': {'_id': {'meme_id': '$meme_id', 'user_id': '$author_id'}}},
-                                             {'$group': {'_id': '$_id.meme_id', 'size': {'$sum': 1}}}],
+        cascade_sizes = db.postcascades.aggregate([{'$group': {'_id': {'cascade_id': '$cascade_id', 'user_id': '$author_id'}}},
+                                             {'$group': {'_id': '$_id.cascade_id', 'size': {'$sum': 1}}}],
                                             allowDiskUse=True)
 
         logger.info('saving ...')
@@ -519,13 +519,13 @@ class Command:
             operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'size': doc['size']}}))
             i += 1
             if i % save_step == 0:
-                db.memes.bulk_write(operations)
+                db.cascades.bulk_write(operations)
                 operations = []
                 logger.info('%d%% done', i * 100 / count)
-        db.memes.bulk_write(operations)
+        db.cascades.bulk_write(operations)
 
         logger.info('query of number of posts of cascades ...')
-        cascade_counts = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'count': {'$sum': 1}}}],
+        cascade_counts = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'count': {'$sum': 1}}}],
                                              allowDiskUse=True)
 
         logger.info('saving ...')
@@ -535,13 +535,13 @@ class Command:
             operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'count': doc['count']}}))
             i += 1
             if i % save_step == 0:
-                db.memes.bulk_write(operations)
+                db.cascades.bulk_write(operations)
                 operations = []
                 logger.info('%d%% done', i * 100 / count)
-        db.memes.bulk_write(operations)
+        db.cascades.bulk_write(operations)
 
         logger.info('query of first times ...')
-        first_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'first': {'$min': '$datetime'}}}],
+        first_times = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'first': {'$min': '$datetime'}}}],
                                              allowDiskUse=True)
 
         logger.info('saving ...')
@@ -551,13 +551,13 @@ class Command:
             operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'first_time': doc['first']}}))
             i += 1
             if i % save_step == 0:
-                db.memes.bulk_write(operations)
+                db.cascades.bulk_write(operations)
                 operations = []
                 logger.info('%d%% done', i * 100 / count)
-        db.memes.bulk_write(operations)
+        db.cascades.bulk_write(operations)
 
         logger.info('query of last times ...')
-        last_times = db.postmemes.aggregate([{'$group': {'_id': '$meme_id', 'last': {'$max': '$datetime'}}}],
+        last_times = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'last': {'$max': '$datetime'}}}],
                                             allowDiskUse=True)
 
         logger.info('saving ...')
@@ -567,10 +567,10 @@ class Command:
             operations.append(UpdateOne({'_id': doc['_id']}, {'$set': {'last_time': doc['last']}}))
             i += 1
             if i % save_step == 0:
-                db.memes.bulk_write(operations)
+                db.cascades.bulk_write(operations)
                 operations = []
                 logger.info('%d%% done', i * 100 / count)
-        db.memes.bulk_write(operations)
+        db.cascades.bulk_write(operations)
 
     def get_username(self, url):
         """

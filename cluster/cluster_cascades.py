@@ -19,7 +19,7 @@ from cascade.models import Project
 
 def get_users(cascade_id):
     db = DBManager().db
-    users = db.postmemes.find({'meme_id': ObjectId(cascade_id)}, {'author_id': 1, '_id': 0})
+    users = db.postcascades.find({'cascade_id': ObjectId(cascade_id)}, {'author_id': 1, '_id': 0})
     return list({str(u['author_id']) for u in users})
 
 
@@ -156,7 +156,7 @@ def show_clusters(clust_num, min_size, max_size, depth):
         query['size']['$lte'] = max_size
     if depth is not None:
         query['depth'] = {'$gte': depth}
-    res_cascades = list(db.memes.find(query, ['_id', 'size']))
+    res_cascades = list(db.cascades.find(query, ['_id', 'size']))
     cascades = [str(m['_id']) for m in res_cascades]
     sizes = {str(m['_id']): m['size'] for m in res_cascades}
     logger.info('%d cascades found', len(cascades))

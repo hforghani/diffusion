@@ -32,7 +32,7 @@ def main(args):
             if args.min:
                 query['size']['$gte'] = args.min
 
-        cascades = DBManager().db.memes.find(query, {'_id': int(args.idout is not None), 'size': 1})
+        cascades = DBManager().db.cascades.find(query, {'_id': int(args.idout is not None), 'size': 1})
         csizes = np.array([m['size'] for m in cascades])
         min_size, max_size = csizes.min(), csizes.max()
         print(f'min of all: {min_size}')

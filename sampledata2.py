@@ -43,7 +43,7 @@ class Command:
 
             logger.debug('query: %s', query)
             db = DBManager().db
-            cascades = list(db.memes.find(query, ['_id']))
+            cascades = list(db.cascades.find(query, ['_id']))
             cascades = [m['_id'] for m in cascades]
 
             if len(cascades) < args.number:
