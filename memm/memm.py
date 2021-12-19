@@ -1,11 +1,10 @@
 from typing import Tuple
-
 import numpy as np
 import scipy
-
 from scipy.sparse import csr_matrix
 
 from settings import logger
+from utils.time_utils import time_measure
 
 
 class MemmException(Exception):
@@ -30,7 +29,7 @@ def obs_to_sparse(obs: int, dim: int) -> np.array:
 
 def array_to_obs(arr: np.array) -> int:
     obs = 0
-    for index in np.nonzero(arr)[0]:
+    for index in np.nonzero(arr)[1]:
         obs |= 1 << int(index)
     return obs
 
@@ -43,7 +42,7 @@ def array_to_str(arr: np.array) -> str:
     return ''.join(str(int(d)) for d in arr)
 
 
-class MEMM():
+class MEMM:
     def __init__(self):
         self.all_obs_arr = None
         self.orig_indexes = []
@@ -94,10 +93,9 @@ class MEMM():
         Lambda = np.ones(new_dim + 1)
 
         # GIS, run until convergence
-        epsilon = 0.001
+        epsilon = 10 ** -5
         max_iteration = 1000
         iter_count = 0
-        nnz_list = []  # for test
         while True:
             iter_count += 1
             logger.debugv("iteration = %d ...", iter_count)
@@ -109,13 +107,9 @@ class MEMM():
             Lambda = self.__build_next_lambda(Lambda, C, F, E)
             logger.debugv('lambda = %s', Lambda)
 
-            # nnz = np.count_nonzero(np.absolute(Lambda0 - Lambda) > epsilon)
-            # nnz_list.append(nnz)
-            # if nnz == 0:
-            if np.linalg.norm(Lambda0 - Lambda) / (new_dim + 1) < epsilon or iter_count >= max_iteration:
-                # if log > 0:
-                #    logger.info('distances in iterations: %s', nnz_list)
-                #    logger.info('GIS iterations : %d', iter_count)
+            diff = np.linalg.norm(Lambda0 - Lambda) / (new_dim + 1)
+            if diff < epsilon or iter_count >= max_iteration:
+                logger.debug('GIS iterations = %d, diff = %s', iter_count, diff)
                 break
 
         for obs, index in map_obs_index.items():
@@ -123,70 +117,59 @@ class MEMM():
 
         return self
 
-    def get_prob(self, obs: int, dim: int, timers) -> float:
+    def get_prob(self, obs: int) -> float:
         """
         Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
         :param obs:     current observation
-        :param dim:     dimension of observation vector
         """
         # logger.debug('running MEMM predict method ...')
-        with timers[0]:
-            new_obs = self.__decrease_dim_by_indexes(obs, dim, self.orig_indexes)
-            new_dim = len(self.orig_indexes)
-            # new_obs_bin = obs_to_str(new_obs, new_dim)
+        new_obs = self.decrease_dim_by_indexes(obs, self.orig_indexes)
+        new_dim = len(self.orig_indexes)
+        # new_obs_bin = obs_to_str(new_obs, new_dim)
 
-            with timers[5]:
-                exists = new_obs in self.map_obs_prob
-            if exists:
-                with timers[1]:
-                    return self.map_obs_prob[new_obs]
-            else:
-                # prob = 0
-                with timers[2]:
-                    index, sim = self.__nearest_obs_index(new_obs, new_dim)
-                # logger.debugv('obs %s not found. nearest: %s , sim = %f , prob = %f', new_obs_bin,
-                #               array_to_str(self.all_obs_arr[index, :].toarray()), sim, self.map_obs_prob[new_obs])
-                # use probability * similarity when the observation not found.
-                with timers[3]:
-                    nearest_obs = sparse_to_obs(self.all_obs_arr[index, :])
-                with timers[4]:
-                    prob = self.map_obs_prob[nearest_obs] * sim
+        if new_obs in self.map_obs_prob:
+            return self.map_obs_prob[new_obs]
+        else:
+            # prob = 0
+            nearest_obs, sim = self.__nearest_obs(new_obs, new_dim)
+            # logger.debug('obs %s not found. nearest: %s , sim = %f , prob = %f', obs_to_str(new_obs, new_dim),
+            #              obs_to_str(nearest_obs, new_dim), sim, self.map_obs_prob[nearest_obs])
+            # use probability * similarity when the observation not found.
+            prob = self.map_obs_prob[nearest_obs] * sim
 
-                # self.map_obs_prob[new_obs] = prob
-                return prob
+            return prob
 
-    def predict(self, obs, dim, threshold):
+    def predict(self, obs: int, threshold: float, timers=None) -> Tuple[int, float]:
         """
         Predict the state conditioned on the given observation if the previous state is 0 (inactivated).
         :param threshold: probability threshold
         :param obs:     current observation
-        :param dim:     dimension of observation vector
         :return:        predicted next state
         """
-        prob = self.get_prob(obs, dim)
+        prob = self.get_prob(obs)
         next_state = int(prob >= threshold)
         return next_state, prob
 
-    def __nearest_obs_index(self, obs: int, dim: int) -> Tuple[int, float]:
+    def __nearest_obs(self, obs: int, dim: int) -> Tuple[int, float]:
         """
-        Get the index of the nearest observation to the observation given.
+        Get the nearest nonzero observation to the observation given.
         :param obs: observation as an int number
         :param dim: number of dimensions
-        :return: a tuple of index of the nearest nonzero observation and similarity rate
+        :return: a tuple of the nearest nonzero observation and similarity rate
         """
-        # new_obs_vec = obs_to_array(obs, dim)
-        # # First row is always zero, so neglected.
-        # sim = np.sum(self.all_obs_arr[1:, :] == np.tile(new_obs_vec, (self.all_obs_arr.shape[0] - 1, 1)), axis=1)
-        sim = np.array([bin(obs ^ o).count('1') for o in self.map_obs_prob])
-        index = np.argmax(sim) + 1
-        return index, np.max(sim) / dim
+        observations = sorted(list(self.map_obs_prob.keys()))[1:]
+        dist = np.array([bin(obs ^ o).count('1') for o in observations])
+        index = np.argmin(dist)
+        sim = (dim - np.min(dist)) / dim
+        return observations[index], sim
 
     def __create_matrices(self, pairs, indexes):
         obs_mat = self.all_obs_arr[indexes, :]
         state_array = [pair[1] for pair in pairs]
         return obs_mat, np.array(state_array, dtype=bool)
 
-    def __calc_features(self, obs_mat, state_mat):
+    @staticmethod
+    def __calc_features(obs_mat, state_mat):
         obs_num, obs_dim = obs_mat.get_shape()
         # features = np.logical_and(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
         features = np.logical_not(
@@ -262,7 +245,8 @@ class MEMM():
         E /= obs_num
         return E
 
-    def __build_next_lambda(self, Lambda, C, F, E):
+    @staticmethod
+    def __build_next_lambda(Lambda, C, F, E):
         """
         Use Generalized iterative scaling (GIS) to learn Lambda parameter
         """
@@ -274,7 +258,8 @@ class MEMM():
                 Lambda[i] += (np.log(F[i]) - np.log(E[i])) / C
         return Lambda
 
-    def __check_lambda_convergence(self, Lambda0, Lambda1, epsilon):
+    @staticmethod
+    def __check_lambda_convergence(Lambda0, Lambda1, epsilon):
         """
         Check if the lambdas are relatively the same.
         :param Lambda0: previous lambda
@@ -299,7 +284,7 @@ class MEMM():
             for obs, state in seq[1:]:
                 has_nonzero |= obs
 
-        # Create map of new dimension indexes to the old indexes.
+        # Extract indexes of non-zero values of observations. These are the dimension we want to preserve.
         orig_indexes = []
         has_nnz_copy = has_nonzero
         for i in range(dim):
@@ -319,43 +304,16 @@ class MEMM():
         for seq in sequences:
             new_seq = []
             for obs, state in seq:
-                new_obs = self.__decrease_dim_by_indexes(obs, dim, orig_indexes)
+                new_obs = self.decrease_dim_by_indexes(obs, orig_indexes)
                 new_seq.append((new_obs, state))
             new_sequences.append(new_seq)
 
         return new_sequences, orig_indexes
 
-    def __decrease_dim_by_indexes(self, obs, dim, orig_indexes):
+    @staticmethod
+    def decrease_dim_by_indexes(obs, orig_indexes):
         new_obs = 0
-        for ind in orig_indexes:
+        for ind in orig_indexes[::-1]:
             new_obs <<= 1
-            new_obs += (obs >> (dim - ind - 1)) % 2
+            new_obs += (obs >> ind) % 2
         return new_obs
-
-    def __inc_matrix_dim(self, matrix, orig_indexes, obs_dim):
-        """
-        Add the removed features to matrix (observations or lambda). Add all-zero dimensions in the correct positions.
-        :param matrix:          if a vector with size D is given it increases its dimension to obs_dim using map_index.
-                                if a matrix with size N*D is given it returns a matrix with size N*obs_dim using map_index.
-        :param orig_indexes:    list of indexes of original indexes related to each decreased dimension
-        :param obs_dim:         original number of dimensions
-        :return:                the matrix with original dimensions
-        """
-        if len(matrix.shape) == 1:
-            orig_matrix = np.zeros(obs_dim, dtype=matrix.dtype)
-            orig_matrix[orig_indexes] = matrix
-        else:
-            orig_matrix = np.zeros((matrix.shape[0], obs_dim), dtype=matrix.dtype)
-            orig_matrix[:, orig_indexes] = matrix
-        return orig_matrix
-
-    def __inc_map_obs_dim(self, map_obs_index, orig_indexes, obs_dim):
-        new_map = {}
-        new_dim = len(orig_indexes)
-        for obs, index in map_obs_index.items():
-            obs_vec = obs_to_array(obs, new_dim)
-            orig_vec = np.zeros(obs_dim, dtype=bool)
-            orig_vec[orig_indexes] = obs_vec
-            orig_obs = array_to_obs(orig_vec)
-            new_map[orig_obs] = index
-        return new_map

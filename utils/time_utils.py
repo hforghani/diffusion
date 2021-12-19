@@ -49,7 +49,7 @@ def time_report(t, unit):
     if unit is None:
         unit = select_unit(t)
     if unit == TimeUnit.SECONDS:
-        return f'{t:.1f} s'
+        return f'{t} s'
     elif unit == TimeUnit.MINUTES:
         return f'{t / 60:.1f} m'
     elif unit == TimeUnit.HOURS:

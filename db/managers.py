@@ -183,8 +183,10 @@ class MEMMManager:
         #     memm_data = self.__parse_doc(data)
         memm = MEMM()
         memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr'])
-        memm.orig_indexes = memm_data['orig_indexes']
         memm.map_obs_prob = memm_data['map_obs_prob']
+        memm.orig_indexes = memm_data['orig_indexes']
+        if isinstance(memm.orig_indexes, dict):
+            memm.orig_indexes = sorted(list(memm.orig_indexes.values()))
         return memm
 
     def __parse_doc(self, data):

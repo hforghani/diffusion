@@ -23,15 +23,15 @@ def print_info(user_id, evidences, memm):
     parent_user_ids = [parents[index] for index in orig_indexes]
 
     print('Activation probability of observations:')
-    pp.pprint({obs_to_str(obs, new_dim): prob for obs, prob in memm.map_obs_prob.items()})
+    pp.pprint({(obs, obs_to_str(obs, new_dim)): prob for obs, prob in memm.map_obs_prob.items()})
     print('\nSelected indexes:')
     pp.pprint(orig_indexes)
     print('\nUser ids of selected indexes:')
     pp.pprint(parent_user_ids)
     print('\nEvidences with decreased dimensions:')
     pp.pprint(sequences)
-    print('\nEvidences:')
-    pp.pprint([[(obs_to_str(obs, dim), state) for obs, state in seq] for seq in evidences['sequences']])
+    # print('\nEvidences:')
+    # pp.pprint([[(obs_to_str(obs, dim), state) for obs, state in seq] for seq in evidences['sequences']])
 
 
 def handle():

@@ -101,8 +101,7 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                     res_trees = model.predict(cid, initial_tree, threshold=thresholds)
                 elif method in ['aslt', 'avg']:
                     res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
-                                              user_ids=user_ids,
-                                              users_map=users_map)
+                                              user_ids=user_ids, users_map=users_map)
                 elif method == 'memm':
                     res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
                                               multiprocessed=False)

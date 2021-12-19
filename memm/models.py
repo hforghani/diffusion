@@ -1,3 +1,4 @@
+import logging
 import math
 import random
 from multiprocessing.pool import Pool
@@ -23,6 +24,7 @@ class MEMMModel:
         self.project = project
         self.__memms = {}
 
+    @time_measure(level='debug')
     def __prepare_evidences(self, train_set):
         """
         Prepare the sequence of observations and states to train the MEMM models.
@@ -246,18 +248,16 @@ class MEMMModel:
         :return: dictionary of predicted tree for thresholds
         """
         db = DBManager().db
-        ch_timer = Timer('get children', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        p_timer = Timer('get parents', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        obs_timer = Timer('observations', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        m_timer = Timer('MEMM predict', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        m1_timer = Timer('MEMM predict 1', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        m2_timer = Timer('MEMM predict 2', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        m3_timer = Timer('MEMM predict 3', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        m4_timer = Timer('MEMM predict 4', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        m5_timer = Timer('MEMM predict 5', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        m6_timer = Timer('MEMM predict 6', level='debug', unit=TimeUnit.SECONDS, slient=True)
-        get_prob_timers = [Timer(f'get_prob timer {i}', level='debug', unit=TimeUnit.SECONDS, slient=True) for i in
-                           range(6)]
+        ch_timer = Timer('get children', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        p_timer = Timer('get parents', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        obs_timer = Timer('observations', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        m_timer = Timer('MEMM predict', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        m1_timer = Timer('MEMM predict 1', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        m2_timer = Timer('MEMM predict 2', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        m3_timer = Timer('MEMM predict 3', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        m4_timer = Timer('MEMM predict 4', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        m5_timer = Timer('MEMM predict 5', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        m6_timer = Timer('MEMM predict 6', level='debug', unit=TimeUnit.SECONDS, silent=True)
 
         """
         Create dictionary of predicted trees related to thresholds:
@@ -329,8 +329,6 @@ class MEMMModel:
                                     memm = self.get_memm(child_id)
 
                                 if memm is not None:
-                                    with m2_timer:
-                                        parents = parents_dic[child_id]
                                     child_max_pred_thr = None
                                     probs = {}
 
@@ -340,7 +338,7 @@ class MEMMModel:
                                                 obs = observations[thr][child_id]
                                                 logger.debugv('testing reshare to user %s ...', child_id)
                                             with m4_timer:
-                                                prob = probs.get(obs, memm.get_prob(obs, len(parents), get_prob_timers))
+                                                prob = probs.get(obs, memm.get_prob(obs))
                                                 probs[obs] = prob
 
                                             if prob >= thr:
@@ -348,7 +346,7 @@ class MEMMModel:
                                                     child = CascadeNode(child_id)
                                                     trees[thr].get_node(node_id).children.append(child)
                                                     child_max_pred_thr = thr
-                                                    logger.debug('a reshare predicted %f >= %f', prob, thr)
+                                                    # logger.debug('a reshare predicted %f >= %f', prob, thr)
                                         else:
                                             break
 
@@ -371,9 +369,9 @@ class MEMMModel:
             cur_step = next_step
             step_num += 1
 
-        for timer in [ch_timer, p_timer, obs_timer, m_timer, m1_timer, m2_timer, m3_timer, m4_timer, m5_timer,
-                      m6_timer] + get_prob_timers:
-            timer.report_sum()
+        # for timer in [ch_timer, p_timer, obs_timer, m_timer, m1_timer, m2_timer, m3_timer, m4_timer, m5_timer,
+        #               m6_timer]:
+        #     timer.report_sum()
 
         return trees
 
