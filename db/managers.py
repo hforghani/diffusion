@@ -26,12 +26,12 @@ class EvidenceManager:
         if not isinstance(user_id, ObjectId):
             user_id = ObjectId(user_id)
         fs = gridfs.GridFS(self.db)
-        docs = fs.find({'user_id': user_id})
-        if not docs:
-            raise ValueError('No evidence exists for user id %s', user_id)
+        doc = fs.find_one({'user_id': user_id})
+        if doc is None:
+            raise ValueError(f'No evidence exists for user id {user_id}')
         return {
-            'dimension': docs[0].dimension,
-            'sequences': eval(docs[0].read())
+            'dimension': doc.dimension,
+            'sequences': eval(doc.read())
         }
 
     def __find_by_user_ids(self, user_ids):

@@ -10,7 +10,7 @@ from matplotlib import pyplot
 import numpy as np
 
 logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('displaytree')
+logger = logging.getLogger('cascades_stat')
 logger.setLevel(settings.LOG_LEVEL)
 
 

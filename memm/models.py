@@ -44,8 +44,9 @@ class MEMMModel:
 
             logger.info('extracting sequences from %d cascades ...', len(train_set))
 
-            pool = Pool(processes=settings.PROCESS_COUNT)
-            step = int(math.ceil(float(len(train_set)) / settings.PROCESS_COUNT))
+            process_count = min(settings.PROCESS_COUNT, len(train_set))
+            pool = Pool(processes=process_count)
+            step = int(math.ceil(float(len(train_set)) / process_count))
             results = []
             for j in range(0, len(train_set), step):
                 cascade_ids = train_set[j: j + step]
@@ -123,12 +124,13 @@ class MEMMModel:
         """
         user_ids = list(evidences.keys())
         random.shuffle(user_ids)
-        logger.debug('starting %d processes to train MEMMs', settings.PROCESS_COUNT)
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(len(evidences) / settings.PROCESS_COUNT))
+        process_count = min(settings.PROCESS_COUNT, len(evidences))
+        logger.debug('starting %d processes to train MEMMs', process_count)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(len(evidences) / process_count))
         results = []
 
-        for i in range(settings.PROCESS_COUNT):
+        for i in range(process_count):
             user_ids_i = user_ids[i * step: (i + 1) * step]
             evidences_i = {}
             for uid in user_ids_i:

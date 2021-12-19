@@ -692,7 +692,7 @@ class Project(object):
 
         return graph, sequences
 
-    @time_measure()
+    @time_measure(level='info')
     def __get_cascades_post_ids(self, cascade_ids):
         logger.info('querying posts ids ...')
         db = DBManager().db
@@ -700,6 +700,7 @@ class Project(object):
                     db.postcascades.find({'cascade_id': {'$in': cascade_ids}}, {'_id': 0, 'post_id': 1})]
         return post_ids
 
+    @time_measure(level='info')
     def __extract_act_seq(self, posts_ids, cascade_ids, seq_fname):
         """
         Extract list of activation sequences from given cascade id's.
@@ -708,7 +709,6 @@ class Project(object):
         :param seq_fname:   the file name to save activation sequences data
         :return:            list of ActSequence's
         """
-        t0 = time.time()
         logger.info('extracting act. sequences from %d posts ...' % len(posts_ids))
         post_count = len(posts_ids)
         users = {m: [] for m in cascade_ids}
@@ -726,7 +726,7 @@ class Project(object):
                 for post in posts:
                     if post['datetime'] is not None:
                         for pc in db.postcascades.find({'post_id': post['_id'], 'cascade_id': {'$in': cascade_ids}},
-                                                    {'_id': 0, 'cascade_id': 1}):
+                                                       {'_id': 0, 'cascade_id': 1}):
                             cascade_id = pc['cascade_id']
                             if post['author_id'] not in users[cascade_id]:
                                 users[cascade_id].append(post['author_id'])
@@ -746,7 +746,8 @@ class Project(object):
             mid = cascade['_id']
             times[mid] = [(t - cascade['first_time']).total_seconds() / (3600.0 * 24) for t in
                           times[mid]]  # number of days
-            max_t[mid] = (cascade['last_time'] - cascade['first_time']).total_seconds() / (3600.0 * 24)  # number of days
+            max_t[mid] = (cascade['last_time'] - cascade['first_time']).total_seconds() / (
+                    3600.0 * 24)  # number of days
             i += 1
             if i % (len(cascade_ids) / 10) == 0:
                 logger.info('%d%% done' % (i * 100 / len(cascade_ids)))
@@ -765,9 +766,7 @@ class Project(object):
                 'max_t': sequences[m].max_t
             }
         self.save_param(seq_copy, seq_fname, ParamTypes.JSON)
-        del seq_copy
 
-        logger.info('act. seq. extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return sequences
 
     def __extract_reshares(self, db, post_ids):
@@ -816,9 +815,10 @@ class Project(object):
             ref_user_id = resh['ref_user_id']
             if user_id != ref_user_id:
                 src_cascade_ids = {pm['cascade_id'] for pm in
-                                db.postcascades.find({'post_id': resh['reshared_post_id']}, {'_id': 0, 'cascade_id': 1})}
+                                   db.postcascades.find({'post_id': resh['reshared_post_id']},
+                                                        {'_id': 0, 'cascade_id': 1})}
                 dest_cascade_ids = {pm['cascade_id'] for pm in
-                                 db.postcascades.find({'post_id': resh['post_id']}, {'_id': 0, 'cascade_id': 1})}
+                                    db.postcascades.find({'post_id': resh['post_id']}, {'_id': 0, 'cascade_id': 1})}
                 common_cascade = cascade_ids & src_cascade_ids & dest_cascade_ids
                 if common_cascade:
                     edges.append((ref_user_id, user_id))

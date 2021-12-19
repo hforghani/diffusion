@@ -75,11 +75,9 @@ class MEMM:
         # Create matrices of observations and states for related pairs.
         obs_mat, state_mat = self.__create_matrices(rel_pairs, rel_indexes)
 
-        # If there is no state=1, set TPM manually.
+        # If there is no state=1, set probabilities manually.
         if not np.any(state_mat):
-            obs_num = len(all_obs)
-            TPM = np.zeros((obs_num, 2))
-            TPM[:, 0] = 1
+            self.map_obs_prob = {obs: 0 for obs in all_obs}
             return self
 
         # Calculate features for observation-state pairs. Shape of f1 is obs_num * (obs_dim+1)

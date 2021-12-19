@@ -410,8 +410,9 @@ class Saito(AsLT):
     def calc_h_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map):
         u_count = len(user_map)
         m_count = len(cascade_ids)
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        process_count = min(settings.PROCESS_COUNT, m_count)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(m_count / process_count))
         results = []
         for j in range(0, m_count, step):
             subset = cascade_ids[j: j + step]
@@ -439,8 +440,9 @@ class Saito(AsLT):
     def calc_g_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map):
         u_count = len(user_map)
         m_count = len(cascade_ids)
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        process_count = min(settings.PROCESS_COUNT, m_count)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(m_count / process_count))
         results = []
         for j in range(0, m_count, step):
             subset = cascade_ids[j: j + step]
@@ -467,8 +469,9 @@ class Saito(AsLT):
     @time_measure()
     def calc_phi_h_mp(self, data, graph, w, r, h, cascade_ids, cascade_map, user_map):
         m_count = len(cascade_ids)
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        process_count = min(settings.PROCESS_COUNT, m_count)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(m_count / process_count))
         results = []
         for j in range(0, m_count, step):
             subset = cascade_ids[j: j + step]
@@ -491,8 +494,9 @@ class Saito(AsLT):
     @time_measure()
     def calc_phi_g_mp(self, data, graph, w, g, cascade_ids, cascade_map, user_map):
         m_count = len(cascade_ids)
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        process_count = min(settings.PROCESS_COUNT, m_count)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(m_count / process_count))
         results = []
         for j in range(0, m_count, step):
             subset = cascade_ids[j: j + step]
@@ -515,8 +519,9 @@ class Saito(AsLT):
     @time_measure()
     def calc_psi_mp(self, data, graph, w, r, g, cascade_ids, cascade_map, user_map):
         m_count = len(cascade_ids)
-        pool = Pool(processes=settings.PROCESS_COUNT)
-        step = int(math.ceil(float(m_count) / settings.PROCESS_COUNT))
+        process_count = min(settings.PROCESS_COUNT, m_count)
+        pool = Pool(processes=process_count)
+        step = int(math.ceil(m_count / process_count))
         results = []
         for j in range(0, m_count, step):
             subset = cascade_ids[j: j + step]

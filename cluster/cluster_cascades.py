@@ -240,7 +240,8 @@ def ask_to_create_project(clusters):
     ans = ask_question('Do you want to peek a cluster as a project?', {'y': 'Yes', 'n': 'No'})
     if ans == 'n':
         return
-    label = ask_question('Which cluster do you want to peek?', [str(k) for k in sorted(clusters.keys())])
+    label = ask_question('Which cluster do you want to peek?',
+                         {str(k): f'of size {len(clusters[k])}' for k in sorted(clusters.keys())})
     name = input('Enter the project name: ')
     save_project(name, list(clusters[int(label)]))
 
