@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 import argparse
 import logging
-import time
 from cascade.models import Project
 from cascade.saito import Saito
 import settings
+from utils.time_utils import time_measure
 
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('calcsaito')
@@ -31,6 +31,7 @@ class Command:
             help="number of iterations"
         )
 
+    @time_measure()
     def handle(self, args):
         # Get project or raise exception.
         project_name = args.project
@@ -39,9 +40,7 @@ class Command:
         project = Project(project_name)
 
         # Calculate Saito parameters.
-        start = time.time()
         Saito(project).calc_parameters(iterations=args.iterations)
-        logger.info('command done in %.2f min' % ((time.time() - start) / 60.0))
 
 
 if __name__ == '__main__':

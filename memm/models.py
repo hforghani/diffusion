@@ -1,6 +1,6 @@
-import logging
 import math
 import random
+from functools import reduce
 from multiprocessing.pool import Pool
 
 import psutil
@@ -10,7 +10,8 @@ from pymongo.errors import PyMongoError
 from pympler.asizeof import asizeof
 
 import settings
-from cascade.models import CascadeNode, CascadeTree
+from cascade.exceptions import ParentDoesNotExist
+from cascade.models import CascadeTree
 from memm.asyncronizables import train_memms, extract_evidences
 from db.exceptions import DataDoesNotExist
 from db.managers import MEMMManager, DBManager, EvidenceManager
@@ -65,6 +66,12 @@ class MEMMModel:
                     else:
                         evidences[uid]['sequences'].extend(process_evidences[uid]['sequences'])
 
+            # Delete evidences of totally inactive users since they will never be activated.
+            inactives = self.__get_inactives(evidences)
+            for uid in inactives:
+                evidences.pop(uid)
+            logger.info('Evidences of %d totally inactive users deleted since they have no state 1 ...', len(inactives))
+
             evid_manager.insert(evidences)
             evid_manager.create_index()
 
@@ -88,8 +95,8 @@ class MEMMModel:
 
     def __separate_big_ev(self, evidences):
         """
-        Sort the evidences by their sizes. Choose as much small evidences to full 80% of available memory and
-        puth them in a dictionary named small_ev_user_ids. Put the others in a dictionary named large_ev_user_ids.
+        Sort the evidences by their sizes. Select as many small evidences to fill 80% of available memory and
+        put them in a dictionary named small_ev_user_ids. Put the others in a dictionary named large_ev_user_ids.
         :param evidences:
         :type evidences:
         :return:
@@ -181,21 +188,26 @@ class MEMMModel:
             del evidences
 
             # Train not-big evidences if in multi-processed is True.
-            parts_count = 5
-            part_size = int(math.ceil(len(small_ev_user_ids) / parts_count))
+            # parts_count = 5
+            # part_size = int(math.ceil(len(small_ev_user_ids) / parts_count))
 
-            for j in range(parts_count):
-                logger.info('loading evidences of part %d of users', j + 1)
-                part_j = small_ev_user_ids[j * part_size: (j + 1) * part_size]
-                evidences_j = {}
-                for uid in part_j:
-                    evidences_j[uid] = multi_processed_ev.pop(uid)  # to free RAM
-                logger.info("training %d MEMM's related to part %d of users simultaneously ...", len(part_j), j + 1)
-                memms = self.__fit_multiproc(evidences_j)
+            # for j in range(parts_count):
+            #     logger.info('loading evidences of part %d of users', j + 1)
+            #     part_j = small_ev_user_ids[j * part_size: (j + 1) * part_size]
+            #     evidences_j = {}
+            #     for uid in part_j:
+            #         evidences_j[uid] = multi_processed_ev.pop(uid)  # to free RAM
+            #     logger.info("training %d MEMM's related to part %d of users simultaneously ...", len(part_j), j + 1)
+            #     memms = self.__fit_multiproc(evidences_j)
+            #
+            #     logger.info('inserting MEMMs into db ...')
+            #     MEMMManager(self.project).insert(memms)
+            # del memms, evidences_j
 
-                logger.info('inserting MEMMs into db ...')
-                MEMMManager(self.project).insert(memms)
-            del memms, evidences_j
+            memms = self.__fit_multiproc(multi_processed_ev)
+            logger.info('inserting MEMMs into db ...')
+            MEMMManager(self.project).insert(memms)
+            del memms, multi_processed_ev
 
         else:
             single_process_ev = evidences
@@ -227,6 +239,7 @@ class MEMMModel:
         logger.info('loading MEMMs from db ...')
         try:
             self.__memms = manager.fetch_all()
+
         except pymongo.errors.AutoReconnect:
             """ In the case of memory leak, it may raise AutoReconnect error. Then it loads MEMMs 
             one by one at the test stage via get_memm function. """
@@ -240,7 +253,6 @@ class MEMMModel:
             reconnect()
 
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
-
         return self
 
     def predict(self, initial_tree: CascadeTree, thresholds: list, max_step: int = None,
@@ -250,27 +262,15 @@ class MEMMModel:
         :return: dictionary of predicted tree for thresholds
         """
         db = DBManager().db
-        ch_timer = Timer('get children', level='debug', unit=TimeUnit.SECONDS, silent=True)
-        p_timer = Timer('get parents', level='debug', unit=TimeUnit.SECONDS, silent=True)
-        obs_timer = Timer('observations', level='debug', unit=TimeUnit.SECONDS, silent=True)
-        m_timer = Timer('MEMM predict', level='debug', unit=TimeUnit.SECONDS, silent=True)
-        m1_timer = Timer('MEMM predict 1', level='debug', unit=TimeUnit.SECONDS, silent=True)
-        m2_timer = Timer('MEMM predict 2', level='debug', unit=TimeUnit.SECONDS, silent=True)
-        m3_timer = Timer('MEMM predict 3', level='debug', unit=TimeUnit.SECONDS, silent=True)
-        m4_timer = Timer('MEMM predict 4', level='debug', unit=TimeUnit.SECONDS, silent=True)
-        m5_timer = Timer('MEMM predict 5', level='debug', unit=TimeUnit.SECONDS, silent=True)
-        m6_timer = Timer('MEMM predict 6', level='debug', unit=TimeUnit.SECONDS, silent=True)
+        timers = [Timer(f'predict part {i}', level='debug', unit=TimeUnit.SECONDS, silent=True) for i in range(10)]
 
-        """
-        Create dictionary of predicted trees related to thresholds:
-        trees = { threshold1: tree1, threshold2: tree2, ... }
-        """
+        # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
         trees = {thr: initial_tree.copy() for thr in thresholds}
 
         # Initialize values.
         cur_step_nodes = sorted(initial_tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         max_thr = max(thresholds)
-        cur_step = [(node, max_thr) for node in cur_step_nodes]
+        cur_step = [(node.user_id, max_thr) for node in cur_step_nodes]
         active_ids = set(initial_tree.node_ids())
         step_num = 1
 
@@ -291,14 +291,22 @@ class MEMMModel:
 
             next_step = []
 
-            with ch_timer:
-                relations = db.relations.find({'user_id': {'$in': [item[0].user_id for item in cur_step]}},
-                                              {'_id': 0, 'user_id': 1, 'children': 1})
-                children_dic = {rel['user_id']: rel['children'] for rel in relations}
+            relations = db.relations.find({'user_id': {'$in': [item[0] for item in cur_step]}},
+                                          {'_id': 0, 'user_id': 1, 'children': 1})
+            children_dic = {rel['user_id']: rel['children'] for rel in relations}
+
+            parents_loaded = False
+            parents_dic = None
+            logger.debug('fetching parents ...')
+            try:
+                parents_dic = self.__fetch_children_parents(children_dic, db)
+                parents_loaded = True
+                logger.debug('done')
+            except MemoryError:
+                logger.debug('Low memory to fetch the parents of all children! trying to fetch them one by one.')
 
             i = 0
-            for node, max_predicted_thr in cur_step:
-                node_id = node.user_id
+            for node_id, max_predicted_thr in cur_step:
                 children = children_dic.pop(node_id, [])  # to get and free RAM
 
                 if children:
@@ -306,10 +314,11 @@ class MEMMModel:
                     # from utils.text_utils import columnize
                     # logger.debugv('\n' + columnize([str(child_id) for child_id in children], 4))
 
-                    with p_timer:
-                        parents_dic = self.__get_parents_dic(children, db)
+                    if not parents_loaded:
+                        with timers[0]:
+                            parents_dic = self.__fetch_parents_dic(children, db)
 
-                    with obs_timer:
+                    with timers[1]:
                         for child_id in children:
                             parents = parents_dic[child_id]
                             index = parents.index(node_id)
@@ -322,60 +331,66 @@ class MEMMModel:
                                 else:
                                     break
 
-                    with m_timer:
-                        j = 0
-                        for child_id in children:
+                    j = 0
+                    for child_id in children:
 
-                            if child_id not in active_ids:
-                                with m1_timer:
-                                    memm = self.get_memm(child_id)
+                        if child_id not in active_ids:
+                            memm = self.get_memm(child_id)
 
-                                if memm is not None:
-                                    child_max_pred_thr = None
-                                    probs = {}
+                            if memm is not None:
+                                child_max_pred_thr = None
+                                probs = {}
 
-                                    for thr in thresholds:
-                                        if thr <= max_predicted_thr:
-                                            with m3_timer:
-                                                obs = observations[thr][child_id]
-                                                logger.debugv('testing reshare to user %s ...', child_id)
-                                            with m4_timer:
-                                                prob = probs.get(obs, memm.get_prob(obs))
-                                                probs[obs] = prob
+                                for thr in thresholds:
+                                    if thr <= max_predicted_thr:
+                                        obs = observations[thr][child_id]
+                                        logger.debugv('testing reshare to user %s ...', child_id)
+                                        prob = probs.get(obs, memm.get_prob(obs, timers))
+                                        probs[obs] = prob
 
-                                            if prob >= thr:
-                                                with m5_timer:
-                                                    child = CascadeNode(child_id)
-                                                    trees[thr].get_node(node_id).children.append(child)
-                                                    child_max_pred_thr = thr
-                                                    # logger.debug('a reshare predicted %f >= %f', prob, thr)
-                                        else:
-                                            break
+                                        if prob >= thr:
+                                            try:
+                                                trees[thr].add_child(node_id, child_id)
+                                                child_max_pred_thr = thr
+                                                logger.debugv('a reshare predicted %f >= %f', prob, thr)
+                                            except ParentDoesNotExist:
+                                                pass
+                                    else:
+                                        break
 
-                                    with m6_timer:
-                                        if child_max_pred_thr is not None:
-                                            next_step.append((child, child_max_pred_thr))
-                                            active_ids.add(child_id)
-                                else:
-                                    logger.debugv('user %s does not have any MEMM', child_id)
+                                if child_max_pred_thr is not None:
+                                    next_step.append((child_id, child_max_pred_thr))
+                                    active_ids.add(child_id)
                             else:
-                                logger.debugv('user %s is already activated', child_id)
+                                logger.debugv('user %s does not have any MEMM', child_id)
+                        else:
+                            logger.debugv('user %s is already activated', child_id)
 
-                            j += 1
-                            if j % 100 == 0:
-                                logger.debugv('%d / %d of children iterated', j, len(children))
+                        j += 1
+                        if j % 100 == 0:
+                            logger.debugv('%d / %d of children iterated', j, len(children))
 
                 i += 1
                 logger.debug('%d / %d nodes of current step done', i, len(cur_step))
+                if i % 200 == 0:
+                    for timer in timers:
+                        if timer.sum != 0:
+                            timer.report_sum()
 
             cur_step = next_step
             step_num += 1
 
-        # for timer in [ch_timer, p_timer, obs_timer, m_timer, m1_timer, m2_timer, m3_timer, m4_timer, m5_timer,
-        #               m6_timer]:
-        #     timer.report_sum()
+        for timer in timers:
+            if timer.sum != 0:
+                timer.report_sum()
 
         return trees
+
+    def __fetch_children_parents(self, children_dic, db):
+        children = list(reduce(lambda x, y: x | y, (set(child_list) for child_list in children_dic.values())))
+        relations = db.relations.find({'user_id': {'$in': children}}, {'_id': 0, 'user_id': 1, 'parents': 1})
+        parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+        return parents_dic
 
     def get_memm(self, user_id):
         if self.__memms:
@@ -384,7 +399,7 @@ class MEMMModel:
             return MEMMManager(self.project).fetch_one(user_id)
 
     @rerun_auto_reconnect
-    def __get_parents_dic(self, children, db):
+    def __fetch_parents_dic(self, children, db):
         relations = db.relations.find({'user_id': {'$in': children}},
                                       {'_id': 0, 'user_id': 1, 'parents': 1})
         parents_dic = {rel['user_id']: rel['parents'] for rel in relations}

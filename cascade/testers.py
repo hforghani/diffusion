@@ -154,9 +154,7 @@ class DefaultTester(ProjectTester):
 
         # Load training and test sets and cascade trees.
         trees = self.project.load_trees()
-
         all_node_ids = self.project.get_all_nodes()
-        # all_node_ids = self.user_ids
 
         logger.info('number of cascades : %d' % len(test_set))
 

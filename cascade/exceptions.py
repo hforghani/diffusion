@@ -1,0 +1,2 @@
+class ParentDoesNotExist(Exception):
+    pass

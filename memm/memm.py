@@ -3,12 +3,8 @@ import numpy as np
 import scipy
 from scipy.sparse import csr_matrix
 
+from memm.exceptions import MemmException
 from settings import logger
-from utils.time_utils import time_measure
-
-
-class MemmException(Exception):
-    pass
 
 
 def obs_to_str(obs: int, dim: int) -> str:
@@ -29,7 +25,7 @@ def obs_to_sparse(obs: int, dim: int) -> np.array:
 
 def array_to_obs(arr: np.array) -> int:
     obs = 0
-    for index in np.nonzero(arr)[1]:
+    for index in np.nonzero(arr)[0]:
         obs |= 1 << int(index)
     return obs
 
@@ -65,7 +61,7 @@ class MEMM:
         for seq in new_sequences:
             all_obs.update([pair[0] for pair in seq])
         all_obs = list(all_obs)
-        self.all_obs_arr = csr_matrix(np.array([obs_to_array(obs, new_dim) for obs in all_obs]))
+        self.all_obs_arr = np.array([obs_to_array(obs, new_dim) for obs in all_obs])
         map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
 
         # Get pairs of (obs, state) which their previous state is 0.
@@ -115,21 +111,22 @@ class MEMM:
 
         return self
 
-    def get_prob(self, obs: int) -> float:
+    def get_prob(self, obs: int, timers) -> float:
         """
         Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
         :param obs:     current observation
         """
         # logger.debug('running MEMM predict method ...')
-        new_obs = self.decrease_dim_by_indexes(obs, self.orig_indexes)
+        with timers[3]:
+            new_obs = self.decrease_dim_by_indexes(obs, self.orig_indexes)
         new_dim = len(self.orig_indexes)
-        # new_obs_bin = obs_to_str(new_obs, new_dim)
 
         if new_obs in self.map_obs_prob:
             return self.map_obs_prob[new_obs]
         else:
             # prob = 0
-            nearest_obs, sim = self.__nearest_obs(new_obs, new_dim)
+            with timers[4]:
+                nearest_obs, sim = self.__nearest_obs(new_obs, new_dim)
             # logger.debug('obs %s not found. nearest: %s , sim = %f , prob = %f', obs_to_str(new_obs, new_dim),
             #              obs_to_str(nearest_obs, new_dim), sim, self.map_obs_prob[nearest_obs])
             # use probability * similarity when the observation not found.
@@ -137,7 +134,7 @@ class MEMM:
 
             return prob
 
-    def predict(self, obs: int, threshold: float, timers=None) -> Tuple[int, float]:
+    def predict(self, obs: int, threshold: float) -> Tuple[int, float]:
         """
         Predict the state conditioned on the given observation if the previous state is 0 (inactivated).
         :param threshold: probability threshold
@@ -155,11 +152,12 @@ class MEMM:
         :param dim: number of dimensions
         :return: a tuple of the nearest nonzero observation and similarity rate
         """
-        observations = sorted(list(self.map_obs_prob.keys()))[1:]
-        dist = np.array([bin(obs ^ o).count('1') for o in observations])
-        index = np.argmin(dist)
-        sim = (dim - np.min(dist)) / dim
-        return observations[index], sim
+        new_obs_vec = obs_to_array(obs, dim)
+        sim = np.count_nonzero(self.all_obs_arr[1:, :] == np.tile(new_obs_vec, (self.all_obs_arr.shape[0] - 1, 1)),
+                               axis=1)
+        index = np.argmax(sim) + 1
+        nearest_obs = array_to_obs(self.all_obs_arr[index, :])
+        return nearest_obs, np.max(sim) / dim
 
     def __create_matrices(self, pairs, indexes):
         obs_mat = self.all_obs_arr[indexes, :]
@@ -168,10 +166,10 @@ class MEMM:
 
     @staticmethod
     def __calc_features(obs_mat, state_mat):
-        obs_num, obs_dim = obs_mat.get_shape()
+        obs_num, obs_dim = obs_mat.shape
         # features = np.logical_and(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
         features = np.logical_not(
-            np.logical_xor(obs_mat.toarray(), np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim)))
+            np.logical_xor(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim)))
         # C = np.max(np.sum(obs_mat, axis=1)) + 1  # C is chosen so that is greater than sum of any row.
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)

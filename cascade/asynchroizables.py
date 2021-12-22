@@ -20,7 +20,6 @@ def evaluate(initial_tree, res_tree, tree, all_nodes, max_depth=None):
     initial_nodes = set(initial_tree.node_ids())
     res_output = res_nodes - initial_nodes
     true_output = true_nodes - initial_nodes
-    logger.debug('len(all_nodes) = %d', len(all_nodes))
 
     # Evaluate the result.
     meas = Validation(res_output, true_output, all_nodes)

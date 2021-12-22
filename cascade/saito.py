@@ -138,7 +138,7 @@ def calc_phi_h(sequences, graph, w, r, h, user_map):
             if m_count >= 10 and i % (m_count // 10) == 0:
                 logger.debug('\t%d%% done', i * 100 // m_count)
 
-        logger.debug('size of phi_h subset: %f G', asizeof(phi_h) / 1024 ** 3)
+        # logger.debug('size of phi_h subset: %f G', asizeof(phi_h) / 1024 ** 3)
         return phi_h
     except:
         logger.error(traceback.format_exc())
@@ -182,7 +182,7 @@ def calc_phi_g(sequences, graph, w, g, user_map):
             if m_count >= 10 and i % (m_count // 10) == 0:
                 logger.debug('\t%d%% done', i * 100 // m_count)
 
-        logger.debug('size of phi_h subset: %f G', asizeof(phi_g) / 1024 ** 3)
+        # logger.debug('size of phi_g subset: %f G', asizeof(phi_g) / 1024 ** 3)
         return phi_g
     except:
         logger.error(traceback.format_exc())
@@ -227,7 +227,7 @@ def calc_psi(sequences, graph, w, r, g, user_map):
             if m_count >= 10 and i % (m_count // 10) == 0:
                 logger.debug('\t%d%% done', i * 100 // m_count)
 
-        logger.debug('size of phi_h subset: %f G', asizeof(psi) / 1024 ** 3)
+        # logger.debug('size of psi subset: %f G', asizeof(psi) / 1024 ** 3)
         return psi
     except:
         logger.error(traceback.format_exc())
@@ -246,7 +246,7 @@ class Saito(AsLT):
         except FileNotFoundError:
             pass
 
-    def calc_parameters(self, iterations=3):
+    def calc_parameters(self, iterations=10):
         # Load dataset.
         logger.info('extracting data ...')
         train_set, _, _ = self.project.load_sets()
@@ -299,7 +299,7 @@ class Saito(AsLT):
                     logger.info('calculating phi_h ...')
                     # if i == 0 or len(user_map) ** 2 * len(train_set) < 10 ** 9:
                     args = (sequences, graph, w, r, h, train_set, cascade_map, user_map)
-                    logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
+                    # logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
                     phi_h = self.calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map)
                     # else:
                     #     with Timer('calc_phi_h'):
@@ -315,7 +315,7 @@ class Saito(AsLT):
                     logger.info('calculating phi_g ...')
                     # if i == 0 or len(user_map) ** 2 * len(train_set) < 10 ** 9:
                     args = (sequences, graph, w, g, train_set, cascade_map, user_map)
-                    logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
+                    # logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
                     phi_g = self.calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map)
                     # else:
                     #     with Timer('calc_phi_g'):
@@ -330,7 +330,7 @@ class Saito(AsLT):
                 except:
                     logger.info('calculating psi ...')
                     args = (sequences, graph, w, r, g, train_set, cascade_map, user_map)
-                    logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
+                    # logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
                     psi = self.calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map)
                     self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
 

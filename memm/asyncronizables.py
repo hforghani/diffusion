@@ -1,7 +1,8 @@
 import traceback
 
 from db.managers import DBManager, MEMMManager
-from memm.memm import MEMM, MemmException
+from memm.memm import MEMM
+from memm.exceptions import MemmException
 from settings import logger
 
 

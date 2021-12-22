@@ -9,9 +9,10 @@ from anytree import Node, RenderTree
 from bson.objectid import ObjectId
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
-from pymongo.errors import CursorNotFound, DocumentTooLarge
+from pymongo.errors import CursorNotFound
 
 import settings
+from cascade.exceptions import ParentDoesNotExist
 from db.managers import DBManager
 from settings import logger
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
@@ -245,7 +246,25 @@ class CascadeTree(object):
         return '\n'.join([root.render(digest) for root in self.roots])
 
     def get_node(self, user_id: ObjectId) -> CascadeNode:
-        return self._id_to_node[user_id]
+        return self._id_to_node.get(user_id, None)
+
+    def add_child(self, parent_id: ObjectId, child_id: ObjectId, act_time: str = None) -> CascadeNode:
+        """
+        Add the child node under the parent node for the user ids and the activation time given and return the created
+        child node.
+        :param parent_id: parent user id
+        :param child_id: child user id
+        :param act_time: child activation time as string
+        :return: the child node
+        """
+        parent = self.get_node(parent_id)
+        if parent:
+            child = CascadeNode(child_id, datetime=act_time)
+            parent.children.append(child)
+            self._id_to_node[child_id] = child
+            return child
+        else:
+            raise ParentDoesNotExist('parent node with user id given does not exist')
 
 
 class ActSequence(object):
@@ -338,10 +357,7 @@ class AsLT(object):
         if not hasattr(self, 'w') or not hasattr(self, 'r'):
             raise Exception('No w and r parameters found. Train the AsLT first.')
 
-        """
-        Create dictionary of predicted trees related to thresholds:
-        trees = { threshold1: tree1, threshold2: tree2, ... }
-        """
+        # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
         trees = {thr: initial_tree.copy() for thr in thresholds}
 
         # Initialize values.
@@ -400,8 +416,7 @@ class AsLT(object):
                             receive_dt = send_dt + timedelta(days=delay)
 
                             # Add it to the tree.
-                            child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
-                            trees[thr].get_node(u).children.append(child)
+                            child = trees[thr].add_child(u, v, receive_dt.strftime(DT_FORMAT))
                             child_max_pred_thr = thr
                             logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
 

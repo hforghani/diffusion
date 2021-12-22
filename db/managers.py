@@ -4,6 +4,7 @@ import gridfs
 import pymongo
 from bson import ObjectId, Binary
 import numpy as np
+from scipy.sparse import csr_matrix
 
 from db.exceptions import DataDoesNotExist
 from memm.memm import MEMM
@@ -169,7 +170,7 @@ class MEMMManager:
     def __get_doc(self, memm):
         doc = {
             'map_obs_prob': memm.map_obs_prob,
-            'all_obs_arr': pickle.dumps(memm.all_obs_arr, protocol=2),
+            'all_obs_arr': pickle.dumps(csr_matrix(memm.all_obs_arr), protocol=2),  # Convert to sparse.
             'orig_indexes': memm.orig_indexes
         }
         return doc
@@ -182,7 +183,7 @@ class MEMMManager:
         #     logger.debug('eval function does not work for a MEMM data with length %d. Will be divided.', doc.length)
         #     memm_data = self.__parse_doc(data)
         memm = MEMM()
-        memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr'])
+        memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr']).toarray()  # Convert from sparse to ndarray
         memm.map_obs_prob = memm_data['map_obs_prob']
         memm.orig_indexes = memm_data['orig_indexes']
         if isinstance(memm.orig_indexes, dict):
