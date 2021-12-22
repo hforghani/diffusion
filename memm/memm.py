@@ -5,6 +5,7 @@ from scipy.sparse import csr_matrix
 
 from memm.exceptions import MemmException
 from settings import logger
+from utils.time_utils import Timer, TimeUnit
 
 
 def obs_to_str(obs: int, dim: int) -> str:
@@ -111,13 +112,15 @@ class MEMM:
 
         return self
 
-    def get_prob(self, obs: int, timers) -> float:
+    def get_prob(self, obs: int, timers: list = None) -> float:
         """
         Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
         :param obs:     current observation
         """
-        # logger.debug('running MEMM predict method ...')
-        with timers[3]:
+        if timers is None:
+            timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
+
+        with timers[0]:
             new_obs = self.decrease_dim_by_indexes(obs, self.orig_indexes)
         new_dim = len(self.orig_indexes)
 
@@ -125,7 +128,7 @@ class MEMM:
             return self.map_obs_prob[new_obs]
         else:
             # prob = 0
-            with timers[4]:
+            with timers[1]:
                 nearest_obs, sim = self.__nearest_obs(new_obs, new_dim)
             # logger.debug('obs %s not found. nearest: %s , sim = %f , prob = %f', obs_to_str(new_obs, new_dim),
             #              obs_to_str(nearest_obs, new_dim), sim, self.map_obs_prob[nearest_obs])

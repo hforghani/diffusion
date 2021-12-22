@@ -345,7 +345,7 @@ class MEMMModel:
                                     if thr <= max_predicted_thr:
                                         obs = observations[thr][child_id]
                                         logger.debugv('testing reshare to user %s ...', child_id)
-                                        prob = probs.get(obs, memm.get_prob(obs, timers))
+                                        prob = probs.get(obs, memm.get_prob(obs, [timers[2], timers[3]]))
                                         probs[obs] = prob
 
                                         if prob >= thr:

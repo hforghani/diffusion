@@ -2,8 +2,7 @@ import pickle
 
 import gridfs
 import pymongo
-from bson import ObjectId, Binary
-import numpy as np
+from bson import ObjectId
 from scipy.sparse import csr_matrix
 
 from db.exceptions import DataDoesNotExist
