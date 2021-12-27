@@ -1,4 +1,5 @@
 import argparse
+from functools import reduce
 from pprint import PrettyPrinter
 
 from bson import ObjectId
@@ -17,19 +18,26 @@ def print_info(user_id, evidences, memm):
     pp = PrettyPrinter()
     sequences, orig_indexes = MEMM().decrease_dim(evidences['sequences'], dim)
     new_dim = len(orig_indexes)
-    sequences = [[(obs_to_str(obs, new_dim), state) for obs, state in seq] for seq in sequences]
+    str_sequences = [[(obs_to_str(obs, new_dim), state) for obs, state in seq] for seq in sequences]
     manager = DBManager()
     parents = manager.db.relations.find_one({'user_id': ObjectId(user_id)}, {'parents': 1})['parents']
     parent_user_ids = [parents[index] for index in orig_indexes]
 
-    print('Activation probability of observations:')
-    pp.pprint({(obs, obs_to_str(obs, new_dim)): prob for obs, prob in memm.map_obs_prob.items()})
+    print('Lambda:')
+    pp.pprint(list(memm.Lambda))
+    print('\nActivation probability of observations:')
+    all_obs = list(reduce(lambda s1, s2: s1 | s2, [{pair[0] for pair in seq} for seq in evidences['sequences']]))
+    print(f"{'decreased int':20}{'decreased vector':{new_dim + 5}}{'probability'}")
+    for obs in all_obs:
+        new_obs = MEMM.decrease_dim_by_indexes(obs, memm.orig_indexes)
+        prob = memm.get_prob(obs)
+        print(f"{new_obs:<20}{obs_to_str(new_obs, new_dim):{new_dim + 5}}{prob:10.5f}")
     print('\nSelected indexes:')
     pp.pprint(orig_indexes)
     print('\nUser ids of selected indexes:')
     pp.pprint(parent_user_ids)
     print('\nEvidences with decreased dimensions:')
-    pp.pprint(sequences)
+    pp.pprint(str_sequences)
     # print('\nEvidences:')
     # pp.pprint([[(obs_to_str(obs, dim), state) for obs, state in seq] for seq in evidences['sequences']])
 

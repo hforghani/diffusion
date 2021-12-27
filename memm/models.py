@@ -3,14 +3,13 @@ import random
 from functools import reduce
 from multiprocessing.pool import Pool
 
+import numpy as np
 import psutil
 import pymongo
-from bson import ObjectId
 from pymongo.errors import PyMongoError
 from pympler.asizeof import asizeof
 
 import settings
-from cascade.exceptions import ParentDoesNotExist
 from cascade.models import CascadeTree
 from memm.asyncronizables import train_memms, extract_evidences
 from db.exceptions import DataDoesNotExist
@@ -110,7 +109,7 @@ class MEMMModel:
         sorted_uids = sorted(evidences.keys(), key=lambda uid: sizes[uid])
         size_sum = 0
         available = 0.8 * psutil.virtual_memory().available
-        logger.debugv('available memory: %d', available)
+        logger.debugv('available memory: %d G', available / 1024 ** 3)
         for uid in sorted_uids:
             size_sum += sizes[uid]
             if size_sum < available:
@@ -118,8 +117,6 @@ class MEMMModel:
             else:
                 large_ev_user_ids.append(uid)
         # Shuffle user ids to balance the process memory sizes of processes (for small evidences).
-        random.shuffle(small_ev_user_ids)
-        random.shuffle(large_ev_user_ids)
         logger.debugv('num of small_ev_user_ids: %d', len(small_ev_user_ids))
         logger.debugv('size of 10 first small evidences: %s', [sizes[uid] for uid in small_ev_user_ids[:10]])
         logger.debugv('size of 10 first large evidences: %s', [sizes[uid] for uid in large_ev_user_ids[:10]])
@@ -127,7 +124,8 @@ class MEMMModel:
 
     def __fit_multiproc(self, evidences):
         """
-        Side effect: Clears the evidences dictionary.
+        Train the MEMMs using evidences given in multiprocessing mode.
+        Side effect: Clears the evidences' dictionary.
         """
         user_ids = list(evidences.keys())
         random.shuffle(user_ids)
@@ -153,7 +151,7 @@ class MEMMModel:
         memms = {}
 
         # Collect results of the processes.
-        logger.debug('assembling multiprocessed results of MEMM training ...')
+        logger.debug('assembling learned MEMMs of processes ...')
         for res in results:
             memms_i = res.get()
             user_ids_i = list(memms_i.keys())
@@ -166,12 +164,6 @@ class MEMMModel:
     def __fit_by_evidences(self, train_set, multi_processed=False):
         evidences = self.__prepare_evidences(train_set)
 
-        # Train the MEMMs of totally inactive users.
-        inactives = self.__get_inactives(evidences)
-        for uid in inactives:
-            evidences.pop(uid)  # to free RAM
-        logger.info('%d totally inactive users neglected since they have no state 1 ...', len(inactives))
-
         if multi_processed:
             single_process_ev = {}  # Evidences to train sequentially in a single process.
             multi_processed_ev = {}  # Evidences to train simultaneously in multiple processes.
@@ -180,7 +172,7 @@ class MEMMModel:
             # corresponding MEMMS to avoid high RAM consumption.
             logger.info('separating large and small evidences ...')
             large_ev_user_ids, small_ev_user_ids = self.__separate_big_ev(evidences)
-            logger.debug('%d large and %d small evidences considered', len(large_ev_user_ids), len(small_ev_user_ids))
+            logger.info('%d large and %d small evidences considered', len(large_ev_user_ids), len(small_ev_user_ids))
             for uid in large_ev_user_ids:
                 single_process_ev[uid] = evidences.pop(uid)  # to free RAM
             for uid in small_ev_user_ids:
@@ -319,6 +311,7 @@ class MEMMModel:
                             parents_dic = self.__fetch_parents_dic(children, db)
 
                     with timers[1]:
+                        # TODO: Keep just nonzero dimensions e.t consider the obs as its dimensions decreased.
                         for child_id in children:
                             parents = parents_dic[child_id]
                             index = parents.index(node_id)
@@ -344,17 +337,21 @@ class MEMMModel:
                                 for thr in thresholds:
                                     if thr <= max_predicted_thr:
                                         obs = observations[thr][child_id]
-                                        logger.debugv('testing reshare to user %s ...', child_id)
-                                        prob = probs.get(obs, memm.get_prob(obs, [timers[2], timers[3]]))
-                                        probs[obs] = prob
+                                        logger.debugv('testing reshare to user %s using thr %f ...', child_id, thr)
+                                        with timers[2]:
+                                            if obs in probs:
+                                                prob = probs[obs]
+                                            else:
+                                                prob = memm.get_prob(obs)
+                                                # prob = memm.get_prob(obs, [timers[2], timers[3]])
+                                                if prob == np.nan:
+                                                    logger.warning('activation prob. of obs. %s is nan', obs)
+                                                probs[obs] = prob
 
-                                        if prob >= thr:
-                                            try:
-                                                trees[thr].add_child(node_id, child_id)
-                                                child_max_pred_thr = thr
-                                                logger.debugv('a reshare predicted %f >= %f', prob, thr)
-                                            except ParentDoesNotExist:
-                                                pass
+                                        if prob >= thr and trees[thr].get_node(node_id):
+                                            trees[thr].add_child(node_id, child_id)
+                                            child_max_pred_thr = thr
+                                            logger.debugv('a reshare predicted %f >= %f', prob, thr)
                                     else:
                                         break
 

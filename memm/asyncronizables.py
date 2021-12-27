@@ -1,4 +1,5 @@
 import traceback
+from random import shuffle
 
 from db.managers import DBManager, MEMMManager
 from memm.memm import MEMM
@@ -9,29 +10,33 @@ from settings import logger
 def train_memms(evidences, save_in_db=False, project=None):
     try:
         user_ids = list(evidences.keys())
+        shuffle(user_ids)
         logger.debugv('training memms started')
         memms = {}
         count = 0
         for uid in user_ids:
             count += 1
             ev = evidences.pop(uid)  # to free RAM
-            #    logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev[0])
+            logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev['dimension'])
             m = MEMM()
             try:
                 m.fit(ev)
                 memms[uid] = m
             except MemmException:
                 logger.warn('evidences for user %s ignored due to insufficient data', uid)
-            if count % 1000 == 0:
+            if count % 100 == 0:
                 logger.debug('%d memms trained', count)
 
-                if save_in_db:
-                    logger.debug('inserting MEMMs into db ...')
-                    MEMMManager(project).insert(memms)
-                    memms = {}
+            if save_in_db and count % 1000 == 0:
+                logger.debug('inserting MEMMs into db ...')
+                MEMMManager(project).insert(memms)
+                memms = {}
 
         logger.debugv('training memms finished')
-        if not save_in_db:
+        if save_in_db and memms:
+            logger.debug('inserting MEMMs into db ...')
+            MEMMManager(project).insert(memms)
+        else:
             return memms
     except:
         logger.error(traceback.format_exc())

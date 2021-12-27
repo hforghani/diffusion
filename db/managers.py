@@ -4,6 +4,7 @@ import gridfs
 import pymongo
 from bson import ObjectId
 from scipy.sparse import csr_matrix
+import numpy as np
 
 from db.exceptions import DataDoesNotExist
 from memm.memm import MEMM
@@ -170,38 +171,17 @@ class MEMMManager:
         doc = {
             'map_obs_prob': memm.map_obs_prob,
             'all_obs_arr': pickle.dumps(csr_matrix(memm.all_obs_arr), protocol=2),  # Convert to sparse.
-            'orig_indexes': memm.orig_indexes
+            'orig_indexes': memm.orig_indexes,
+            'lambda': memm.Lambda.tolist()
         }
         return doc
 
     def __doc_to_memm(self, doc):
         data = doc.read()
-        # try:
         memm_data = eval(data)
-        # except OverflowError:
-        #     logger.debug('eval function does not work for a MEMM data with length %d. Will be divided.', doc.length)
-        #     memm_data = self.__parse_doc(data)
         memm = MEMM()
         memm.all_obs_arr = pickle.loads(memm_data['all_obs_arr']).toarray()  # Convert from sparse to ndarray
         memm.map_obs_prob = memm_data['map_obs_prob']
         memm.orig_indexes = memm_data['orig_indexes']
-        if isinstance(memm.orig_indexes, dict):
-            memm.orig_indexes = sorted(list(memm.orig_indexes.values()))
+        memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
         return memm
-
-    def __parse_doc(self, data):
-        # TODO: map_obs_prob must be replaced with tpm and map_obs_index.
-        memm_data = {}
-        i2 = data.index(b'tpm')
-        i3 = data.index(b'all_obs_arr')
-        i4 = data.index(b'map_obs_index')
-
-        # print('tpm binary dump =', data[i2 + 15: i3 - 8])
-        # print('all_obs_arr dump =', data[i3 + 23: i4 - 8])
-        memm_data['tpm'] = eval(data[i2 + 15: i3 - 8])
-        memm_data['all_obs_arr'] = eval(data[i3 + 23: i4 - 8])
-        two_last_keys = eval(b"{" + data[i4 - 1:])
-        memm_data.update(two_last_keys)
-        # logger.debug('saved memm: %s', memm_data)
-
-        return memm_data

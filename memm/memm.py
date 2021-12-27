@@ -1,3 +1,4 @@
+from functools import reduce
 from typing import Tuple
 import numpy as np
 import scipy
@@ -5,7 +6,7 @@ from scipy.sparse import csr_matrix
 
 from memm.exceptions import MemmException
 from settings import logger
-from utils.time_utils import Timer, TimeUnit
+from utils.time_utils import Timer, TimeUnit, time_measure
 
 
 def obs_to_str(obs: int, dim: int) -> str:
@@ -44,7 +45,9 @@ class MEMM:
         self.all_obs_arr = None
         self.orig_indexes = []
         self.map_obs_prob = {}
+        self.Lambda = None
 
+    @time_measure(level='debug')
     def fit(self, evidence):
         """
         Learn MEMM lambdas and transition probabilities for each previous state.
@@ -58,19 +61,14 @@ class MEMM:
         if new_dim == 0:
             raise MemmException('Cannot train MEMM with all observations given zero')
 
-        all_obs = set()
-        for seq in new_sequences:
-            all_obs.update([pair[0] for pair in seq])
+        all_obs = reduce(lambda s1, s2: s1 | s2, [{pair[0] for pair in seq} for seq in new_sequences])
         all_obs = list(all_obs)
         self.all_obs_arr = np.array([obs_to_array(obs, new_dim) for obs in all_obs])
+        logger.debugv('all_obs_arr = %s', self.all_obs_arr)
         map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
 
-        # Get pairs of (obs, state) which their previous state is 0.
-        rel_pairs, rel_indexes = self.__get_related_pairs(new_sequences, map_obs_index)
-        # logger.debugv('rel_pairs = %s', rel_pairs)
-
-        # Create matrices of observations and states for related pairs.
-        obs_mat, state_mat = self.__create_matrices(rel_pairs, rel_indexes)
+        # Create matrices of observations and states of which previous state is zero.
+        obs_mat, state_mat, obs_indexes = self.__create_matrices(new_sequences, self.all_obs_arr, map_obs_index)
 
         # If there is no state=1, set probabilities manually.
         if not np.any(state_mat):
@@ -82,10 +80,11 @@ class MEMM:
 
         # Calculate the training data average for each feature.
         F = np.mean(features, axis=0).T
+        logger.debugv('F =\n%s', F)
 
         # Initialize Lambda as 1 then learn from training data.
         # Lambda is different per s' (previous state), But here just we use s' = 0.
-        Lambda = np.ones(new_dim + 1)
+        self.Lambda = np.ones(new_dim + 1)
 
         # GIS, run until convergence
         epsilon = 10 ** -5
@@ -94,15 +93,15 @@ class MEMM:
         while True:
             iter_count += 1
             logger.debugv("iteration = %d ...", iter_count)
-            Lambda0 = np.copy(Lambda)
-            TPM = self.__build_tpm(Lambda, self.all_obs_arr)
+            Lambda0 = np.copy(self.Lambda)
+            TPM = self.__build_tpm(self.Lambda, self.all_obs_arr)
             logger.debugv('TPM =\n%s', TPM)
-            E = self.__build_expectation(obs_mat, TPM, rel_indexes)
+            E = self.__build_expectation(obs_mat, TPM, obs_indexes)
             logger.debugv('E =\n%s', E)
-            Lambda = self.__build_next_lambda(Lambda, C, F, E)
-            logger.debugv('lambda = %s', Lambda)
+            self.Lambda = self.__build_next_lambda(self.Lambda, C, F, E)
+            logger.debugv('lambda = %s', self.Lambda)
 
-            diff = np.linalg.norm(Lambda0 - Lambda) / (new_dim + 1)
+            diff = np.linalg.norm(Lambda0 - self.Lambda) / np.sqrt(new_dim + 1)
             if diff < epsilon or iter_count >= max_iteration:
                 logger.debug('GIS iterations = %d, diff = %s', iter_count, diff)
                 break
@@ -117,25 +116,28 @@ class MEMM:
         Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
         :param obs:     current observation
         """
-        if timers is None:
-            timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
+        # if timers is None:
+        #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
 
-        with timers[0]:
-            new_obs = self.decrease_dim_by_indexes(obs, self.orig_indexes)
-        new_dim = len(self.orig_indexes)
-
-        if new_obs in self.map_obs_prob:
-            return self.map_obs_prob[new_obs]
+        # with timers[0]:
+        if obs in self.map_obs_prob:
+            prob = self.map_obs_prob[obs]
         else:
-            # prob = 0
-            with timers[1]:
-                nearest_obs, sim = self.__nearest_obs(new_obs, new_dim)
-            # logger.debug('obs %s not found. nearest: %s , sim = %f , prob = %f', obs_to_str(new_obs, new_dim),
-            #              obs_to_str(nearest_obs, new_dim), sim, self.map_obs_prob[nearest_obs])
-            # use probability * similarity when the observation not found.
-            prob = self.map_obs_prob[nearest_obs] * sim
+            new_obs = self.decrease_dim_by_indexes(obs, self.orig_indexes)
+            new_dim = len(self.orig_indexes)
+            obs_mat = obs_to_array(new_obs, new_dim).reshape((1, new_dim))
+            f0, _ = self.__calc_features(obs_mat, np.array([False]))
+            f1, _ = self.__calc_features(obs_mat, np.array([True]))
+            prob = float(scipy.special.expit(f1.dot(self.Lambda) - f0.dot(self.Lambda)))
 
-            return prob
+            logger.debugv('obs = %s', obs)
+            logger.debugv('new_obs = %s', new_obs)
+            logger.debugv('new_dim = %s', new_dim)
+            logger.debugv('obs_mat = %s', obs_mat)
+            logger.debugv('f0 = %s', f0)
+            logger.debugv('f1 = %s', f1)
+            logger.debugv('prob = %s', prob)
+        return prob
 
     def predict(self, obs: int, threshold: float) -> Tuple[int, float]:
         """
@@ -148,24 +150,17 @@ class MEMM:
         next_state = int(prob >= threshold)
         return next_state, prob
 
-    def __nearest_obs(self, obs: int, dim: int) -> Tuple[int, float]:
-        """
-        Get the nearest nonzero observation to the observation given.
-        :param obs: observation as an int number
-        :param dim: number of dimensions
-        :return: a tuple of the nearest nonzero observation and similarity rate
-        """
-        new_obs_vec = obs_to_array(obs, dim)
-        sim = np.count_nonzero(self.all_obs_arr[1:, :] == np.tile(new_obs_vec, (self.all_obs_arr.shape[0] - 1, 1)),
-                               axis=1)
-        index = np.argmax(sim) + 1
-        nearest_obs = array_to_obs(self.all_obs_arr[index, :])
-        return nearest_obs, np.max(sim) / dim
-
-    def __create_matrices(self, pairs, indexes):
-        obs_mat = self.all_obs_arr[indexes, :]
-        state_array = [pair[1] for pair in pairs]
-        return obs_mat, np.array(state_array, dtype=bool)
+    def __create_matrices(self, sequences, all_obs_arr, map_obs_index):
+        obs_indexes = []
+        states = []
+        for seq in sequences:
+            if not seq:
+                continue
+            obs_indexes.extend(map_obs_index[obs] for obs, state in seq[1:])
+            states.extend(state for obs, state in seq[1:])
+        obs_mat = all_obs_arr[obs_indexes, :]
+        states_array = np.array(states, dtype=bool)
+        return obs_mat, states_array, obs_indexes
 
     @staticmethod
     def __calc_features(obs_mat, state_mat):
@@ -179,29 +174,6 @@ class MEMM:
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
         features = np.concatenate((features, last_feat), axis=1)
         return features, C
-
-    def __get_related_pairs(self, sequences, map_obs_index):
-        """
-        Return related observation-state pairs of which the previous state is 0 (inactivated).
-        :param sequences: list of sequences
-        :return: list of tuples
-        """
-        rel_pairs = []
-        rel_indexes = []
-
-        for seq in sequences:
-            if not seq:
-                continue
-            previous_state = seq[0][1]
-            for pair in seq[1:]:
-                if previous_state == 1:
-                    break
-                else:
-                    rel_pairs.append(pair)
-                    rel_indexes.append(map_obs_index[pair[0]])
-                    previous_state = pair[1]
-
-        return rel_pairs, rel_indexes
 
     def __build_tpm(self, Lambda, all_obs):
         """
@@ -219,16 +191,15 @@ class MEMM:
         state_mat = np.ones((obs_num, 1), dtype=bool)
         f1, _ = self.__calc_features(all_obs, state_mat)
 
-        TPM = np.zeros((obs_num, 2))
-        TPM[:, 0] = np.squeeze(f0.dot(Lambda))
-        TPM[:, 1] = np.squeeze(f1.dot(Lambda))
-        normalized0 = np.reshape(scipy.special.expit(TPM[:, 0] - TPM[:, 1]), (obs_num, 1))
-        normalized1 = np.reshape(scipy.special.expit(TPM[:, 1] - TPM[:, 0]), (obs_num, 1))
+        P0 = np.squeeze(f0.dot(Lambda))
+        P1 = np.squeeze(f1.dot(Lambda))
+        normalized0 = np.reshape(scipy.special.expit(P0 - P1), (obs_num, 1))
+        normalized1 = 1 - normalized0
         TPM = np.concatenate((normalized0, normalized1), axis=1)
 
         return TPM
 
-    def __build_expectation(self, obs_mat, TPM, tuple_indexes):
+    def __build_expectation(self, obs_mat, TPM, obs_indexes):
         obs_num, obs_dim = obs_mat.shape
 
         # f0 is features of observations with state = 0.
@@ -239,8 +210,8 @@ class MEMM:
         state_mat = np.ones((obs_num, 1), dtype=bool)
         f1, _ = self.__calc_features(obs_mat, state_mat)
 
-        tuples_TPM = TPM[tuple_indexes, :]
-        E = tuples_TPM[:, 0].T.dot(f0) + tuples_TPM[:, 1].T.dot(f1)
+        obs_probs = TPM[obs_indexes, :]
+        E = obs_probs[:, 0].T.dot(f0) + obs_probs[:, 1].T.dot(f1)
         E /= obs_num
         return E
 
@@ -249,24 +220,9 @@ class MEMM:
         """
         Use Generalized iterative scaling (GIS) to learn Lambda parameter
         """
-        for i in range(Lambda.size):
-            # If the average for the feature is 0, it has no contribution to the probability
-            if F[i] == 0:
-                Lambda[i] = 0
-            else:
-                Lambda[i] += (np.log(F[i]) - np.log(E[i])) / C
+        Lambda += (np.log(F) - np.log(E)) / C
+        Lambda[F == 0] = 0
         return Lambda
-
-    @staticmethod
-    def __check_lambda_convergence(Lambda0, Lambda1, epsilon):
-        """
-        Check if the lambdas are relatively the same.
-        :param Lambda0: previous lambda
-        :param Lambda1: current lambda
-        :param epsilon: threshold of distance
-        :return: True if the distance is lower than epsilon
-        """
-        return np.count_nonzero(np.absolute(Lambda0 - Lambda1) > epsilon) == 0
 
     def decrease_dim(self, sequences, dim):
         """
@@ -285,34 +241,62 @@ class MEMM:
 
         # Extract indexes of non-zero values of observations. These are the dimension we want to preserve.
         orig_indexes = []
-        has_nnz_copy = has_nonzero
         for i in range(dim):
-            if has_nnz_copy % 2:
+            if has_nonzero % 2:
                 orig_indexes.append(i)
-            has_nnz_copy >>= 1
-        orig_indexes.sort()
+            has_nonzero >>= 1
+            if has_nonzero == 0:
+                break
 
         # Count the used (nonzero) dimensions
         new_dim = len(orig_indexes)
 
         if new_dim == dim:
-            return sequences, {i: i for i in range(dim)}
+            return sequences, list(range(dim))
 
         # Decrease the dimensions and create the new sequences.
-        new_sequences = []
-        for seq in sequences:
-            new_seq = []
-            for obs, state in seq:
-                new_obs = self.decrease_dim_by_indexes(obs, orig_indexes)
-                new_seq.append((new_obs, state))
-            new_sequences.append(new_seq)
+        new_sequences = [[(self.decrease_dim_by_indexes(obs, orig_indexes), state) for obs, state in seq] for seq in
+                         sequences]
 
         return new_sequences, orig_indexes
 
+    # @time_measure('debug', unit=TimeUnit.SECONDS)
+    # def decrease_dim(self, sequences, dim):
+    #     """
+    #     Decrease dimensions of observations in sequences. Remove the dimensions related to the parents
+    #     which has no activation (e.t. has no digit 1) in any observation.
+    #     :param sequences:   list of sequences of (obs, state)
+    #     :param dim:         number of observation dimensions
+    #     :return:            new sequences, map of new indexes to the old ones; with one difference that
+    #                         the observation is numpy array in tuple (obs, state)
+    #     """
+    #     all_obs = list(reduce(lambda s1, s2: s1 | s2, [{pair[0] for pair in seq} for seq in sequences]))
+    #     all_obs_mat = np.array([obs_to_array(obs, dim) for obs in all_obs])
+    #     union = all_obs_mat.any(axis=0)
+    #     orig_indexes = list(np.nonzero(union)[0])
+    #     new_dim = len(orig_indexes)
+    #
+    #     if new_dim == dim:
+    #         return sequences, list(range(dim))
+    #
+    #     # Decrease the dimensions and create the new sequences.
+    #     new_sequences = []
+    #     for seq in sequences:
+    #         new_seq = []
+    #         for obs, state in seq:
+    #             new_obs = self.decrease_dim_by_indexes(obs, dim, orig_indexes)
+    #             new_seq.append((new_obs, state))
+    #         new_sequences.append(new_seq)
+    #
+    #     return new_sequences, orig_indexes
+
     @staticmethod
-    def decrease_dim_by_indexes(obs, orig_indexes):
+    def decrease_dim_by_indexes(obs: int, orig_indexes: list) -> int:
         new_obs = 0
         for ind in orig_indexes[::-1]:
             new_obs <<= 1
             new_obs += (obs >> ind) % 2
         return new_obs
+        #
+        # arr = obs_to_array(obs, dim)
+        # return array_to_obs(arr[orig_indexes])
