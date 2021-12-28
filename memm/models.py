@@ -6,6 +6,7 @@ from multiprocessing.pool import Pool
 import numpy as np
 import psutil
 import pymongo
+from bson import ObjectId
 from pymongo.errors import PyMongoError
 from pympler.asizeof import asizeof
 
@@ -15,6 +16,7 @@ from memm.asyncronizables import train_memms, extract_evidences
 from db.exceptions import DataDoesNotExist
 from db.managers import MEMMManager, DBManager, EvidenceManager
 from db.reconnection import rerun_auto_reconnect, reconnect
+from memm.memm import MEMM
 from settings import logger
 from utils.time_utils import Timer, TimeUnit, time_measure
 
@@ -310,20 +312,6 @@ class MEMMModel:
                         with timers[0]:
                             parents_dic = self.__fetch_parents_dic(children, db)
 
-                    with timers[1]:
-                        # TODO: Keep just nonzero dimensions e.t consider the obs as its dimensions decreased.
-                        for child_id in children:
-                            parents = parents_dic[child_id]
-                            index = parents.index(node_id)
-                            for thr in thresholds:
-                                if thr <= max_predicted_thr:
-                                    obs_thr = observations[thr]
-                                    obs = obs_thr.get(child_id, 0)
-                                    obs |= 1 << index
-                                    obs_thr[child_id] = obs
-                                else:
-                                    break
-
                     j = 0
                     for child_id in children:
 
@@ -331,6 +319,12 @@ class MEMMModel:
                             memm = self.get_memm(child_id)
 
                             if memm is not None:
+
+                                with timers[1]:
+                                    # Update the observation of this child.
+                                    self.update_observation(child_id, node_id, observations, memm, parents_dic,
+                                                            thresholds, max_predicted_thr)
+
                                 child_max_pred_thr = None
                                 probs = {}
 
@@ -382,6 +376,35 @@ class MEMMModel:
                 timer.report_sum()
 
         return trees
+
+    def update_observation(self, child_id: ObjectId, parent_id: ObjectId, observations: dict, child_memm: MEMM,
+                           parents_dic: dict, thresholds: list, max_predicted_thr: float):
+        """
+        Update the observations the child node for all thresholds in such a way that reflects the activation of the
+        parent given.
+        :param child_id: child id
+        :param parent_id: parent id
+        :param observations: dictionary of the thresholds to observation dicts. Each observation dict maps child ids to their observation.
+        :param child_memm: MEMM of the child node
+        :param parents_dic: dictionary of node ids to their parent ids list.
+        :param thresholds: list of thresholds
+        :param max_predicted_thr: the maximum threshold in which the parent is predicted as activated. So the child observation is updated up to this threshold.
+        """
+        parents = parents_dic[child_id]
+        index = parents.index(parent_id)
+        try:
+            decreased_ind = child_memm.orig_indexes.index(index)
+        except ValueError:
+            decreased_ind = None
+        for thr in thresholds:
+            if thr <= max_predicted_thr:
+                obs_thr = observations[thr]
+                obs = obs_thr.get(child_id, 0)
+                if decreased_ind is not None:  # If the index found in the original indexes
+                    obs |= 1 << decreased_ind
+                obs_thr[child_id] = obs
+            else:
+                break
 
     def __fetch_children_parents(self, children_dic, db):
         children = list(reduce(lambda x, y: x | y, (set(child_list) for child_list in children_dic.values())))

@@ -42,7 +42,6 @@ def array_to_str(arr: np.array) -> str:
 
 class MEMM:
     def __init__(self):
-        self.all_obs_arr = None
         self.orig_indexes = []
         self.map_obs_prob = {}
         self.Lambda = None
@@ -63,12 +62,12 @@ class MEMM:
 
         all_obs = reduce(lambda s1, s2: s1 | s2, [{pair[0] for pair in seq} for seq in new_sequences])
         all_obs = list(all_obs)
-        self.all_obs_arr = np.array([obs_to_array(obs, new_dim) for obs in all_obs])
-        logger.debugv('all_obs_arr = %s', self.all_obs_arr)
+        all_obs_arr = np.array([obs_to_array(obs, new_dim) for obs in all_obs])
+        logger.debugv('all_obs_arr = %s', all_obs_arr)
         map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
 
         # Create matrices of observations and states of which previous state is zero.
-        obs_mat, state_mat, obs_indexes = self.__create_matrices(new_sequences, self.all_obs_arr, map_obs_index)
+        obs_mat, state_mat, obs_indexes = self.__create_matrices(new_sequences, all_obs_arr, map_obs_index)
 
         # If there is no state=1, set probabilities manually.
         if not np.any(state_mat):
@@ -87,14 +86,14 @@ class MEMM:
         self.Lambda = np.ones(new_dim + 1)
 
         # GIS, run until convergence
-        epsilon = 10 ** -5
+        epsilon = 10 ** -4
         max_iteration = 1000
         iter_count = 0
         while True:
             iter_count += 1
             logger.debugv("iteration = %d ...", iter_count)
             Lambda0 = np.copy(self.Lambda)
-            TPM = self.__build_tpm(self.Lambda, self.all_obs_arr)
+            TPM = self.__build_tpm(self.Lambda, all_obs_arr)
             logger.debugv('TPM =\n%s', TPM)
             E = self.__build_expectation(obs_mat, TPM, obs_indexes)
             logger.debugv('E =\n%s', E)
@@ -123,15 +122,13 @@ class MEMM:
         if obs in self.map_obs_prob:
             prob = self.map_obs_prob[obs]
         else:
-            new_obs = self.decrease_dim_by_indexes(obs, self.orig_indexes)
             new_dim = len(self.orig_indexes)
-            obs_mat = obs_to_array(new_obs, new_dim).reshape((1, new_dim))
+            obs_mat = obs_to_array(obs, new_dim).reshape((1, new_dim))
             f0, _ = self.__calc_features(obs_mat, np.array([False]))
             f1, _ = self.__calc_features(obs_mat, np.array([True]))
             prob = float(scipy.special.expit(f1.dot(self.Lambda) - f0.dot(self.Lambda)))
 
             logger.debugv('obs = %s', obs)
-            logger.debugv('new_obs = %s', new_obs)
             logger.debugv('new_dim = %s', new_dim)
             logger.debugv('obs_mat = %s', obs_mat)
             logger.debugv('f0 = %s', f0)
