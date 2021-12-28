@@ -169,7 +169,6 @@ class MEMMManager:
 
     def __get_doc(self, memm):
         doc = {
-            'map_obs_prob': memm.map_obs_prob,
             'orig_indexes': memm.orig_indexes,
             'lambda': memm.Lambda.tolist()
         }
@@ -179,7 +178,6 @@ class MEMMManager:
         data = doc.read()
         memm_data = eval(data)
         memm = MEMM()
-        memm.map_obs_prob = memm_data['map_obs_prob']
         memm.orig_indexes = memm_data['orig_indexes']
         memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
         return memm

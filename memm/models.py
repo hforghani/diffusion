@@ -326,21 +326,22 @@ class MEMMModel:
                                                             thresholds, max_predicted_thr)
 
                                 child_max_pred_thr = None
-                                probs = {}
+                                last_prob = None
+                                last_obs = None
 
                                 for thr in thresholds:
                                     if thr <= max_predicted_thr:
                                         obs = observations[thr][child_id]
                                         logger.debugv('testing reshare to user %s using thr %f ...', child_id, thr)
                                         with timers[2]:
-                                            if obs in probs:
-                                                prob = probs[obs]
+                                            if (obs == last_obs).all():
+                                                prob = last_prob
                                             else:
                                                 prob = memm.get_prob(obs)
                                                 # prob = memm.get_prob(obs, [timers[2], timers[3]])
                                                 if prob == np.nan:
                                                     logger.warning('activation prob. of obs. %s is nan', obs)
-                                                probs[obs] = prob
+                                                last_obs, last_prob = obs, prob
 
                                         if prob >= thr and trees[thr].get_node(node_id):
                                             trees[thr].add_child(node_id, child_id)
@@ -399,9 +400,9 @@ class MEMMModel:
         for thr in thresholds:
             if thr <= max_predicted_thr:
                 obs_thr = observations[thr]
-                obs = obs_thr.get(child_id, 0)
+                obs = obs_thr.get(child_id, np.zeros(len(child_memm.orig_indexes), dtype=bool))
                 if decreased_ind is not None:  # If the index found in the original indexes
-                    obs |= 1 << decreased_ind
+                    obs[decreased_ind] = 1
                 obs_thr[child_id] = obs
             else:
                 break

@@ -21,19 +21,11 @@ def obs_to_array(obs: int, dim: int) -> np.array:
     return np.array(obs_arr, dtype=bool)
 
 
-def obs_to_sparse(obs: int, dim: int) -> np.array:
-    return csr_matrix(obs_to_array(obs, dim))
-
-
 def array_to_obs(arr: np.array) -> int:
     obs = 0
     for index in np.nonzero(arr)[0]:
         obs |= 1 << int(index)
     return obs
-
-
-def sparse_to_obs(arr: csr_matrix) -> int:
-    return array_to_obs(arr.toarray())
 
 
 def array_to_str(arr: np.array) -> str:
@@ -43,7 +35,6 @@ def array_to_str(arr: np.array) -> str:
 class MEMM:
     def __init__(self):
         self.orig_indexes = []
-        self.map_obs_prob = {}
         self.Lambda = None
 
     @time_measure(level='debug')
@@ -71,7 +62,6 @@ class MEMM:
 
         # If there is no state=1, set probabilities manually.
         if not np.any(state_mat):
-            self.map_obs_prob = {obs: 0 for obs in all_obs}
             return self
 
         # Calculate features for observation-state pairs. Shape of f1 is obs_num * (obs_dim+1)
@@ -105,12 +95,9 @@ class MEMM:
                 logger.debug('GIS iterations = %d, diff = %s', iter_count, diff)
                 break
 
-        for obs, index in map_obs_index.items():
-            self.map_obs_prob[obs] = TPM[index][1]
-
         return self
 
-    def get_prob(self, obs: int, timers: list = None) -> float:
+    def get_prob(self, obs: np.ndarray, timers: list = None) -> float:
         """
         Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
         :param obs:     current observation
@@ -119,21 +106,18 @@ class MEMM:
         #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
 
         # with timers[0]:
-        if obs in self.map_obs_prob:
-            prob = self.map_obs_prob[obs]
-        else:
-            new_dim = len(self.orig_indexes)
-            obs_mat = obs_to_array(obs, new_dim).reshape((1, new_dim))
-            f0, _ = self.__calc_features(obs_mat, np.array([False]))
-            f1, _ = self.__calc_features(obs_mat, np.array([True]))
-            prob = float(scipy.special.expit(f1.dot(self.Lambda) - f0.dot(self.Lambda)))
+        dim = len(self.orig_indexes)
+        obs_mat = np.tile(obs, (2, 1))
+        f, _ = self.__calc_features(obs_mat, np.array([[False], [True]]))
+        values = f.dot(self.Lambda.reshape(dim + 1, 1))
+        prob = float(scipy.special.expit(values[1] - values[0]))
 
-            logger.debugv('obs = %s', obs)
-            logger.debugv('new_dim = %s', new_dim)
-            logger.debugv('obs_mat = %s', obs_mat)
-            logger.debugv('f0 = %s', f0)
-            logger.debugv('f1 = %s', f1)
-            logger.debugv('prob = %s', prob)
+        # logger.debugv('obs = %s', obs)
+        # logger.debugv('new_dim = %s', dim)
+        # logger.debugv('obs_mat = %s', obs_mat)
+        # logger.debugv('f = %s', f)
+        # logger.debugv('values = %s', values)
+        # logger.debugv('prob = %s', prob)
         return prob
 
     def predict(self, obs: int, threshold: float) -> Tuple[int, float]:
@@ -257,36 +241,6 @@ class MEMM:
 
         return new_sequences, orig_indexes
 
-    # @time_measure('debug', unit=TimeUnit.SECONDS)
-    # def decrease_dim(self, sequences, dim):
-    #     """
-    #     Decrease dimensions of observations in sequences. Remove the dimensions related to the parents
-    #     which has no activation (e.t. has no digit 1) in any observation.
-    #     :param sequences:   list of sequences of (obs, state)
-    #     :param dim:         number of observation dimensions
-    #     :return:            new sequences, map of new indexes to the old ones; with one difference that
-    #                         the observation is numpy array in tuple (obs, state)
-    #     """
-    #     all_obs = list(reduce(lambda s1, s2: s1 | s2, [{pair[0] for pair in seq} for seq in sequences]))
-    #     all_obs_mat = np.array([obs_to_array(obs, dim) for obs in all_obs])
-    #     union = all_obs_mat.any(axis=0)
-    #     orig_indexes = list(np.nonzero(union)[0])
-    #     new_dim = len(orig_indexes)
-    #
-    #     if new_dim == dim:
-    #         return sequences, list(range(dim))
-    #
-    #     # Decrease the dimensions and create the new sequences.
-    #     new_sequences = []
-    #     for seq in sequences:
-    #         new_seq = []
-    #         for obs, state in seq:
-    #             new_obs = self.decrease_dim_by_indexes(obs, dim, orig_indexes)
-    #             new_seq.append((new_obs, state))
-    #         new_sequences.append(new_seq)
-    #
-    #     return new_sequences, orig_indexes
-
     @staticmethod
     def decrease_dim_by_indexes(obs: int, orig_indexes: list) -> int:
         new_obs = 0
@@ -294,6 +248,3 @@ class MEMM:
             new_obs <<= 1
             new_obs += (obs >> ind) % 2
         return new_obs
-        #
-        # arr = obs_to_array(obs, dim)
-        # return array_to_obs(arr[orig_indexes])
