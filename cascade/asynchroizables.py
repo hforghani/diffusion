@@ -6,7 +6,7 @@ from cascade.models import Project
 from cascade.saito import Saito
 
 from cascade.validation import Validation
-from memm.models import MEMMModel
+from memm.models import MEMMModel, BinMEMMModel, FloatMEMMModel
 from mln.file_generators import FileCreator
 from mln.models import MLN
 from settings import logger
@@ -46,9 +46,12 @@ def train_cascades(method, project, multi_processed=False):
         model = MLN(project, method='edge', format=FileCreator.FORMAT_PRACMLN)
     elif method == 'mlnalch':
         model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
-    elif method == 'memm':
+    elif method == 'binmemm':
         train_set, _, _ = project.load_sets()
-        model = MEMMModel(project).fit(train_set, multi_processed)
+        model = BinMEMMModel(project).fit(train_set, multi_processed)
+    elif method == 'floatmemm':
+        train_set, _, _ = project.load_sets()
+        model = FloatMEMMModel(project).fit(train_set, multi_processed)
     elif method == 'aslt':
         model = Saito(project)
     elif method == 'avg':
@@ -101,7 +104,7 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                 elif method in ['aslt', 'avg']:
                     res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
                                               user_ids=user_ids, users_map=users_map)
-                elif method == 'memm':
+                elif method in ['binmemm', 'floatmemm']:
                     res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
                                               multiprocessed=False)
 

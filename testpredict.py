@@ -19,7 +19,7 @@ class Command:
     def add_arguments(self, parser):
         parser.add_argument("-p", "--project", type=str, dest="project", help="project name")
         parser.add_argument("-m", "--method", type=str, dest="method", required=True,
-                            choices=['mlnprac', 'mlnalch', 'memm', 'aslt', 'avg'],
+                            choices=['mlnprac', 'mlnalch', 'binmemm', 'floatmemm', 'aslt', 'avg'],
                             help="the method by which we want to test")
         group = parser.add_mutually_exclusive_group(required=True)
         group.add_argument("-t", "--threshold", type=float,

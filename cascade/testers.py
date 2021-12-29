@@ -12,7 +12,7 @@ import settings
 from cascade.asynchroizables import train_cascades, test_cascades, test_cascades_multiproc
 from db.managers import DBManager, MEMMManager
 from settings import logger
-from utils.time_utils import time_measure
+from utils.time_utils import time_measure, Timer
 
 
 class ProjectTester(abc.ABC):
@@ -39,7 +39,7 @@ class ProjectTester(abc.ABC):
     def train(self):
         pass
 
-    @time_measure()
+    @time_measure(level='debug')
     def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
         """
         :param model: trained model, if None the model is trained in test method
@@ -132,12 +132,15 @@ class ProjectTester(abc.ABC):
 
 class DefaultTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
-        model = self.train()
-        _, val_set, test_set = self.project.load_sets()
-        logger.info('{0} VALIDATION {0}'.format('=' * 20))
-        thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=model)
-        logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
-        return self.test(test_set, thr, initial_depth, max_depth, model=model)
+        with Timer('training'):
+            model = self.train()
+
+        with Timer('validation & test'):
+            _, val_set, test_set = self.project.load_sets()
+            logger.info('{0} VALIDATION {0}'.format('=' * 20))
+            thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=model)
+            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
+            return self.test(test_set, thr, initial_depth, max_depth, model=model)
 
     @time_measure(level='debug')
     def train(self):
@@ -172,17 +175,18 @@ class DefaultTester(ProjectTester):
 
 class MultiProcTester(ProjectTester):
     def run(self, thresholds, initial_depth, max_depth):
-        _, val_set, test_set = self.project.load_sets()
+        with Timer('training'):
+            # Train the cascades once and save them. Then the trained model is fetched from disk and used at each process.
+            # The model is not passed to each process due to pickling size limit.
+            if not MEMMManager(self.project, self.method).db_exists():
+                self.train()
 
-        # Train the cascades once and save them. Then the trained model is fetched from disk and used at each process.
-        # The model is not passed to each process due to pickling size limit.
-        if not MEMMManager(self.project).db_exists():
-            self.train()
-
-        logger.info('{0} VALIDATION {0}'.format('=' * 20))
-        thr = self.validate(val_set, thresholds, initial_depth, max_depth)
-        logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
-        return self.test(test_set, thr, initial_depth, max_depth)
+        with Timer('validation & test'):
+            _, val_set, test_set = self.project.load_sets()
+            logger.info('{0} VALIDATION {0}'.format('=' * 20))
+            thr = self.validate(val_set, thresholds, initial_depth, max_depth)
+            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
+            return self.test(test_set, thr, initial_depth, max_depth)
 
     @time_measure(level='debug')
     def train(self):

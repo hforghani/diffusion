@@ -7,7 +7,8 @@ from scipy.sparse import csr_matrix
 import numpy as np
 
 from db.exceptions import DataDoesNotExist
-from memm.memm import MEMM
+from memm.memm import MEMM, BinMEMM, FloatMEMM
+from memm.enum import MEMMMethod
 from settings import logger, MONGO_URL, DB_NAME
 
 
@@ -18,10 +19,12 @@ class DBManager:
 
 
 class EvidenceManager:
-    def __init__(self, project):
+    def __init__(self, project, method):
         self.project = project
+        self.method = method
         mongo_client = pymongo.MongoClient(MONGO_URL)
-        self.db = mongo_client[f'{DB_NAME}_memm_evid_{project.project_name}']
+        method_prefix = 'bin' if method == MEMMMethod.BIN_MEMM else 'float'
+        self.db = mongo_client[f'{DB_NAME}_{method_prefix}_memm_evid_{project.project_name}']
 
     def get_one(self, user_id):
         if not isinstance(user_id, ObjectId):
@@ -32,7 +35,7 @@ class EvidenceManager:
             raise ValueError(f'No evidence exists for user id {user_id}')
         return {
             'dimension': doc.dimension,
-            'sequences': eval(doc.read())
+            'sequences': self._str_to_sequences(doc.read())
         }
 
     def __find_by_user_ids(self, user_ids):
@@ -59,7 +62,7 @@ class EvidenceManager:
             return {
                 doc.user_id: {
                     'dimension': doc.dimension,
-                    'sequences': eval(doc.read())
+                    'sequences': self._str_to_sequences(doc.read())
                 }
                 for doc in documents
             }
@@ -81,7 +84,7 @@ class EvidenceManager:
             for doc in documents:
                 evidences = {
                     'dimension': doc.dimension,
-                    'sequences': eval(doc.read())
+                    'sequences': self._str_to_sequences(doc.read())
                 }
                 yield doc['user_id'], evidences
         else:
@@ -102,12 +105,28 @@ class EvidenceManager:
         logger.info('inserting %d MEMM evidence documents ...', len(evidences))
         i = 0
         for uid in evidences:
-            fs.put(bytes(str(evidences[uid]['sequences']), encoding='utf8'),
+            fs.put(bytes(self._sequences_to_str(evidences[uid]['sequences']), encoding='utf8'),
                    user_id=ObjectId(uid),
                    dimension=evidences[uid]['dimension'])
             i += 1
             if i % 10000 == 0:
                 logger.info('%d documents inserted', i)
+
+    def _sequences_to_str(self, sequences):
+        if self.method == MEMMMethod.BIN_MEMM:
+            return str(sequences)
+        elif self.method == MEMMMethod.FLOAT_MEMM:
+            return str([[(obs.tolist(), state) for obs, state in seq] for seq in sequences])
+        else:
+            raise ValueError()
+
+    def _str_to_sequences(self, seq_str):
+        if self.method == MEMMMethod.BIN_MEMM:
+            return eval(seq_str)
+        elif self.method == MEMMMethod.FLOAT_MEMM:
+            return [[(np.fromiter(obs, np.float64), state) for obs, state in seq] for seq in eval(seq_str)]
+        else:
+            raise ValueError()
 
     def create_index(self):
         """
@@ -123,11 +142,13 @@ class EvidenceManager:
 
 
 class MEMMManager:
-    def __init__(self, project):
+    def __init__(self, project, method):
         self.project = project
         self.client = pymongo.MongoClient(MONGO_URL)
-        self.db_name = f'{DB_NAME}_memm_{project.project_name}'
+        method_prefix = 'bin' if method == MEMMMethod.BIN_MEMM else 'float'
+        self.db_name = f'{DB_NAME}_{method_prefix}_memm_{project.project_name}'
         self.db = self.client[self.db_name]
+        self.method = method
 
     def db_exists(self):
         db_names = self.client.list_database_names()
@@ -177,7 +198,12 @@ class MEMMManager:
     def __doc_to_memm(self, doc):
         data = doc.read()
         memm_data = eval(data)
-        memm = MEMM()
+        if self.method == MEMMMethod.BIN_MEMM:
+            memm = BinMEMM()
+        elif self.method == MEMMMethod.FLOAT_MEMM:
+            memm = FloatMEMM()
+        else:
+            raise ValueError(f'invalid method {self.method}')
         memm.orig_indexes = memm_data['orig_indexes']
         memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
         return memm

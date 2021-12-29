@@ -591,9 +591,8 @@ class Project(object):
             trees = self.load_param('trees', ParamTypes.JSON)
             trees = {ObjectId(key): value for key, value in trees.items()}
             # Convert tree dictionaries to tree objects.
-            logger.debug('converting trees to objects ...')
+            logger.debug('converting dictionaries to trees ...')
             trees = {cascades_id: CascadeTree().from_dict(tree) for cascades_id, tree in trees.items()}
-            logger.debug('done')
         except FileNotFoundError:
             try:
                 trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
@@ -637,6 +636,7 @@ class Project(object):
 
         try:
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
+            graph = relabel_nodes(graph, {n: ObjectId(n) for n in graph.nodes()})
 
         except:  # If graph data does not exist.
             post_ids = self.__get_cascades_post_ids(train_set)
@@ -805,8 +805,8 @@ class Project(object):
     def __extract_reshare_graph(self, post_ids, cascade_ids, graph_fname):
         """
         Extract graph from given cascade id's.
-        :param post_ids:    list of posts id's related to cascades
-        :param cascade_ids:    list of cascades id's
+        :param post_ids:    list of the post ids related to the cascades
+        :param cascade_ids:    list of the cascade ids
         :param graph_fname: the file name to save graph data
         :return:            directed graph of all reshares
         """
@@ -829,10 +829,10 @@ class Project(object):
             user_id = resh['user_id']
             ref_user_id = resh['ref_user_id']
             if user_id != ref_user_id:
-                src_cascade_ids = {pm['cascade_id'] for pm in
+                src_cascade_ids = {pc['cascade_id'] for pc in
                                    db.postcascades.find({'post_id': resh['reshared_post_id']},
                                                         {'_id': 0, 'cascade_id': 1})}
-                dest_cascade_ids = {pm['cascade_id'] for pm in
+                dest_cascade_ids = {pc['cascade_id'] for pc in
                                     db.postcascades.find({'post_id': resh['post_id']}, {'_id': 0, 'cascade_id': 1})}
                 common_cascade = cascade_ids & src_cascade_ids & dest_cascade_ids
                 if common_cascade:

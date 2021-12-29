@@ -1,4 +1,6 @@
+import abc
 import math
+import pprint
 import random
 from functools import reduce
 from multiprocessing.pool import Pool
@@ -12,28 +14,32 @@ from pympler.asizeof import asizeof
 
 import settings
 from cascade.models import CascadeTree
-from memm.asyncronizables import train_memms, extract_evidences
+from memm.asyncronizables import train_memms, extract_bin_memm_evidences, extract_float_memm_evidences
 from db.exceptions import DataDoesNotExist
 from db.managers import MEMMManager, DBManager, EvidenceManager
 from db.reconnection import rerun_auto_reconnect, reconnect
+from memm.enum import MEMMMethod
 from memm.memm import MEMM
 from settings import logger
 from utils.time_utils import Timer, TimeUnit, time_measure
 
 
-class MEMMModel:
+class MEMMModel(abc.ABC):
+    method = None  # Define in the subclasses.
+
     def __init__(self, project):
         self.project = project
         self.__memms = {}
 
     @time_measure(level='debug')
-    def __prepare_evidences(self, train_set):
+    def __prepare_evidences(self, train_set, multi_processed=False):
         """
         Prepare the sequence of observations and states to train the MEMM models.
         :param train_set: list of training cascade id's
         :return: a dictionary of user id's to instances of MemmEvidence
         """
-        evid_manager = EvidenceManager(self.project)
+        logger.debug('method = %s', self.method)
+        evid_manager = EvidenceManager(self.project, self.method)
 
         try:
             logger.info('loading MEMM evidences ...')
@@ -42,37 +48,45 @@ class MEMMModel:
         except DataDoesNotExist:
             logger.info('no evidences found! extraction started')
             evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
-            act_seqs = self.project.load_or_extract_act_seq()
+            graph, act_seqs = self.project.load_or_extract_graph_seq()
+            trees = self.project.load_trees()
 
             logger.info('extracting sequences from %d cascades ...', len(train_set))
 
-            process_count = min(settings.PROCESS_COUNT, len(train_set))
-            pool = Pool(processes=process_count)
-            step = int(math.ceil(float(len(train_set)) / process_count))
-            results = []
-            for j in range(0, len(train_set), step):
-                cascade_ids = train_set[j: j + step]
-                res = pool.apply_async(extract_evidences, (cascade_ids, act_seqs))
-                results.append(res)
+            if multi_processed:
+                process_count = min(settings.PROCESS_COUNT, len(train_set))
+                pool = Pool(processes=process_count)
+                step = int(math.ceil(float(len(train_set)) / process_count))
+                results = []
+                for j in range(0, len(train_set), step):
+                    cascade_ids = train_set[j: j + step]
+                    res = self._async_extract_evidences(pool, cascade_ids, graph=graph, act_seqs=act_seqs, trees=trees)
+                    results.append(res)
 
-            pool.close()
-            pool.join()
+                pool.close()
+                pool.join()
 
-            logger.info('merging sequences of processes ...')
-            for res in results:
-                process_evidences = res.get()
-                for uid in process_evidences:
-                    if uid not in evidences:
-                        evidences[uid] = process_evidences[uid]
-                    else:
-                        evidences[uid]['sequences'].extend(process_evidences[uid]['sequences'])
+                logger.info('merging sequences of processes ...')
+                for res in results:
+                    process_evidences = res.get()
+                    for uid in process_evidences:
+                        if uid not in evidences:
+                            evidences[uid] = process_evidences[uid]
+                        else:
+                            evidences[uid]['sequences'].extend(process_evidences[uid]['sequences'])
+
+            else:
+                evidences = self._extract_evidences(train_set, graph=graph, act_seqs=act_seqs, trees=trees)
 
             # Delete evidences of totally inactive users since they will never be activated.
             inactives = self.__get_inactives(evidences)
             for uid in inactives:
                 evidences.pop(uid)
-            logger.info('Evidences of %d totally inactive users deleted since they have no state 1 ...', len(inactives))
+            logger.info('Evidences of %d totally inactive users deleted since they have no state 1', len(inactives))
 
+            logger.debugv('evidences = \n%s', pprint.pformat(evidences))
+
+            logger.info('inserting evidences into db and creating indexes ...')
             evid_manager.insert(evidences)
             evid_manager.create_index()
 
@@ -144,7 +158,7 @@ class MEMMModel:
                 evidences_i[uid] = evidences.pop(uid)  # to free RAM
 
             # Train a MEMM for each user.
-            res = pool.apply_async(train_memms, (evidences_i,))
+            res = pool.apply_async(train_memms, (evidences_i, self.method))
             results.append(res)
 
         del evidences  # to free RAM
@@ -164,7 +178,7 @@ class MEMMModel:
         return memms
 
     def __fit_by_evidences(self, train_set, multi_processed=False):
-        evidences = self.__prepare_evidences(train_set)
+        evidences = self.__prepare_evidences(train_set, multi_processed)
 
         if multi_processed:
             single_process_ev = {}  # Evidences to train sequentially in a single process.
@@ -200,7 +214,7 @@ class MEMMModel:
 
             memms = self.__fit_multiproc(multi_processed_ev)
             logger.info('inserting MEMMs into db ...')
-            MEMMManager(self.project).insert(memms)
+            MEMMManager(self.project, self.method).insert(memms)
             del memms, multi_processed_ev
 
         else:
@@ -211,7 +225,7 @@ class MEMMModel:
         evidences otherwise.
         """
         logger.info('training %d MEMMs sequentially', len(single_process_ev))
-        train_memms(single_process_ev, save_in_db=True, project=self.project)
+        train_memms(single_process_ev, self.method, save_in_db=True, project=self.project)
         del single_process_ev
 
         logger.info('training MEMMs finished')
@@ -223,7 +237,7 @@ class MEMMModel:
         :param train_set:   cascade id's in training set
         :return:            self
         """
-        manager = MEMMManager(self.project)
+        manager = MEMMManager(self.project, self.method)
 
         # Train MEMMs if they are not saved in DB.
         if not manager.db_exists():
@@ -255,7 +269,8 @@ class MEMMModel:
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return: dictionary of predicted tree for thresholds
         """
-        db = DBManager().db
+        # db = DBManager().db
+        graph = self.project.load_or_extract_graph()
         timers = [Timer(f'predict part {i}', level='debug', unit=TimeUnit.SECONDS, silent=True) for i in range(10)]
 
         # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
@@ -285,19 +300,22 @@ class MEMMModel:
 
             next_step = []
 
-            relations = db.relations.find({'user_id': {'$in': [item[0] for item in cur_step]}},
-                                          {'_id': 0, 'user_id': 1, 'children': 1})
-            children_dic = {rel['user_id']: rel['children'] for rel in relations}
+            # relations = db.relations.find({'user_id': {'$in': [item[0] for item in cur_step]}},
+            #                               {'_id': 0, 'user_id': 1, 'children': 1})
+            # children_dic = {rel['user_id']: rel['children'] for rel in relations}
+            cur_step_ids = [item[0] for item in cur_step]
+            children_dic = {node_id: list(graph.successors(node_id)) for node_id in cur_step_ids if node_id in graph}
 
-            parents_loaded = False
-            parents_dic = None
-            logger.debug('fetching parents ...')
-            try:
-                parents_dic = self.__fetch_children_parents(children_dic, db)
-                parents_loaded = True
-                logger.debug('done')
-            except MemoryError:
-                logger.debug('Low memory to fetch the parents of all children! trying to fetch them one by one.')
+            # parents_loaded = False
+            # parents_dic = None
+            # logger.debug('fetching parents ...')
+            # try:
+            # parents_dic = self._fetch_children_parents(children_dic, db)
+            parents_dic = self._fetch_children_parents(children_dic, graph)
+            # parents_loaded = True
+            # logger.debug('done')
+            # except MemoryError:
+            #     logger.debug('Low memory to fetch the parents of all children! trying to fetch them one by one.')
 
             i = 0
             for node_id, max_predicted_thr in cur_step:
@@ -308,9 +326,10 @@ class MEMMModel:
                     # from utils.text_utils import columnize
                     # logger.debugv('\n' + columnize([str(child_id) for child_id in children], 4))
 
-                    if not parents_loaded:
-                        with timers[0]:
-                            parents_dic = self.__fetch_parents_dic(children, db)
+                    # if not parents_loaded:
+                    #     with timers[0]:
+                    #         # parents_dic = self._fetch_parents_dic(children, db)
+                    #         parents_dic = self._fetch_parents_dic(children, graph)
 
                     j = 0
                     for child_id in children:
@@ -369,6 +388,8 @@ class MEMMModel:
                         if timer.sum != 0:
                             timer.report_sum()
 
+            self._set_next_state_observations(observations)
+
             cur_step = next_step
             step_num += 1
 
@@ -400,28 +421,112 @@ class MEMMModel:
         for thr in thresholds:
             if thr <= max_predicted_thr:
                 obs_thr = observations[thr]
-                obs = obs_thr.get(child_id, np.zeros(len(child_memm.orig_indexes), dtype=bool))
+                obs = obs_thr.get(child_id, self._get_zero_obs(len(child_memm.orig_indexes)))
                 if decreased_ind is not None:  # If the index found in the original indexes
                     obs[decreased_ind] = 1
                 obs_thr[child_id] = obs
             else:
                 break
 
-    def __fetch_children_parents(self, children_dic, db):
+    @abc.abstractmethod
+    def _get_zero_obs(self, dim):
+        pass
+
+    @abc.abstractmethod
+    def _set_next_state_observations(self, observations: dict):
+        """
+        Divide all observations by 2 in order to prepare for the next step.
+        :param observations: dictionary of observations
+        """
+
+    # def _fetch_children_parents(self, children_dic, db):
+    def _fetch_children_parents(self, children_dic, graph):
         children = list(reduce(lambda x, y: x | y, (set(child_list) for child_list in children_dic.values())))
-        relations = db.relations.find({'user_id': {'$in': children}}, {'_id': 0, 'user_id': 1, 'parents': 1})
-        parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+        # relations = db.relations.find({'user_id': {'$in': children}}, {'_id': 0, 'user_id': 1, 'parents': 1})
+        # parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+        parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in children if user_id in graph}
         return parents_dic
 
     def get_memm(self, user_id):
         if self.__memms:
             return self.__memms.get(user_id, None)
         else:
-            return MEMMManager(self.project).fetch_one(user_id)
+            return MEMMManager(self.project, self.method).fetch_one(user_id)
 
-    @rerun_auto_reconnect
-    def __fetch_parents_dic(self, children, db):
-        relations = db.relations.find({'user_id': {'$in': children}},
-                                      {'_id': 0, 'user_id': 1, 'parents': 1})
-        parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+    # @rerun_auto_reconnect
+    # def _fetch_parents_dic(self, children, db):
+    def _fetch_parents_dic(self, children, graph):
+        # relations = db.relations.find({'user_id': {'$in': children}},
+        #                               {'_id': 0, 'user_id': 1, 'parents': 1})
+        # parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+        parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in children if user_id in graph}
         return parents_dic
+
+    @abc.abstractmethod
+    def _async_extract_evidences(self, pool, cascade_ids, **kwargs):
+        pass
+
+    @abc.abstractmethod
+    def _extract_evidences(self, cascade_ids, **kwargs):
+        pass
+
+
+class BinMEMMModel(MEMMModel):
+    method = MEMMMethod.BIN_MEMM
+
+    def _async_extract_evidences(self, pool, cascade_ids, **kwargs):
+        act_seqs = kwargs.get('act_seqs')
+        graph = kwargs.get('graph')
+        if act_seqs is None:
+            raise ValueError('keyword argument "act_seqs" must be given')
+        if graph is None:
+            raise ValueError('keyword argument "graph" must be given')
+        cur_act_seqs = {cid: seq for cid, seq in act_seqs.items() if cid in cascade_ids}
+        res = pool.apply_async(extract_bin_memm_evidences, (cascade_ids, graph, cur_act_seqs))
+        return res
+
+    def _extract_evidences(self, cascade_ids, **kwargs):
+        act_seqs = kwargs.get('act_seqs')
+        graph = kwargs.get('graph')
+        if act_seqs is None:
+            raise ValueError('keyword argument "act_seqs" must be given')
+        if graph is None:
+            raise ValueError('keyword argument "graph" must be given')
+        return extract_bin_memm_evidences(cascade_ids, graph, act_seqs)
+
+    def _get_zero_obs(self, dim):
+        return np.zeros(dim, dtype=bool)
+
+    def _set_next_state_observations(self, observations: dict):
+        pass  # Do nothing!
+
+
+class FloatMEMMModel(MEMMModel):
+    method = MEMMMethod.FLOAT_MEMM
+
+    def _async_extract_evidences(self, pool, cascade_ids, **kwargs):
+        trees = kwargs.get('trees')
+        graph = kwargs.get('graph')
+        if trees is None:
+            raise ValueError('keyword argument "trees" must be given')
+        if graph is None:
+            raise ValueError('keyword argument "graph" must be given')
+        cur_trees = {cid: tree for cid, tree in trees.items() if cid in cascade_ids}
+        res = pool.apply_async(extract_float_memm_evidences, (cascade_ids, graph, cur_trees))
+        return res
+
+    def _extract_evidences(self, cascade_ids, **kwargs):
+        trees = kwargs.get('trees')
+        graph = kwargs.get('graph')
+        if trees is None:
+            raise ValueError('keyword argument "trees" must be given')
+        if graph is None:
+            raise ValueError('keyword argument "graph" must be given')
+        return extract_float_memm_evidences(cascade_ids, graph, trees)
+
+    def _get_zero_obs(self, dim):
+        return np.zeros(dim)
+
+    def _set_next_state_observations(self, observations: dict):
+        for thr, obs_thr in observations.items():
+            observations[thr] = {child_id: obs / 2 for child_id, obs in obs_thr.items()}

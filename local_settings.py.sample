@@ -17,7 +17,8 @@ NEO4J_USER = 'neo4j'
 NEO4J_PASS = '123'
 
 THRESHOLDS = {
-    'memm': (0, 1),
+    'binmemm': (0.1, 1),
+    'floatmemm': (0.1, 1),
     'mlnprac': (5, 10),
     'mlnalch': (0, 0.5),
     'aslt': (0, 1),

@@ -6,6 +6,7 @@ from bson import ObjectId
 
 from db.managers import EvidenceManager, DBManager, MEMMManager
 from cascade.models import Project
+from memm.enum import MEMMMethod
 from memm.memm import MEMM, array_to_str, obs_to_str
 
 
@@ -48,9 +49,10 @@ def handle():
     parser.add_argument('-u', '--userid', dest='user_id', type=str, help='user id', required=True)
     args = parser.parse_args()
 
+    method = MEMMMethod.BIN_MEMM
     project = Project(args.project)
-    memm = MEMMManager(project).fetch_one(args.user_id)
-    m = EvidenceManager(project)
+    memm = MEMMManager(project, method).fetch_one(args.user_id)
+    m = EvidenceManager(project, method)
     evidences = m.get_one(args.user_id)
     print_info(args.user_id, evidences, memm)
 
