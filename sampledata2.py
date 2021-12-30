@@ -46,22 +46,26 @@ class Command:
             cascades = list(db.cascades.find(query, ['_id']))
             cascades = [m['_id'] for m in cascades]
 
-            if len(cascades) < args.number:
+            if args.number and len(cascades) < args.number:
                 raise ValueError(
                     f'Number of cascades between min and max size ({len(cascades)}) is less than given sample number')
 
-            samples = list(np.random.choice(cascades, args.number, replace=False))
+            if args.number:
+                samples = list(np.random.choice(cascades, args.number, replace=False))
+            else:
+                samples = cascades
             samples = [str(_id) for _id in samples]
             random.shuffle(samples)
 
             val_ratio, test_ratio = 0.15, 0.15
-            val_num = round(val_ratio * args.number)
-            test_num = round(test_ratio * args.number)
+            val_num = round(val_ratio * len(samples))
+            test_num = round(test_ratio * len(samples))
             val_set = samples[:val_num]
             test_set = samples[val_num:val_num + test_num]
             train_set = samples[val_num + test_num:]
             project = Project(args.project)
             project.save_sets(train_set, val_set, test_set)
+            logger.info('project %s sampled containing %d cascades', args.project, len(samples))
 
             logger.info('command done in %f min' % ((time.time() - start) / 60))
 

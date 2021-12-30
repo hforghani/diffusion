@@ -3,7 +3,6 @@ from datetime import timedelta
 import json
 import os
 import random
-import time
 
 from anytree import Node, RenderTree
 from bson.objectid import ObjectId
@@ -149,7 +148,6 @@ class CascadeTree(object):
 
         with Timer('TREE: Adding single nodes', level='debug'):
             # Add users with no diffusion edges as single nodes.
-            t1 = time.time()
             first_posts = {}
             posts.rewind()
 
@@ -377,7 +375,6 @@ class AsLT(object):
         # Iterate on steps. For each step try to activate other nodes.
         step = 1
         while cur_step and (max_step is None or step <= max_step):
-            t0 = time.time()
             logger.debug('step %d on %d users ...', step, len(cur_step))
 
             next_step = []
@@ -425,7 +422,6 @@ class AsLT(object):
                         active_ids.add(v)
 
             cur_step = sorted(next_step, key=lambda n: n[0].datetime)
-            logger.debug('step %d done, time = %.2f s' % (step, time.time() - t0))
             step += 1
 
         return trees
@@ -451,7 +447,6 @@ class IC(object):
         now = tree.max_datetime()  # Find the datetime of now.
 
         # Initialize values.
-        t0 = time.time()
         cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         activated = tree.nodes()
         if self.user_map is None:
@@ -459,20 +454,16 @@ class IC(object):
                 db = DBManager().db
                 user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
             self.user_map = {user_ids[i]: i for i in range(len(user_ids))}
-        logger.debug('time1 = %.2f' % (time.time() - t0))
 
         # Get diffusion probabilities and delay vectors.
-        t0 = time.time()
         p = self.project.load_param(self.p_param_name, ParamTypes.SPARSE)
         p = p.tocsr()
         r = self.project.load_param(self.r_param_name, ParamTypes.SPARSE)
         r = r.tolil()
-        logger.debug('time2 = %.2f' % (time.time() - t0))
 
         # Iterate on steps. For each step try to activate other nodes.
         i = 0
         while cur_step:
-            t0 = time.time()
             i += 1
             logger.debug('step %d ...' % i)
 
@@ -527,7 +518,6 @@ class IC(object):
                         next_step.append(child)
                         logger.debug('a reshare predicted')
             cur_step = sorted(next_step, key=lambda n: n.datetime)
-            logger.debug('time = %.2f' % (time.time() - t0))
 
         return tree
 
@@ -581,6 +571,7 @@ class Project(object):
 
         return self.training, self.validation, self.test
 
+    @time_measure(level='info')
     def load_trees(self):
         """
         Load trees of cascades in training and test sets.
@@ -626,6 +617,7 @@ class Project(object):
         self.trees = trees
         return trees
 
+    @time_measure(level='info')
     def load_or_extract_graph(self, graph_type=GraphTypes.RESHARES):
         """
         Load or extract the graph of cascades in training set.
@@ -647,6 +639,7 @@ class Project(object):
 
         return graph
 
+    @time_measure(level='info')
     def load_or_extract_act_seq(self):
         """
         Load or extract list of activation sequences of cascades in training set.
@@ -669,6 +662,7 @@ class Project(object):
 
         return sequences
 
+    @time_measure(level='info')
     def load_or_extract_graph_seq(self, graph_type=GraphTypes.RESHARES):
         """
         Load the graph, and list of activation sequences of the project if saved before.
@@ -713,6 +707,7 @@ class Project(object):
         db = DBManager().db
         post_ids = [pm['post_id'] for pm in
                     db.postcascades.find({'cascade_id': {'$in': cascade_ids}}, {'_id': 0, 'post_id': 1})]
+        logger.debug('%d post ids fetched', len(post_ids))
         return post_ids
 
     @time_measure(level='info')
@@ -734,8 +729,7 @@ class Project(object):
         # Iterate on posts to extract activation sequences.
         i = 0
         while True:
-            posts = db.posts.find({'_id': {'$in': posts_ids}}, ['author_id', 'datetime'], no_cursor_timeout=True) \
-                .sort('datetime').skip(i)
+            posts = self._get_posts_author_datetime(posts_ids, db)
 
             try:
                 for post in posts:
@@ -749,10 +743,9 @@ class Project(object):
                     i += 1
                     if i % (post_count / 10) == 0:
                         logger.info('%d%% posts done' % (i * 100 / post_count))
-                posts.close()
                 break
             except CursorNotFound:
-                logger.info('Lost cursor! retrying with skipping %d first posts ...', i)
+                raise
 
         logger.info('setting relative times and max times ...')
         max_t = {}
@@ -784,24 +777,46 @@ class Project(object):
 
         return sequences
 
+    def _get_posts_author_datetime(self, post_ids, db):
+        max_count = 400000
+        if len(post_ids) < max_count:
+            logger.debug('fetching authors and datetimes of post ids ...')
+            return list(db.posts.find({'_id': {'$in': post_ids}}, ['author_id', 'datetime'], no_cursor_timeout=True) \
+                        .sort('datetime'))
+        else:
+            step = max_count
+            posts = []
+            for i in range(0, len(post_ids), step):
+                logger.debug('fetching authors and datetimes of post ids %d - %d  ...', i,
+                             min(i + step, len(post_ids)))
+                posts.extend(list(db.posts.find({'_id': {'$in': post_ids[i: i + step]}}, ['author_id', 'datetime'],
+                                                no_cursor_timeout=True)))
+            posts.sort(key=lambda post: post['datetime'])
+            return posts
+
     def __extract_reshares(self, db, post_ids):
-        if len(post_ids) < 400000:
+        max_count = 400000
+        if len(post_ids) < max_count:
             reshares = db.reshares.find(
                 {'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}},
                 {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1}).sort('datetime')
             return list(reshares)
         else:
             reshares = []
-            step = 800000 - len(post_ids)
+            step = max_count
             for i in range(0, len(post_ids), step):
-                logger.debug('fetching reshares of post ids from %d to %d ...', i, i + step)
-                reshares.extend(list(db.reshares.find(
-                    {'post_id': {'$in': post_ids[i: i + step]}, 'reshared_post_id': {'$in': post_ids}},
-                    {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1, 'datetime': 1})))
-                logger.debug('number of reshares: %d', len(reshares))
+                for j in range(0, len(post_ids), step):
+                    logger.debug('fetching reshares from post ids %d - %d to post ids %d - %d  ...', i,
+                                 min(i + step, len(post_ids)), j, min(j + step, len(post_ids)))
+                    reshares.extend(list(db.reshares.find(
+                        {'post_id': {'$in': post_ids[i: i + step]}, 'reshared_post_id': {'$in': post_ids[j:j + step]}},
+                        {'_id': 0, 'post_id': 1, 'reshared_post_id': 1, 'user_id': 1, 'ref_user_id': 1,
+                         'datetime': 1})))
+                    logger.debug('number of reshares: %d', len(reshares))
             reshares.sort(key=lambda resh: resh['datetime'])
             return reshares
 
+    @time_measure(level='info')
     def __extract_reshare_graph(self, post_ids, cascade_ids, graph_fname):
         """
         Extract graph from given cascade id's.
@@ -811,13 +826,11 @@ class Project(object):
         :return:            directed graph of all reshares
         """
         logger.info('extracting graph of reshares ...')
-        t0 = time.time()
 
         logger.info('querying reshares ...')
         db = DBManager().db
         reshares = self.__extract_reshares(db, post_ids)
         resh_count = len(reshares)
-        logger.info('time: %.2f min', (time.time() - t0) / 60.0)
 
         logger.info('extracting graph from %d posts and %d reshares ...', len(post_ids), resh_count)
         edges = []
@@ -847,7 +860,6 @@ class Project(object):
         logger.info('saving graph ...')
         self.save_param(graph, graph_fname, ParamTypes.GRAPH)
 
-        logger.info('graph extraction time: %.2f min' % ((time.time() - t0) / 60.0))
         return graph
 
     def get_all_nodes(self):

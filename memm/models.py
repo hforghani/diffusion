@@ -16,8 +16,8 @@ import settings
 from cascade.models import CascadeTree
 from memm.asyncronizables import train_memms, extract_bin_memm_evidences, extract_float_memm_evidences
 from db.exceptions import DataDoesNotExist
-from db.managers import MEMMManager, DBManager, EvidenceManager
-from db.reconnection import rerun_auto_reconnect, reconnect
+from db.managers import MEMMManager, EvidenceManager
+from db.reconnection import reconnect
 from memm.enum import MEMMMethod
 from memm.memm import MEMM
 from settings import logger
