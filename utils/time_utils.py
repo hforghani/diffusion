@@ -15,7 +15,6 @@ class TimeUnit(Enum):
     SECONDS = 0
     MINUTES = 1
     HOURS = 2
-    DAYS = 3
 
 
 def localize(dt):
@@ -39,10 +38,8 @@ def select_unit(t):
         return TimeUnit.SECONDS
     elif t < 60 * 60:
         return TimeUnit.MINUTES
-    elif t < 24 * 60 * 60:
-        return TimeUnit.HOURS
     else:
-        return TimeUnit.DAYS
+        return TimeUnit.HOURS
 
 
 def time_report(t, unit):
@@ -54,8 +51,6 @@ def time_report(t, unit):
         return f'{t / 60:.1f} m'
     elif unit == TimeUnit.HOURS:
         return f'{t / (60 * 60):.1f} h'
-    elif unit == TimeUnit.DAYS:
-        return f'{t / (60 * 60 * 24):.1f} days'
     else:
         raise ValueError(f'invalid unit "{unit}"')
 

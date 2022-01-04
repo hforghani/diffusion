@@ -24,54 +24,19 @@ class Command:
     help = 'Create database instances in MongoDB using memetracker dataset.'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "file",
-            type=str,
-            nargs='?',
-            help="Memetracker database text file path"
-        )
-        parser.add_argument(
-            "-s",
-            "--start",
-            type=int,
-            dest="start_index",
-            help="determine which index of post in the dataset file to start from"
-        )
-        parser.add_argument(
-            "-a",
-            "--attributes",
-            action="store_true",
-            dest="set_attributes",
-            help="just set attributes and ignore creating data"
-        )
-        parser.add_argument(
-            "-c",
-            "--clear",
-            action="store_true",
-            dest="clear",
-            help="clear existing data and continue"
-        )
-        parser.add_argument(
-            "-e",
-            "--entities",
-            action="store_true",
-            dest="entities",
-            help="just create cascade, user_account, and post entities"
-        )
-        parser.add_argument(
-            "-r",
-            "--relations",
-            action="store_true",
-            dest="relations",
-            help="just create post_cascade and reshare relations"
-        )
-        parser.add_argument(
-            "-t",
-            "--text",
-            action="store_true",
-            dest="post_texts",
-            help="Set post texts according to their cascades"
-        )
+        parser.add_argument("file", type=str, nargs='?', help="Memetracker database text file path")
+        parser.add_argument("-s", "--start", type=int, dest="start_index",
+                            help="determine which index of post in the dataset file to start from")
+        parser.add_argument("-a", "--attributes", action="store_true", dest="set_attributes",
+                            help="just set attributes and ignore creating data")
+        parser.add_argument("-c", "--clear", action="store_true", dest="clear", help="clear existing data and continue")
+        parser.add_argument("-e", "--entities", action="store_true", dest="entities",
+                            help="just create cascade, user_account, and post entities")
+        parser.add_argument("-r", "--relations", action="store_true", dest="relations",
+                            help="just create post_cascade and reshare relations")
+        parser.add_argument("-t", "--text", action="store_true", dest="post_texts",
+                            help="Set post texts according to their cascades")
+        parser.add_argument('-d', '--db', required=True, help="db name in which the documents must be inserted")
 
     def handle(self, args):
         try:
@@ -81,7 +46,7 @@ class Command:
             if not path:
                 raise Exception('file argument not specified')
 
-            db = DBManager().db
+            db = DBManager(args.db).db
 
             # Delete all data.
             if args.clear and not args.set_attributes:
@@ -95,33 +60,33 @@ class Command:
             # Create instances of non-relation entities.
             if (args.entities or not args.relations) and not args.set_attributes:
                 logger.info('======== creating entities ...')
-                self.create_entities(path)
+                self.create_entities(path, args.db)
 
             # Create instances of relation entities.
             if (args.relations or not args.entities) and not args.set_attributes:
                 temp_data_path = os.path.join(os.path.dirname(path), os.path.basename(path) + '.temp')
                 if not os.path.exists(temp_data_path):
                     logger.info('creating temp file ...')
-                    self.create_temp(path, temp_data_path)
+                    self.create_temp(path, temp_data_path, args.db)
 
                 logger.info('======== creating relations ...')
-                self.create_relations(temp_data_path, start_index=args.start_index)
+                self.create_relations(temp_data_path, args.start_index, args.db)
 
             # Set the cascade count, first time, and last time attributes of cascades.
             if args.set_attributes:
                 logger.info('======== setting counts and publication times for the cascades ...')
-                self.calc_cascade_values()
+                self.calc_cascade_values(args.db)
 
             logger.info('======== command done in %f min' % ((time.time() - start) / 60))
         except:
             logger.info(traceback.format_exc())
             raise
 
-    def create_entities(self, path):
+    def create_entities(self, path, db_name):
         urls = {}
         cascades = set()
         i = 0
-        db = DBManager().db
+        db = DBManager(db_name).db
 
         logger.info('reading urls and cascades from dataset ...')
         with open(path, encoding="utf8") as f:
@@ -245,8 +210,8 @@ class Command:
         del posts, urls, users_map
 
     # @profile
-    def create_relations(self, temp_data_path, start_index):
-        db = DBManager().db
+    def create_relations(self, temp_data_path, start_index, db_name):
+        db = DBManager(db_name).db
 
         # Count the number of lines.
         logger.info('counting main posts ...')
@@ -342,7 +307,7 @@ class Command:
                 line = f.readline()
 
         # Add the relations of the last post.
-        pm, resh = self.get_post_rels(post_id, datetime, cascade_ids, source_ids)
+        pm, resh = self.get_post_rels(post_id, datetime, cascade_ids, source_ids, db_name)
         post_cascades.extend(pm)
         reshares.extend(resh)
 
@@ -353,11 +318,11 @@ class Command:
         db.reshares.insert_many(reshares)
 
     # @profile
-    def get_post_rels(self, post_id, datetime, cascade_ids, source_ids):
+    def get_post_rels(self, post_id, datetime, cascade_ids, source_ids, db_name):
         """
         Create Postcascade and Reshare instances for the referenced links. Just create the instances not inserting in the db.
         """
-        db = DBManager().db
+        db = DBManager(db_name).db
 
         # Create the post.
         post = db.posts.find_one({'_id': post_id})
@@ -366,9 +331,9 @@ class Command:
 
         # Assign the cascades to the post.
         post_cascades = [{'post_id': post_id,
-                       'cascade_id': mid,
-                       'datetime': datetime,
-                       'author_id': post['author_id']} for mid in cascade_ids]
+                          'cascade_id': mid,
+                          'datetime': datetime,
+                          'author_id': post['author_id']} for mid in cascade_ids]
 
         # Create reshares if the post is reshared.
         reshares = []
@@ -387,8 +352,8 @@ class Command:
 
         return post_cascades, reshares
 
-    def create_temp(self, path, temp_path):
-        db = DBManager().db
+    def create_temp(self, path, temp_path, db_name):
+        db = DBManager(db_name).db
 
         # Replace cascade texts with cascade ids and create temporary data files.
         from_path = path
@@ -465,12 +430,12 @@ class Command:
 
                 fout.writelines(out_lines)
 
-    def load_cascades(self, offset=0, limit=None):
+    def load_cascades(self, db_name, offset=0, limit=None):
         """
         Get map of cascade texts to cascade id's.
         :return:
         """
-        db = DBManager().db
+        db = DBManager(db_name).db
         cascades_map = pygtrie.StringTrie()  # A trie data structure that maps from cascade texts to ids
         pipelines = [{'$sort': SON([('_id', 1)])},
                      {'$project': {'_id': 1, 'text': 1}}]
@@ -483,12 +448,12 @@ class Command:
             cascades_map[cascade['text']] = cascade['_id']
         return cascades_map
 
-    def load_posts(self, offset=0, limit=None):
+    def load_posts(self, db_name, offset=0, limit=None):
         """
         Get map of post urls to post id's
         :return:
         """
-        db = DBManager().db
+        db = DBManager(db_name).db
         posts_map = pygtrie.StringTrie()  # A trie data structure that maps from cascade texts to ids
         pipelines = [{'$sort': SON([('_id', 1)])},
                      {'$project': {'_id': 1, 'url': 1}}]
@@ -502,15 +467,16 @@ class Command:
             posts_map[post['url']] = post['_id']
         return posts_map
 
-    def calc_cascade_values(self):
-        db = DBManager().db
+    def calc_cascade_values(self, db_name):
+        db = DBManager(db_name).db
         count = db.cascades.count()
         save_step = 10 ** 6
 
         logger.info('query of cascade sizes (number of users) ...')
-        cascade_sizes = db.postcascades.aggregate([{'$group': {'_id': {'cascade_id': '$cascade_id', 'user_id': '$author_id'}}},
-                                             {'$group': {'_id': '$_id.cascade_id', 'size': {'$sum': 1}}}],
-                                            allowDiskUse=True)
+        cascade_sizes = db.postcascades.aggregate(
+            [{'$group': {'_id': {'cascade_id': '$cascade_id', 'user_id': '$author_id'}}},
+             {'$group': {'_id': '$_id.cascade_id', 'size': {'$sum': 1}}}],
+            allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
@@ -526,7 +492,7 @@ class Command:
 
         logger.info('query of number of posts of cascades ...')
         cascade_counts = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'count': {'$sum': 1}}}],
-                                             allowDiskUse=True)
+                                                   allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
@@ -542,7 +508,7 @@ class Command:
 
         logger.info('query of first times ...')
         first_times = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'first': {'$min': '$datetime'}}}],
-                                             allowDiskUse=True)
+                                                allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []
@@ -558,7 +524,7 @@ class Command:
 
         logger.info('query of last times ...')
         last_times = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'last': {'$max': '$datetime'}}}],
-                                            allowDiskUse=True)
+                                               allowDiskUse=True)
 
         logger.info('saving ...')
         operations = []

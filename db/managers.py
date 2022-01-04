@@ -1,21 +1,18 @@
-import pickle
-
 import gridfs
 import pymongo
 from bson import ObjectId
-from scipy.sparse import csr_matrix
 import numpy as np
 
 from db.exceptions import DataDoesNotExist
-from memm.memm import MEMM, BinMEMM, FloatMEMM
+from memm.memm import BinMEMM, FloatMEMM
 from memm.enum import MEMMMethod
-from settings import logger, MONGO_URL, DB_NAME
+from settings import logger, MONGO_URL
 
 
 class DBManager:
-    def __init__(self):
+    def __init__(self, db_name):
         mongo_client = pymongo.MongoClient(MONGO_URL)
-        self.db = mongo_client[DB_NAME]
+        self.db = mongo_client[db_name]
 
 
 class EvidenceManager:
@@ -24,7 +21,7 @@ class EvidenceManager:
         self.method = method
         mongo_client = pymongo.MongoClient(MONGO_URL)
         method_prefix = 'bin' if method == MEMMMethod.BIN_MEMM else 'float'
-        self.db = mongo_client[f'{DB_NAME}_{method_prefix}_memm_evid_{project.project_name}']
+        self.db = mongo_client[f'{project.db}_{method_prefix}_memm_evid_{project.project_name}']
 
     def get_one(self, user_id):
         if not isinstance(user_id, ObjectId):
@@ -146,7 +143,7 @@ class MEMMManager:
         self.project = project
         self.client = pymongo.MongoClient(MONGO_URL)
         method_prefix = 'bin' if method == MEMMMethod.BIN_MEMM else 'float'
-        self.db_name = f'{DB_NAME}_{method_prefix}_memm_{project.project_name}'
+        self.db_name = f'{project.db}_{method_prefix}_memm_{project.project_name}'
         self.db = self.client[self.db_name]
         self.method = method
 

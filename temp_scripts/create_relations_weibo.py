@@ -35,7 +35,7 @@ def create_relations(relations_file, uidlist_file):
             line = f.readline()
     logger.info('%d lines read', i)
 
-    db = DBManager().db
+    db = DBManager('weibo').db
 
     i = 0
     rel_to_insert = []

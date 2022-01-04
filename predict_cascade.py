@@ -29,6 +29,7 @@ def add_arguments(parser):
 def handle(args):
     method = args.method
     project_name = args.project
+    project = Project(project_name)
     cascade_id = ObjectId(args.cascade_id)
 
     if args.threshold:
@@ -39,7 +40,7 @@ def handle(args):
         thresholds = [step * i + thres_min for i in range(args.thresholds_count)]
 
     # Log the test configuration.
-    logger.info('{0} DB : {1} {0}'.format('=' * 20, settings.DB_NAME))
+    logger.info('{0} DB : {1} {0}'.format('=' * 20, project.db))
     logger.info('{0} PROJECT : {1} {0}'.format('=' * 20, project_name))
     logger.info('{0} ON CASCADE : {1} {0}'.format('=' * 20, cascade_id))
     logger.info('{0} METHOD : {1} {0}'.format('=' * 20, method))
@@ -47,7 +48,6 @@ def handle(args):
     logger.info('{0} MAX DEPTH : {1} {0}'.format('=' * 20, args.max_depth))
     logger.info('{0} TESTING ON THRESHOLD(S) : {1} {0}'.format('=' * 20, thresholds))
 
-    project = Project(project_name)
     tester = DefaultTester(project, method)
     model = tester.train()
 
@@ -58,7 +58,7 @@ def handle(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Test information diffusion prediction on a single cascade')
+    parser = argparse.ArgumentParser('Test diffusion prediction on a single cascade')
     add_arguments(parser)
     args = parser.parse_args()
     handle(args)

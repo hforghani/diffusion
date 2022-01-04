@@ -49,11 +49,12 @@ class Command:
             "-c", "--clear", action="store_true", dest="clear",
             help="clear existing data and continue"
         )
+        parser.add_argument('-d', '--db', required=True, help="db name in which the documents must be inserted")
 
     def handle(self, args):
         try:
             start = time.time()
-            db = DBManager().db
+            db = DBManager(args.db).db
 
             # Delete all data.
             if args.clear and not args.set_attributes:
@@ -68,7 +69,7 @@ class Command:
                 # Create users.
                 if args.users_files:
                     logger.info('======== creating users ...')
-                    users_map, user_ids = create_users(args.users_files)
+                    users_map, user_ids = create_users(args.users_files, args.db)
                 elif args.retweets_file:
                     logger.info('collecting users map ...')
                     users = db.users.find({}, ['_id', 'username'])
@@ -80,7 +81,7 @@ class Command:
                 # Create cascades and their root posts.
                 if args.roots_file:
                     logger.info('======== creating cascades and roots ...')
-                    cascades_map = create_roots(args.roots_file)
+                    cascades_map = create_roots(args.roots_file, args.db)
                 elif args.retweets_file:
                     logger.info('collecting posts map ...')
                     post_cascades = db.postcascades.find({}, ['post_id', 'cascade_id'])
@@ -89,7 +90,7 @@ class Command:
                 # Create retweet data and complete original posts fields.
                 if args.retweets_file:
                     logger.info('======== creating retweets ...')
-                    create_retweets(args.retweets_file, args.start_index, users_map, user_ids, cascades_map)
+                    create_retweets(args.retweets_file, args.start_index, users_map, user_ids, cascades_map, args.db)
 
                 if args.relations_file and args.uidlist_file:
                     logger.info('======== creating following graph ...')
@@ -98,7 +99,7 @@ class Command:
             # Set the cascade count, first time, and last time attributes of cascades.
             if args.set_attributes:
                 logger.info('======== setting counts and publication times for the cascades ...')
-                calc_cascades_values()
+                calc_cascades_values(args.db)
 
             logger.info('======== command done in %f min' % ((time.time() - start) / 60))
         except:

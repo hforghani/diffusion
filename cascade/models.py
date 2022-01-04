@@ -98,12 +98,12 @@ class CascadeTree(object):
             self._id_to_node = {node.user_id: node for node in self.nodes()}
 
     @classmethod
-    def extract_cascade(cls, cascade_id):
+    def extract_cascade(cls, cascade_id, db_name):
         with Timer('TREE: fetching posts', level='debug'):
             # Fetch posts related to the cascade and reshares.
             if isinstance(cascade_id, str):
                 cascade_id = ObjectId(cascade_id)
-            db = DBManager().db
+            db = DBManager(db_name).db
             post_ids = db.postcascades.distinct('post_id', {'cascade_id': cascade_id})
             posts = db.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
 
@@ -299,7 +299,7 @@ class ActSequence(object):
         if self.rond_set is None:
             result = set()
             for uid in self.users:
-                if uid in graph.nodes():
+                if uid in graph:
                     result.update(set(graph.successors(uid)))
             result = result - set(self.users)
             self.rond_set = result
@@ -364,7 +364,7 @@ class AsLT(object):
         cur_step = [(node, max_thr) for node in cur_step_nodes]
         active_ids = set(initial_tree.node_ids())
         self.probabilities = {}
-        db = DBManager().db
+        db = DBManager(self.project.db).db
 
         if user_ids is None or users_map is None:
             user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
@@ -451,7 +451,7 @@ class IC(object):
         activated = tree.nodes()
         if self.user_map is None:
             if user_ids is None:
-                db = DBManager().db
+                db = DBManager(self.project.db).db
                 user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
             self.user_map = {user_ids[i]: i for i in range(len(user_ids))}
 
@@ -536,12 +536,18 @@ class GraphTypes:
 
 
 class Project(object):
-    def __init__(self, project_name):
+    def __init__(self, project_name, db=None):
         self.project_name = project_name
         self.project_path = os.path.join(settings.BASEPATH, 'data', project_name)
-        # Create the project path if does not exist.
         if not os.path.exists(self.project_path):
-            os.mkdir(self.project_path)
+            os.mkdir(self.project_path)  # Create the project path if it does not exist.
+        try:
+            self.db = self.load_param('db', ParamTypes.JSON)['db']
+        except:
+            if not db:
+                raise ValueError('db is required if the db.json does not exist')
+            self.save_param({'db': db}, 'db', ParamTypes.JSON)
+            self.db = db
         self.training = None
         self.validation = None
         self.test = None
@@ -606,7 +612,7 @@ class Project(object):
                 all_cascades = self.training + self.validation + self.test
                 count = len(all_cascades)
                 for cascade_id in all_cascades:
-                    tree = CascadeTree().extract_cascade(cascade_id)
+                    tree = CascadeTree().extract_cascade(cascade_id, self.db)
                     trees[cascade_id] = tree
                     i += 1
                     if i % 10 == 0:
@@ -704,7 +710,7 @@ class Project(object):
     @time_measure(level='info')
     def __get_cascades_post_ids(self, cascade_ids):
         logger.info('querying posts ids ...')
-        db = DBManager().db
+        db = DBManager(self.db).db
         post_ids = [pm['post_id'] for pm in
                     db.postcascades.find({'cascade_id': {'$in': cascade_ids}}, {'_id': 0, 'post_id': 1})]
         logger.debug('%d post ids fetched', len(post_ids))
@@ -724,7 +730,7 @@ class Project(object):
         users = {m: [] for m in cascade_ids}
         times = {m: [] for m in cascade_ids}
 
-        db = DBManager().db
+        db = DBManager(self.db).db
 
         # Iterate on posts to extract activation sequences.
         i = 0
@@ -828,7 +834,7 @@ class Project(object):
         logger.info('extracting graph of reshares ...')
 
         logger.info('querying reshares ...')
-        db = DBManager().db
+        db = DBManager(self.db).db
         reshares = self.__extract_reshares(db, post_ids)
         resh_count = len(reshares)
 

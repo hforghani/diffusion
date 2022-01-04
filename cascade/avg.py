@@ -21,7 +21,7 @@ class LTAvg(AsLT):
         train_set, _, _ = self.project.load_sets()
 
         logger.info('querying posts of the cascades ...')
-        db = DBManager().db
+        db = DBManager(self.project.db).db
         posts_ids = [pm['post_id'] for pm in
                      db.postcascades.find({'cascade_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
 
@@ -32,7 +32,7 @@ class LTAvg(AsLT):
 
     def calc_weights(self, posts_ids):
         logger.info('counting reshares of users ...')
-        db = DBManager().db
+        db = DBManager(self.project.db).db
         resh_counts = db.reshares.aggregate([
             {'$match': {'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}}},
             {'$group': {'_id': {'user_id': '$user_id', 'ref_user_id': '$ref_user_id'}, 'count': {'$sum': 1}}},
@@ -81,7 +81,7 @@ class LTAvg(AsLT):
 
     def calc_delays(self, posts_ids, continue_prev):
         logger.info('collecting user ids ...')
-        db = DBManager().db
+        db = DBManager(self.project.db).db
 
         user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
         user_map = {user_ids[i]: i for i in range(len(user_ids))}

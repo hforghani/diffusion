@@ -15,7 +15,7 @@ logger = logging.getLogger('weibo')
 logger.setLevel(settings.LOG_LEVEL)
 
 
-def create_roots(path):
+def create_roots(path, db_name):
     """
     Create cascades and their root posts reading the file Root_Content.txt .
     :param path: path of the file Root_Content.txt
@@ -24,7 +24,7 @@ def create_roots(path):
     post_cascades = []
     cascades_map = {}
     i = 0
-    db = DBManager().db
+    db = DBManager(db_name).db
 
     with open(path, encoding='utf-8', errors='ignore') as f:
         line = f.readline()
@@ -74,14 +74,14 @@ def to_user_id(number):
     return ObjectId('{:024d}'.format(int(number)))
 
 
-def create_users(paths):
+def create_users(paths, db_name):
     """
     Create users reading the files user_profile1.txt and user_profile2.txt .
     :param paths: list of path of the files
     :returns map of usernames to user ids
     """
     users = []
-    db = DBManager().db
+    db = DBManager(db_name).db
     user_ids = {u['_id'] for u in db.users.find({}, ['_id'])}
     users_map = {u['username']: u['_id'] for u in db.users.find({}, ['_id', 'username'])}
     i = 0
@@ -137,10 +137,10 @@ def create_users(paths):
 
 
 # @profile
-def create_retweets(path, start_index, users_map, user_ids, cascades_map):
+def create_retweets(path, start_index, users_map, user_ids, cascades_map, db_name):
     i = 0
     t0 = time.time()
-    db = DBManager().db
+    db = DBManager(db_name).db
     cascades_count = db.cascades.count()
     post_cascades = []
     reshares = []
@@ -154,7 +154,7 @@ def create_retweets(path, start_index, users_map, user_ids, cascades_map):
 
         while True:
             i += 1
-            resh_list, pm_list = read_one_cascade_reshares(f, users_map, user_ids, cascades_map, ignoring)
+            resh_list, pm_list = read_one_cascade_reshares(f, users_map, user_ids, cascades_map, db_name, ignoring)
             if resh_list is None and pm_list is None:
                 break
             reshares.extend(resh_list)
@@ -190,9 +190,9 @@ def create_retweets(path, start_index, users_map, user_ids, cascades_map):
     db.reshares.insert_many(reshares)
 
 
-def read_one_cascade_reshares(f, users_map, user_ids, cascade_map, ignoring=False):
+def read_one_cascade_reshares(f, users_map, user_ids, cascade_map, db_name, ignoring=False):
     # Read root post data.
-    db = DBManager().db
+    db = DBManager(db_name).db
     line = None
     while line is None or line == '\n':
         line = f.readline()
@@ -212,7 +212,7 @@ def read_one_cascade_reshares(f, users_map, user_ids, cascade_map, ignoring=Fals
         db.posts.update_one({'_id': original_pid},
                             {'$set': {'datetime': original_time, 'author_id': original_uid}})
         db.postcascades.update_one({'post_id': original_pid},
-                                {'$set': {'datetime': original_time, 'author_id': original_uid}})
+                                   {'$set': {'datetime': original_time, 'author_id': original_uid}})
     cascade_id = cascade_map[str(original_pid)]
 
     # Read retweets number.
@@ -225,15 +225,16 @@ def read_one_cascade_reshares(f, users_map, user_ids, cascade_map, ignoring=Fals
     posts_map = {str(original_uid): {'_id': original_pid, 'datetime': original_time}}
 
     for i in range(retweet_num):
-        reshares, post_cascades = read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, ignoring)
+        reshares, post_cascades = read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, db_name,
+                                                       ignoring)
         cascade_reshares.extend(reshares)
         cascade_postcascades.extend(post_cascades)
 
     return cascade_reshares, cascade_postcascades
 
 
-def read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, ignoring=False):
-    db = DBManager().db
+def read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, db_name, ignoring=False):
+    db = DBManager(db_name).db
 
     # Read retweet data.
     line = None
@@ -313,15 +314,16 @@ def read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, igno
     return reshares, post_cascades
 
 
-def calc_cascades_values():
-    db = DBManager().db
+def calc_cascades_values(db_name):
+    db = DBManager(db_name).db
     count = db.cascades.count()
     save_step = 10 ** 6
 
     logger.info('query of cascade sizes (number of users) ...')
-    cascade_sizes = db.postcascades.aggregate([{'$group': {'_id': {'cascade_id': '$cascade_id', 'user_id': '$author_id'}}},
-                                         {'$group': {'_id': '$cascade_id', 'size': {'$sum': 1}}}],
-                                        allowDiskUse=True)
+    cascade_sizes = db.postcascades.aggregate(
+        [{'$group': {'_id': {'cascade_id': '$cascade_id', 'user_id': '$author_id'}}},
+         {'$group': {'_id': '$cascade_id', 'size': {'$sum': 1}}}],
+        allowDiskUse=True)
 
     logger.info('saving ...')
     operations = []
@@ -337,7 +339,7 @@ def calc_cascades_values():
 
     logger.info('query of cascade counts ...')
     cascade_counts = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'count': {'$sum': 1}}}],
-                                         allowDiskUse=True)
+                                               allowDiskUse=True)
 
     logger.info('saving ...')
     operations = []
@@ -353,7 +355,7 @@ def calc_cascades_values():
 
     logger.info('query of first times ...')
     first_times = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'first': {'$min': '$datetime'}}}],
-                                         allowDiskUse=True)
+                                            allowDiskUse=True)
 
     logger.info('saving ...')
     operations = []
@@ -369,7 +371,7 @@ def calc_cascades_values():
 
     logger.info('query of last times ...')
     last_times = db.postcascades.aggregate([{'$group': {'_id': '$cascade_id', 'last': {'$max': '$datetime'}}}],
-                                        allowDiskUse=True)
+                                           allowDiskUse=True)
 
     logger.info('saving ...')
     operations = []
@@ -398,8 +400,8 @@ def read_uidlist(uidlist_file):
 
 
 @time_measure()
-def extract_relations(relations_file, uidlist_file, user_ids=None):
-    db = DBManager().db
+def extract_relations(relations_file, uidlist_file, db_name, user_ids=None):
+    db = DBManager(db_name).db
 
     uid_list = read_uidlist(uidlist_file)
     uid_list_map = {uid_list[i]: i for i in range(len(uid_list))}

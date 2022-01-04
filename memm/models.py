@@ -269,7 +269,6 @@ class MEMMModel(abc.ABC):
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return: dictionary of predicted tree for thresholds
         """
-        # db = DBManager().db
         graph = self.project.load_or_extract_graph()
         timers = [Timer(f'predict part {i}', level='debug', unit=TimeUnit.SECONDS, silent=True) for i in range(10)]
 
@@ -300,22 +299,9 @@ class MEMMModel(abc.ABC):
 
             next_step = []
 
-            # relations = db.relations.find({'user_id': {'$in': [item[0] for item in cur_step]}},
-            #                               {'_id': 0, 'user_id': 1, 'children': 1})
-            # children_dic = {rel['user_id']: rel['children'] for rel in relations}
             cur_step_ids = [item[0] for item in cur_step]
             children_dic = {node_id: list(graph.successors(node_id)) for node_id in cur_step_ids if node_id in graph}
-
-            # parents_loaded = False
-            # parents_dic = None
-            # logger.debug('fetching parents ...')
-            # try:
-            # parents_dic = self._fetch_children_parents(children_dic, db)
             parents_dic = self._fetch_children_parents(children_dic, graph)
-            # parents_loaded = True
-            # logger.debug('done')
-            # except MemoryError:
-            #     logger.debug('Low memory to fetch the parents of all children! trying to fetch them one by one.')
 
             i = 0
             for node_id, max_predicted_thr in cur_step:
@@ -325,11 +311,6 @@ class MEMMModel(abc.ABC):
                     logger.debug('user %s has %d children:', node_id, len(children))
                     # from utils.text_utils import columnize
                     # logger.debugv('\n' + columnize([str(child_id) for child_id in children], 4))
-
-                    # if not parents_loaded:
-                    #     with timers[0]:
-                    #         # parents_dic = self._fetch_parents_dic(children, db)
-                    #         parents_dic = self._fetch_parents_dic(children, graph)
 
                     j = 0
                     for child_id in children:
@@ -439,11 +420,8 @@ class MEMMModel(abc.ABC):
         :param observations: dictionary of observations
         """
 
-    # def _fetch_children_parents(self, children_dic, db):
     def _fetch_children_parents(self, children_dic, graph):
-        children = list(reduce(lambda x, y: x | y, (set(child_list) for child_list in children_dic.values())))
-        # relations = db.relations.find({'user_id': {'$in': children}}, {'_id': 0, 'user_id': 1, 'parents': 1})
-        # parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
+        children = list(reduce(lambda x, y: x | y, (set(child_list) for child_list in children_dic.values()), set()))
         parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in children if user_id in graph}
         return parents_dic
 
@@ -453,12 +431,7 @@ class MEMMModel(abc.ABC):
         else:
             return MEMMManager(self.project, self.method).fetch_one(user_id)
 
-    # @rerun_auto_reconnect
-    # def _fetch_parents_dic(self, children, db):
     def _fetch_parents_dic(self, children, graph):
-        # relations = db.relations.find({'user_id': {'$in': children}},
-        #                               {'_id': 0, 'user_id': 1, 'parents': 1})
-        # parents_dic = {rel['user_id']: rel['parents'] for rel in relations}
         parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in children if user_id in graph}
         return parents_dic
 

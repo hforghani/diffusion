@@ -7,14 +7,10 @@ BASE_PATH = '/path/to/current/folder'
 LOG_LEVEL = logging.DEBUG
 # LOG_LEVEL = DEBUG_LEVELV_NUM
 
-DB_NAME = 'weibo'
 MONGO_URL = 'mongodb://localhost:27017/'
 
 WEIBO_FOLLOWERS_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\weibo_network.txt'
 WEIBO_UIDLIST_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\uidlist.txt'
-
-NEO4J_USER = 'neo4j'
-NEO4J_PASS = '123'
 
 THRESHOLDS = {
     'binmemm': (0.1, 1),

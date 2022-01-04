@@ -6,7 +6,7 @@ from db.managers import DBManager
 from settings import logger
 
 if __name__ == '__main__':
-    db = DBManager().db
+    db = DBManager('weibo').db
     post_ids = db.postcascades.find({'datetime': None}, {'post_id': 1, '_id': 0})
     post_ids_done = set()
     count = post_ids.count()

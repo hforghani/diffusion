@@ -5,6 +5,7 @@ import time
 import pymongo
 
 from db.managers import DBManager
+from settings import MONGO_URL
 from settings import logger
 
 MAX_AUTO_RECONNECT_ATTEMPTS = 10
@@ -13,7 +14,8 @@ MAX_AUTO_RECONNECT_ATTEMPTS = 10
 def reconnect(wait_t=0.5):
     # Check mongod is down. Try to start it if down.
     try:
-        DBManager().db.client.server_info()
+        mongo_client = pymongo.MongoClient(MONGO_URL)
+        mongo_client.server_info()
     except pymongo.errors.ServerSelectionTimeoutError:
         logger.info('mongod is down. starting mongod service ...')
         os.system('service mongod start')

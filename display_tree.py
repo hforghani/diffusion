@@ -17,17 +17,10 @@ class Command:
     help = 'Display cascade tree of a cascade from a project'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            'cascade_id',
-            type=str,
-            help='cascade id',
-        )
-        parser.add_argument(
-            '-p',
-            '--project',
-            type=str,
-            help='project name',
-        )
+        parser.add_argument('cascade_id', type=str, help='cascade id')
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument('-p', '--project', type=str, help='project name')
+        group.add_argument('-d', '--db', type=str, help='db name')
 
     def __init__(self):
         super(Command, self).__init__()
@@ -41,7 +34,7 @@ class Command:
                 trees = project.load_trees()
                 tree = trees[ObjectId(cascade_id)]
             else:
-                tree = CascadeTree.extract_cascade(cascade_id)
+                tree = CascadeTree.extract_cascade(cascade_id, args.db)
 
             logger.info('\n' + tree.render())
         except:

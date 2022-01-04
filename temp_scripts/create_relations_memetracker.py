@@ -5,7 +5,7 @@ from utils.time_utils import time_measure
 
 @time_measure()
 def create_relations():
-    db = DBManager().db
+    db = DBManager('memetracker').db
     relations = {}
     i = 0
 

@@ -7,20 +7,20 @@ from bson import ObjectId
 from db.managers import EvidenceManager, DBManager, MEMMManager
 from cascade.models import Project
 from memm.enum import MEMMMethod
-from memm.memm import MEMM, array_to_str, obs_to_str
+from memm.memm import MEMM, obs_to_str
 
 
 # import pydevd_pycharm
 #
 # pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
-def print_info(user_id, evidences, memm):
+def print_info(user_id, evidences, memm, db_name):
     dim = evidences['dimension']
     pp = PrettyPrinter()
     sequences, orig_indexes = MEMM().decrease_dim(evidences['sequences'], dim)
     new_dim = len(orig_indexes)
     str_sequences = [[(obs_to_str(obs, new_dim), state) for obs, state in seq] for seq in sequences]
-    manager = DBManager()
+    manager = DBManager(db_name)
     parents = manager.db.relations.find_one({'user_id': ObjectId(user_id)}, {'parents': 1})['parents']
     parent_user_ids = [parents[index] for index in orig_indexes]
 
@@ -54,7 +54,7 @@ def handle():
     memm = MEMMManager(project, method).fetch_one(args.user_id)
     m = EvidenceManager(project, method)
     evidences = m.get_one(args.user_id)
-    print_info(args.user_id, evidences, memm)
+    print_info(args.user_id, evidences, memm, project.db)
 
 
 if __name__ == '__main__':

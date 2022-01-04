@@ -23,7 +23,7 @@ class ProjectTester(abc.ABC):
         if method in ['aslt', 'avg']:
             # Create dictionary of user id's to their sorted index.
             logger.info('creating dictionary of user ids to their sorted index ...')
-            db = DBManager().db
+            db = DBManager(self.project.db).db
             self.user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
             self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
         else:
@@ -31,9 +31,14 @@ class ProjectTester(abc.ABC):
             self.users_map = None
 
     @abc.abstractmethod
-    def run(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int) \
+    def run_validation_test(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int) \
             -> Tuple[dict, dict, dict, dict]:
         """ Run the training, validation, and test stages for the project """
+
+    @abc.abstractmethod
+    def run_test(self, threshold: numbers.Number, initial_depth: int, max_depth: int) \
+            -> Tuple[dict, dict, dict, dict]:
+        """ Run the training, and test stages for the project """
 
     @abc.abstractmethod
     def train(self):
@@ -131,7 +136,7 @@ class ProjectTester(abc.ABC):
 
 
 class DefaultTester(ProjectTester):
-    def run(self, thresholds, initial_depth, max_depth):
+    def run_validation_test(self, thresholds, initial_depth, max_depth):
         with Timer('training'):
             model = self.train()
 
@@ -141,6 +146,15 @@ class DefaultTester(ProjectTester):
             thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=model)
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
             return self.test(test_set, thr, initial_depth, max_depth, model=model)
+
+    def run_test(self, threshold, initial_depth, max_depth):
+        with Timer('training'):
+            model = self.train()
+
+        with Timer('test'):
+            _, val_set, test_set = self.project.load_sets()
+            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
+            return self.test(test_set, threshold, initial_depth, max_depth, model=model)
 
     @time_measure(level='debug')
     def train(self):
@@ -174,7 +188,7 @@ class DefaultTester(ProjectTester):
 
 
 class MultiProcTester(ProjectTester):
-    def run(self, thresholds, initial_depth, max_depth):
+    def run_validation_test(self, thresholds, initial_depth, max_depth):
         with Timer('training'):
             # Train the cascades once and save them. Then the trained model is fetched from disk and used at each process.
             # The model is not passed to each process due to pickling size limit.
@@ -187,6 +201,18 @@ class MultiProcTester(ProjectTester):
             thr = self.validate(val_set, thresholds, initial_depth, max_depth)
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
             return self.test(test_set, thr, initial_depth, max_depth)
+
+    def run_test(self, threshold, initial_depth, max_depth):
+        with Timer('training'):
+            # Train the cascades once and save them. Then the trained model is fetched from disk and used at each process.
+            # The model is not passed to each process due to pickling size limit.
+            if not MEMMManager(self.project, self.method).db_exists():
+                self.train()
+
+        with Timer('test'):
+            _, val_set, test_set = self.project.load_sets()
+            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
+            return self.test(test_set, threshold, initial_depth, max_depth)
 
     @time_measure(level='debug')
     def train(self):

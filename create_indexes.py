@@ -1,14 +1,15 @@
+import argparse
 import logging
 
 import pymongo
 from pymongo import IndexModel
 
-import settings
 from db.managers import DBManager
+from settings import logger
 
 
-def handle(logger):
-    db = DBManager().db
+def handle(db_name):
+    db = DBManager(db_name).db
     logger.info('creating an index for cascades ...')
     db.cascades.create_indexes([IndexModel('depth'), IndexModel('size')])
     logger.info('creating indexes for postcascades ...')
@@ -24,8 +25,7 @@ def handle(logger):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(format=settings.LOG_FORMAT)
-    logger = logging.getLogger('create_indexes')
-    logger.setLevel(settings.LOG_LEVEL)
-
-    handle(logger)
+    parser = argparse.ArgumentParser('Show statistics of the cascades between a min and max user count')
+    parser.add_argument('-d', '--db', required=True, help="db name")
+    args = parser.parse_args()
+    handle(args.db)

@@ -1,145 +1,77 @@
-# -*- coding: utf-8 -*-
 import argparse
-import os
-import traceback
-from random import shuffle
+import logging
+import random
 import time
-import numpy as np
-from bson import ObjectId
+import traceback
 
+import settings
 from cascade.models import Project
 from db.managers import DBManager
-from settings import logger, BASE_PATH
+import numpy as np
+
+logging.basicConfig(format=settings.LOG_FORMAT)
+logger = logging.getLogger('displaytree')
+logger.setLevel(settings.LOG_LEVEL)
 
 
 class Command:
-    help = 'Sample a subset of data and separate training and test sets and save them into the file'
+    help = 'Samples a subset of cascades and separate training, validation and test sets and save them into the project data'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "-n",
-            "--number",
-            type=int,
-            dest="sample_num",
-            help="number of data samples consisting training and test sets",
-        )
-        parser.add_argument(
-            "-u",
-            "--usersnum",
-            type=int,
-            dest="users_num",
-            help="number of users which we want to sample their cascades",
-        )
-        parser.add_argument(
-            "-d",
-            "--mindepth",
-            type=int,
-            dest="min_depth",
-            default=0,
-            help="minimum depth of cascade trees of cascades",
-        )
-        parser.add_argument(
-            "-r",
-            "--ratio",
-            type=float,
-            dest="ratio",
-            default=2.0 / 3,
-            help="ratio of number of training set to number of all samples",
-        )
-        parser.add_argument(
-            "-p",
-            "--project",
-            type=str,
-            dest="project",
-            help="project name",
-        )
+        parser.add_argument('--min', type=int, default=0, help='min number of cascade users')
+        parser.add_argument('--max', type=int, help='max number of cascade users')
+        parser.add_argument("-n", "--number", type=int,
+                            help="number of samples consisting training, validation and test sets")
+        parser.add_argument("-d", "--mindepth", type=int, dest="min_depth", default=0,
+                            help="minimum depth of cascade trees")
+        parser.add_argument("-p", "--project", type=str, help="project name")
+        parser.add_argument('-d', '--db', required=True, help="db name")
+
+    def __init__(self):
+        super(Command, self).__init__()
 
     def handle(self, args):
         try:
             start = time.time()
+            query = {}
+            if args.min:
+                query['size'] = {'$gte': args.min}
+            if args.max:
+                query.setdefault('size', {})
+                query['size'].update({'$lte': args.max})
+            if args.min_depth:
+                query['depth'] = {'$gte': args.min_depth}
 
-            # Get project of raise exception.
-            project_name = args.project
-            if project_name is None:
-                raise Exception('project not specified')
+            logger.debug('query: %s', query)
+            db = DBManager(args.db).db
+            cascades = list(db.cascades.find(query, ['_id']))
+            cascades = [m['_id'] for m in cascades]
 
-            db = DBManager().db
+            if args.number and len(cascades) < args.number:
+                raise ValueError(
+                    f'Number of cascades between min and max size ({len(cascades)}) is less than given sample number')
 
-            if args.sample_num:
-                # if args.users_num:
-                #     # Sample a limited number of user id's and get their cascades. Then sample cascades from this set.
-                #     logger.info('sampling users ...')
-                #     user_samples = [u['_id'] for u in mongodb.users.aggregate([{'$sample': {'size': args.users_num}},
-                #                                                                {'$project': {'_id': 1}}])]
-                #     logger.info('sampling cascades ...')
-                #     post_ids = [p['_id'] for p in mongodb.posts.find({'author_id': {'$in': user_samples}}, ['_id'])]
-                #     user_cascades = [pm['cascade_id'] for pm in
-                #                   mongodb.postcascades.find({'post_id': {'$in': post_ids}}, {'_id': 0, 'cascade_id': 1})]
-                #     query = {'_id': {'$in': user_cascades}}
-                #     if args.min_depth:
-                #         query['depth'] = {'$gte': args.min_depth}
-                #     cascade_ids = [m['_id'] for m in mongodb.cascades.aggregate([
-                #         {'$match': query},
-                #         {'$sample': {'size': args.sample_num}},
-                #         {'$project': {'_id': 1}}
-                #     ])]
-                # else:
-                #     # Sample sample_num cascades with minimum depth if given.
-                #     logger.info('sampling cascades ...')
-                #     query = {}
-                #     if args.min_depth:
-                #         query = {'depth': {'$gte': args.min_depth}}
-                #     cascade_ids = [m['_id'] for m in mongodb.cascades.aggregate([
-                #         {'$match': query},
-                #         {'$sample': {'size': args.sample_num}},
-                #         {'$project': {'_id': 1}}
-                #     ])]
-
-                selected = np.load(os.path.join(BASE_PATH, 'data/weibo_cascade_labels2.npy'))
-                logger.info('fetching all cascade ids ...')
-                cursor = db.cascades.find({}, ['_id'], no_cursor_timeout=True).sort('_id')
-                all_cascade_ids = [m['_id'] for m in cursor]
-                cursor.close()
-                selected_cascades = np.array([str(mid) for mid in all_cascade_ids])[selected]
-                selected_cascades = [ObjectId(mid) for mid in selected_cascades]
-                query = {'_id': {'$in': selected_cascades}}
-                if args.min_depth:
-                    query['depth'] = {'$gte': args.min_depth}
-                logger.info('sampling cascades ...')
-                cascade_ids = [m['_id'] for m in db.cascades.aggregate([
-                    {'$match': query},
-                    {'$sample': {'size': args.sample_num}},
-                    {'$project': {'_id': 1}}
-                ])]
-
+            if args.number:
+                samples = list(np.random.choice(cascades, args.number, replace=False))
             else:
-                # Get all cascades.
-                # TODO: Load selected cascades.
-                logger.info('sampling cascades ...')
-                query = {}
-                if args.min_depth:
-                    query = {'depth': {'$gte': args.min_depth}}
-                cascade_ids = [m['_id'] for m in db.cascades.find(query, ['_id'])]
-                shuffle(cascade_ids)
+                samples = cascades
+            samples = [str(_id) for _id in samples]
+            random.shuffle(samples)
 
-            if not cascade_ids:
-                raise Exception('no cascades sampled; change the command arguments')
-            elif args.sample_num and len(cascade_ids) < args.sample_num:
-                logger.warn('number of sampled cascades is less than "number" argument')
-
-            # Separate training and test sets.
-            ratio = args.ratio
-            train_num = int(ratio * len(cascade_ids))
-            cascade_ids = [str(m_id) for m_id in cascade_ids]
-            train_set = cascade_ids[:train_num]
-            test_set = cascade_ids[train_num:]
-
-            project = Project(project_name)
-            project.save_sets(train_set, [], test_set)
+            val_ratio, test_ratio = 0.15, 0.15
+            val_num = round(val_ratio * len(samples))
+            test_num = round(test_ratio * len(samples))
+            val_set = samples[:val_num]
+            test_set = samples[val_num:val_num + test_num]
+            train_set = samples[val_num + test_num:]
+            project = Project(args.project)
+            project.save_sets(train_set, val_set, test_set)
+            logger.info('project %s sampled containing %d cascades', args.project, len(samples))
 
             logger.info('command done in %f min' % ((time.time() - start) / 60))
+
         except:
-            logger.info(traceback.format_exc())
+            logger.error(traceback.format_exc())
             raise
 
 

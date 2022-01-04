@@ -1,7 +1,8 @@
+import logging
+import math
 import sys
-
-sys.path.append('.')
-
+from multiprocessing import Pool
+from typing import Dict, List, Set
 import argparse
 import json
 import os
@@ -12,88 +13,74 @@ import numpy as np
 from matplotlib import pyplot as plt
 import random
 
+sys.path.append('.')
+
+import settings
 from db.managers import DBManager
-from settings import logger, BASEPATH, DB_NAME
+from settings import logger, BASEPATH
 from cascade.models import Project
+from utils.time_utils import Timer
 
 
-def get_users(cascade_id):
-    db = DBManager().db
+def get_users(cascade_id: str, db_name) -> Set[str]:
+    db = DBManager(db_name).db
     users = db.postcascades.find({'cascade_id': ObjectId(cascade_id)}, {'author_id': 1, '_id': 0})
-    return list({str(u['author_id']) for u in users})
+    return {str(u['author_id']) for u in users}
 
 
-def print_mat_neat(mat):
-    count = mat.shape[0]
-    print(' ' * 10 + '|', end='')
-    for i in range(1, count + 1):
-        print('{:<10d}|'.format(i), end='')
-    print()
-
-    for i in range(count - 1):
-        print('{:<10d}|'.format(i + 1), end='')
-
-        for j in range(i + 1):
-            print(' ' * 10 + '|', end='')
-
-        for j in range(i + 1, count):
-            print('{:<10f}|'.format(mat[i, j]), end='')
-        print()
+def calc_jaccards(index_pairs, users, cascade_ids):
+    logger.debug('calculating %d jaccard coefficients', len(index_pairs))
+    logger.debug('len(users) = %d', len(users))
+    jaccards = {
+        (i, j): len(users[cascade_ids[i]] & users[cascade_ids[j]]) / len(users[cascade_ids[i]] | users[cascade_ids[j]])
+        for i, j in index_pairs}
+    logger.debug('done')
+    return jaccards
 
 
-def print_mat_tab(mat):
-    count = mat.shape[0]
-    for i in range(1, count + 1):
-        print('\t{}'.format(i), end='')
-    print()
-
-    for i in range(count - 1):
-        print(i + 1, end='')
-
-        for j in range(i + 1):
-            print('\t', end='')
-
-        for j in range(i + 1, count):
-            print('\t{}'.format(mat[i, j]), end='')
-        print()
-
-
-def print_mat_all_tab(mat):
-    count = mat.shape[0]
-    for i in range(1, count + 1):
-        print('\t{}'.format(i), end='')
-    print()
-
-    for i in range(count):
-        print(i + 1, end='')
-        for j in range(count):
-            print('\t{}'.format(mat[i, j]), end='')
-        print()
-
-
-def get_jaccard_mat(cascades, users):
+def get_jaccard_mat(cascades: List[str], users: Dict[str, set]):
     count = len(cascades)
+    results = []
+    process_count = settings.PROCESS_COUNT
+    n = int(math.floor((math.sqrt(1 + 8 * process_count) - 1) / 2))
+    process_count = min(process_count, int(n * (n + 1) / 2))
+    pool = Pool(processes=process_count)
+    logger.debug('n = %d', n)
+    step = int(math.ceil(count / n))
+    logger.debug('step = %d', step)
+
+    for i in range(0, count, step):
+        for j in range(i, count, step):
+            logger.debug('starting process for index %d to %d with index %d to %d', i, min(i + step, count), j,
+                         min(j + step, count))
+            cur_pairs = [(r, c) for r in range(i, min(i + step, count)) for c in range(j, min(j + step, count)) if
+                         r < c]
+            cur_cascades = {cascades[r] for r in range(i, min(i + step, count))}
+            cur_cascades.update(cascades[c] for c in range(j, min(j + step, count)))
+            cur_users = {cid: users[cid] for cid in cur_cascades}
+            res = pool.apply_async(calc_jaccards, (cur_pairs, cur_users, cascades))
+            results.append(res)
+
+        for k in range(i, min(i + step, count)):
+            del users[cascades[k]]  # to free RAM
+
+    pool.close()
+    pool.join()
+
     mat = np.zeros((count, count))
-
-    for i in range(count - 1):
-        users_i = set(users[cascades[i]])
-
-        for j in range(i + 1, count):
-            users_j = set(users[cascades[j]])
-            # common = len(users_i.intersection(users_j))
-            jaccard = len(users_i.intersection(users_j)) / len(users_i.union(users_j))
-            mat[i, j] = jaccard
+    for res in results:
+        jaccard_values = res.get()
+        for i, j in jaccard_values:
+            mat[i, j] = jaccard_values[(i, j)]
 
     mat += mat.transpose() + np.eye(count)
     return mat
 
 
-def heat_map(mat, min_size, max_size, clust_num, method='spectral'):
+def heat_map(mat, file_name):
     fig, ax = plt.subplots()
     # im = ax.imshow(mat)
     # plt.show()
-    file_name = os.path.join(BASEPATH, 'data', 'clusters',
-                             f'{DB_NAME}-{min_size}to{max_size}-{method}-{clust_num}.png')
     plt.imsave(file_name, mat)
 
 
@@ -105,8 +92,8 @@ def cluster_mat(mat, clust_num):
     return clustering.labels_
 
 
-def load_or_extract_users(cas_ids):
-    fname = os.path.join(BASEPATH, 'data', f'{DB_NAME}_users.json')
+def load_or_extract_users(cas_ids: List[str], db_name: str) -> Dict[str, set]:
+    fname = os.path.join(BASEPATH, 'data', f'{db_name}_users.json')
     try:
         with open(fname) as f:
             logger.info('loading users lists ...')
@@ -120,9 +107,12 @@ def load_or_extract_users(cas_ids):
     for cas_id in cas_ids:
         if cas_id not in users:
             logger.info('querying users of cascade {}'.format(i))
-            users[cas_id] = get_users(cas_id)
+            users_set = get_users(cas_id)
+            users[cas_id] = list(users_set)
+            res_users[cas_id] = users_set
             changed = True
-        res_users[cas_id] = users[cas_id]
+        else:
+            res_users[cas_id] = set(users[cas_id])
         i += 1
 
     if changed:
@@ -138,41 +128,57 @@ def calc_error(mat, clusters):
     squares_mat = np.zeros((count, count))
     begin = 0
     for label in sorted(clusters.keys()):
-        clust_size = clusters[label].size
+        clust_size = len(clusters[label])
         squares_mat[begin: begin + clust_size, begin: begin + clust_size] = 1
         begin += clust_size
     error = np.linalg.norm(mat - squares_mat)
     return error
 
 
-def show_clusters(clust_num, min_size, max_size, depth):
-    # Extract the top cascades.
-    db = DBManager().db
-    query = {}
-    if min_size is not None:
-        query['size'] = {'$gte': min_size}
-    if max_size is not None:
-        query.setdefault('size', {})
-        query['size']['$lte'] = max_size
-    if depth is not None:
-        query['depth'] = {'$gte': depth}
-    res_cascades = list(db.cascades.find(query, ['_id', 'size']))
-    cascades = [str(m['_id']) for m in res_cascades]
-    sizes = {str(m['_id']): m['size'] for m in res_cascades}
-    logger.info('%d cascades found', len(cascades))
+def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_name):
+    base_file_name = os.path.join(BASEPATH, 'data', 'clusters',
+                                  f'{db_name}-{min_size}to{max_size}-{depth}')
+    mat_file_name = base_file_name + '-mat.npy'
+    cascades_file_name = base_file_name + '-cascades.json'
 
-    # Extract user sets of top cascades
-    users = load_or_extract_users(cascades)
+    if os.path.exists(mat_file_name) and os.path.exists(cascades_file_name):
+        mat = np.load(mat_file_name)
+        with open(cascades_file_name) as f:
+            cascades = json.load(f)
+        logger.info('matrix loaded')
 
-    # Calculate the Jaccard matrix.
-    logger.info('creating the similarity matrix ...')
-    mat = get_jaccard_mat(cascades, users)
+    else:
+        # Extract the cascades.
+        db = DBManager(db_name).db
+        query = {}
+        if min_size is not None:
+            query['size'] = {'$gte': min_size}
+        if max_size is not None:
+            query.setdefault('size', {})
+            query['size']['$lte'] = max_size
+        if depth is not None:
+            query['depth'] = {'$gte': depth}
+        res_cascades = list(db.cascades.find(query, ['_id']))
+        random.shuffle(res_cascades)  # To balance the processes in multi-processing
+        cascades = [str(m['_id']) for m in res_cascades]
+        logger.info('%d cascades found', len(cascades))
 
-    # Normalize the matrix.
-    mat = np.reshape(mat - np.eye(len(cascades)), (1, mat.size))
-    mat = normalize(mat, norm='max')
-    mat = np.reshape(mat, (len(cascades), len(cascades)))
-    mat += np.eye(len(cascades))
+        # Extract user sets of top cascades
+        users = load_or_extract_users(cascades, db_name)
+
+        # Calculate the Jaccard matrix.
+        logger.info('creating the similarity matrix ...')
+        mat = get_jaccard_mat(cascades, users)
+
+        # Normalize the matrix.
+        mat = np.reshape(mat - np.eye(len(cascades)), (1, mat.size))
+        mat = normalize(mat, norm='max')
+        mat = np.reshape(mat, (len(cascades), len(cascades)))
+        mat += np.eye(len(cascades))
+
+        with open(cascades_file_name, 'w') as f:
+            json.dump(cascades, f)
+        np.save(mat_file_name, mat)
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
@@ -180,26 +186,27 @@ def show_clusters(clust_num, min_size, max_size, depth):
 
     # Create the ordered indexes of cascades.
     ordered_ind = np.array([], dtype=np.int64)
-    cascades_arr = np.array([str(m) for m in cascades])
     uni_val = np.unique(labels)
     clusters = {}
+
+    # Add file handler to the logger.
+    file_handler = logging.FileHandler(file_name + '.out', 'w', 'utf-8')
+    file_handler.setFormatter(logging.Formatter(settings.LOG_FORMAT))
+    logger.addHandler(file_handler)
+
     logger.info('%d cluster(s) found', uni_val.size)
     for val in uni_val:
         indexes = np.nonzero(labels == val)[0]
         indexes = indexes.astype(np.int64)
-        clusters[val] = cascades_arr[indexes]
+        clusters[val] = [cascades[i] for i in indexes]
         ordered_ind = np.concatenate((ordered_ind, indexes))
+        mean = np.mean(mat[indexes, :][:, indexes])
+        # logger.debug('mat[indexes, indexes] = %s', mat[indexes, :][:, indexes])
+        logger.info('cluster %d with %d cascades and mean Jaccard value of %f', val, indexes.size, mean)
 
-    # Print the clusters into the file.
-    method = 'spectral'
-    file_name = os.path.join(BASEPATH, 'data', 'clusters',
-                             f'{DB_NAME}-{min_size}to{max_size}-{method}-{clust_num}')
-    with open(os.path.join(BASEPATH, 'data', file_name), 'w') as f:
-        for label in sorted(clusters.keys()):
-            clust_cascades = clusters[label]
-            f.write(f'cluster {label}: count = {clust_cascades.size}\n')
-            f.write('\n'.join([f'{cas_id}, size = {sizes[cas_id]}' for cas_id in clust_cascades]))
-            f.write('\n')
+    # Save the clusters into the file.
+    with open(file_name + '.json', 'w') as f:
+        json.dump({str(key): clust for key, clust in clusters.items()}, f, indent=4)
 
     new_mat = mat[:, ordered_ind]
     new_mat = new_mat[ordered_ind, :]
@@ -208,50 +215,58 @@ def show_clusters(clust_num, min_size, max_size, depth):
     error = calc_error(new_mat, clusters)
     logger.info('error = %f', error)
 
-    # print_mat_all_tab(new_mat)
-    heat_map(new_mat, min_size, max_size, clust_num, method)
+    heat_map(new_mat, file_name + '.png')
 
     return clusters
 
 
-def ask_question(question, choices):
-    while True:
-        ans = input(f'{question} ({choices}) ')
-        lower_choices = [c.lower() for c in choices]
-        if ans.lower() in lower_choices:
-            return ans.lower()
-        else:
-            print('Wrong answer!')
-
-
-def save_project(name, cas_ids):
-    random.shuffle(cas_ids)
+def save_project(project_name, db_name, cas_ids):
+    cas_ids_copy = cas_ids.copy()
+    random.shuffle(cas_ids_copy)
     val_ratio, test_ratio = 0.15, 0.15
-    val_num = round(val_ratio * len(cas_ids))
-    test_num = round(test_ratio * len(cas_ids))
-    val_set = cas_ids[:val_num]
-    test_set = cas_ids[val_num:val_num + test_num]
-    train_set = cas_ids[val_num + test_num:]
-    project = Project(name)
+    val_num = round(val_ratio * len(cas_ids_copy))
+    test_num = round(test_ratio * len(cas_ids_copy))
+    val_set = cas_ids_copy[:val_num]
+    test_set = cas_ids_copy[val_num:val_num + test_num]
+    train_set = cas_ids_copy[val_num + test_num:]
+    project = Project(project_name, db_name)
     project.save_sets(train_set, val_set, test_set)
 
 
-def ask_to_create_project(clusters):
-    ans = ask_question('Do you want to peek a cluster as a project?', {'y': 'Yes', 'n': 'No'})
-    if ans == 'n':
-        return
-    label = ask_question('Which cluster do you want to peek?',
-                         {str(k): f'of size {len(clusters[k])}' for k in sorted(clusters.keys())})
-    name = input('Enter the project name: ')
-    save_project(name, list(clusters[int(label)]))
+def main():
+    parser = argparse.ArgumentParser('Cluster the cascades based on their common users')
+    parser.add_argument('-d', '--db', required=True, help='db name')
+    parser.add_argument('-c', '--clusters', type=int, default=5, help='number of clusters')
+    parser.add_argument('-m', '--min', type=int, help='minimum cascade size')
+    parser.add_argument('-x', '--max', type=int, help='minimum cascade size')
+    parser.add_argument('-e', '--depth', type=int, help='minimum depth')
+    parser.add_argument('-i', '--create_by_index', type=int,
+                        help='Create a project using cascade ids in cluster index given')
+    parser.add_argument('-p', '--project', help='the project name to create if --create is given')
+
+    args = parser.parse_args()
+    method = 'spectral'
+    file_name = os.path.join(BASEPATH, 'data', 'clusters',
+                             f'{args.db}-{args.min}to{args.max}-{args.depth}-{method}-{args.clusters}')
+    clusters_file_name = file_name + '.json'
+
+    if os.path.exists(clusters_file_name):
+        with open(clusters_file_name) as f:
+            clusters = {int(key): value for key, value in json.load(f).items()}
+    else:
+        clusters = save_clusters(args.clusters, args.db, args.min, args.max, args.depth, method, file_name)
+
+    if args.create_by_index:
+        if args.project is None:
+            parser.error('--project is required when --create_by_index is given')
+        try:
+            cluster = clusters[args.create_by_index]
+        except KeyError:
+            parser.error(f'invalid cluster index {args.create_by_index}. Select between from 0 to {len(clusters)}')
+        save_project(args.project, args.db, cluster)
+        logger.info('project %s created with %d cascades', args.project, len(cluster))
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Cluster the cascades based on their common users')
-    parser.add_argument('-c', '--clusters', type=int, default=4, help='number of clusters')
-    parser.add_argument('-m', '--min', type=int, help='minimum cascade size')
-    parser.add_argument('-x', '--max', type=int, help='minimum cascade size')
-    parser.add_argument('-d', '--depth', type=int, help='minimum depth')
-    args = parser.parse_args()
-    clusters = show_clusters(args.clusters, args.min, args.max, args.depth)
-    ask_to_create_project(clusters)
+    with Timer('cluster_cascades'):
+        main()

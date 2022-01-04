@@ -18,11 +18,7 @@ class Command:
     help = 'Display cascade sizes of a project'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            'project',
-            type=str,
-            help='project name',
-        )
+        parser.add_argument('project', type=str, help='project name')
 
     def __init__(self):
         super(Command, self).__init__()
@@ -33,7 +29,7 @@ class Command:
             project = Project(args.project)
             training, validation, test = project.load_sets()
             cascade_ids = training + validation + test
-            db = DBManager().db
+            db = DBManager(project.db).db
             cascades = list(db.cascades.find({'_id': {'$in': cascade_ids}}, ['_id', 'depth', 'size']))
             print('Number of cascades:', len(cascades))
             print(f'{"cascade id":30}{"size":10}{"depth":10}')

@@ -20,10 +20,8 @@ class Command:
     help = 'Calculate a cascade depth.'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            'cascade_id',
-            help="cascade id"
-        )
+        parser.add_argument('-d', '--db', required=True, help="db name")
+        parser.add_argument('-c', '--cascade_id', required=True, help="cascade id")
 
     @time_measure()
     def handle(self, args):
@@ -34,7 +32,7 @@ class Command:
             raise
 
     def calc_depths(self, cascade_id):
-        db = DBManager().db
+        db = DBManager(args.db).db
         count = db.reshares.count()
         logger.info('number of all reshares: {}'.format(count))
 
