@@ -22,7 +22,7 @@ class LTAvg(AsLT):
 
         logger.info('querying posts of the cascades ...')
         db = DBManager(self.project.db).db
-        posts_ids = [pm['post_id'] for pm in
+        posts_ids = [pc['post_id'] for pc in
                      db.postcascades.find({'cascade_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
 
         if calc_weights or not calc_delays:
@@ -65,7 +65,7 @@ class LTAvg(AsLT):
         ij = np.zeros((2, resh_count))
         i = 0
         for resh in resh_counts:
-            values[i] = float(resh['count']) / post_counts[resh['ref_user_id']]
+            values[i] = resh['count'] / post_counts[resh['ref_user_id']]
             sender_ind = users_map[resh['ref_user_id']]
             receiver_ind = users_map[resh['user_id']]
             ij[:, i] = [sender_ind, receiver_ind]

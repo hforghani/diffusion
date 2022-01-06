@@ -1,5 +1,7 @@
 import math
+import time
 import traceback
+from functools import reduce
 from multiprocessing import Pool
 
 import numpy as np
@@ -233,38 +235,40 @@ def calc_psi(sequences, graph, w, r, g, user_map):
         raise
 
 
-def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, m_set1, m_set2):
+def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, c_set1, c_set2):
     try:
         r_values = []
 
         logger.info('\tcalculating values ...')
         i = 0
+        t0 = time.time()
+
         for v in user_ids:
             v_i = user_map[str(v)]
 
             phi_sum = 0
             phi_time_sum = 0
             psi_time_sum = 0
-            for m in set(m_set1[v]) | set(m_set2[v]):
-                m_i = cascade_map[str(m)]
-                cascade = sequences[m]
-                active_parents = cascade.get_active_parents(v, graph)
+            for c in set(c_set1[v]) | set(c_set2[v]):
+                c_i = cascade_map[str(c)]
+                act_seq = sequences[c]
+                active_parents = act_seq.get_active_parents(v, graph)
                 if not active_parents:
                     continue
                 act_par_indexes = [user_map[str(id)] for id in active_parents]
-                act_par_times = np.matrix([[cascade.user_times[pid] for pid in active_parents]])
+                act_par_times = np.matrix([[act_seq.user_times[pid] for pid in active_parents]])
 
-                if m in m_set1[v]:
-                    phi_h_col = phi_h[m_i][:, v_i].todense()
+                if c in c_set1[v]:
+                    phi_h_col = phi_h[c_i][:, v_i].todense()
                     phi_sum += float(phi_h_col[act_par_indexes].sum())
-                    user_time = np.repeat(np.matrix([cascade.user_times[v]]), len(active_parents))
+                    user_time = np.repeat(np.matrix([act_seq.user_times[v]]), len(active_parents))
                     diff = user_time - act_par_times
-                    diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
+                    diff[diff == 0] = 1.0 / (24 * 60)  # 1 hour
                     phi_time_sum += float(diff * phi_h_col[act_par_indexes])
 
-                if m in m_set2[v]:
-                    psi_col = psi[m_i][:, v_i]
-                    max_time = np.repeat(np.matrix([cascade.max_t]), len(active_parents))
+                if c in c_set2[v]:
+                    psi_col = psi[c_i][:, v_i]
+                    max_time = np.repeat(np.matrix([act_seq.max_t]), len(active_parents))
                     diff = max_time - act_par_times
                     psi_time_sum += float(diff * psi_col[act_par_indexes])
 
@@ -280,9 +284,11 @@ def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, m_set1
                     logger.warning('\tdenominator = 0, r = inf')
 
             i += 1
-            if len(user_ids) >= 10 and i % (len(user_ids) // 10) == 0:
-                logger.debug('\t%d%% done', i * 100 // len(user_ids))
+            if time.time() - t0 > 60:
+                logger.debug('\t%d from %d r values (%d%%) done', i, len(user_ids), i * 100 // len(user_ids))
+                t0 = time.time()
 
+        logger.debug('\tdone')
         return r_values
     except:
         logger.error(traceback.format_exc())
@@ -352,14 +358,7 @@ class Saito(AsLT):
                     self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
                 except:
                     logger.info('calculating phi_h ...')
-                    # if i == 0 or len(user_map) ** 2 * len(train_set) < 10 ** 9:
-                    # args = (sequences, graph, w, r, h, train_set, cascade_map, user_map)
-                    # logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
                     phi_h = self.calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map)
-                    # else:
-                    #     with Timer('calc_phi_h'):
-                    #         seq2 = {cascade_map[str(cid)]: sequences[cid] for cid in sequences}
-                    #         phi_h = calc_phi_h(seq2, graph, w, r, h, user_map)
                     self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
                     del phi_h
                 del h
@@ -368,14 +367,7 @@ class Saito(AsLT):
                     self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
                 except:
                     logger.info('calculating phi_g ...')
-                    # if i == 0 or len(user_map) ** 2 * len(train_set) < 10 ** 9:
-                    # args = (sequences, graph, w, g, train_set, cascade_map, user_map)
-                    # logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
                     phi_g = self.calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map)
-                    # else:
-                    #     with Timer('calc_phi_g'):
-                    #         seq2 = {cascade_map[str(cid)]: sequences[cid] for cid in sequences}
-                    #         phi_g = calc_phi_g(seq2, graph, w, g, user_map)
                     self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
                     del phi_g
 
@@ -384,8 +376,6 @@ class Saito(AsLT):
                     logger.info('psi loaded')
                 except:
                     logger.info('calculating psi ...')
-                    # args = (sequences, graph, w, r, g, train_set, cascade_map, user_map)
-                    # logger.debug('size of arguments: %f G', sum(asizeof(arg) for arg in args) / 1024 ** 3)
                     psi = self.calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map)
                     self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
 
@@ -601,15 +591,16 @@ class Saito(AsLT):
     @time_measure()
     def calc_r_mp(self, data, graph, phi_h, psi, user_ids, cascade_ids, cascade_map, user_map, multi_processed=True):
         u_count = len(user_ids)
+        c_count = len(cascade_ids)
 
         logger.info('\textracting sigma domains ...')
-        m_set1 = {v: [] for v in user_ids}
-        m_set2 = {v: [] for v in user_ids}
-        for m in cascade_ids:
-            for v in data[m].users:
-                m_set1[v].append(m)
-            for v in data[m].get_rond_set(graph):
-                m_set2[v].append(m)
+        c_set1 = {v: [] for v in user_ids}
+        c_set2 = {v: [] for v in user_ids}
+        for c in cascade_ids:
+            for v in data[c].users:
+                c_set1[v].append(c)
+            for v in data[c].get_rond_set(graph):
+                c_set2[v].append(c)
 
         if multi_processed:
             logger.info('\tcreating processes to calculate values ...')
@@ -619,14 +610,20 @@ class Saito(AsLT):
             results = []
             for j in range(0, u_count, step):
                 subset = user_ids[j: j + step]
-                m_set1_subset = {v: m_set1.pop(v) for v in subset}
-                m_set2_subset = {v: m_set2.pop(v) for v in subset}
+                c_set1_subset = {v: c_set1.pop(v) for v in subset}
+                c_set2_subset = {v: c_set2.pop(v) for v in subset}
+                # Get union of all c_set1 and c_set2 values of users in the subset.
+                related_cascades = reduce(lambda x, y: x | set(y), list(c_set1_subset.values()), set())
+                related_cascades.update(reduce(lambda x, y: x | set(y), list(c_set2_subset.values()), set()))
+                # Get phi_h and psi of just the related cascades.
+                related_indexes = set(cascade_map[str(cid)] for cid in related_cascades)
+                cur_phi_h = {i: phi_h[i] for i in range(c_count) if i in related_indexes}
+                cur_psi = {i: psi[i] for i in range(c_count) if i in related_indexes}
                 res = pool.apply_async(calc_r, (
-                    data, graph, phi_h, psi, subset, cascade_map, user_map, m_set1_subset, m_set2_subset))
+                    data, graph, cur_phi_h, cur_psi, subset, cascade_map, user_map, c_set1_subset, c_set2_subset))
                 results.append(res)
 
-            del m_set1
-            del m_set2
+            del subset, c_set1, c_set2, c_set1_subset, c_set2_subset, related_cascades, cur_phi_h, cur_psi
             pool.close()
             pool.join()
 
@@ -635,7 +632,7 @@ class Saito(AsLT):
             for res in results:
                 r_values.extend(res.get())
         else:
-            r_values = calc_r(data, graph, phi_h, psi, user_ids, cascade_map, user_map, m_set1, m_set2)
+            r_values = calc_r(data, graph, phi_h, psi, user_ids, cascade_map, user_map, c_set1, c_set2)
 
         # Convert to numpy array.
         r = np.ones(u_count, np.float32)

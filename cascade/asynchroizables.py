@@ -132,7 +132,7 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                     f1s[thr].append(f1)
 
                     logs.append(
-                        f'{thr:10.2f}{len(res_output):10}{len(true_output):10}{prec:10.3f}{rec:10.3f}{f1:10.3f}')
+                        f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{prec:10.3f}{rec:10.3f}{f1:10.3f}')
                     # if method in ['aslt', 'avg']:
                     #     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                     # log_trees(tree, res_trees, max_depth) # Notice: This line takes too much execution time:

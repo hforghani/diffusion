@@ -92,7 +92,7 @@ class ProjectTester(abc.ABC):
             mean_rec[thr] = np.array(recalls[thr]).mean()
             mean_fpr[thr] = np.array(fprs[thr]).mean()
             mean_f1[thr] = np.array(f1s[thr]).mean()
-            logs.append(f'{thr:10.2f}{mean_prec[thr]:10.3f}{mean_rec[thr]:10.3f}{mean_f1[thr]:10.3f}')
+            logs.append(f'{thr:10.3f}{mean_prec[thr]:10.3f}{mean_rec[thr]:10.3f}{mean_f1[thr]:10.3f}')
             # if self.method in ['aslt', 'avg']:
             #     logger.info('prp1 avg = %.3f', np.mean(np.array(prp1s[thr])))
             #     logger.info('prp2 avg = %.3f', np.mean(np.array(prp2s[thr])))

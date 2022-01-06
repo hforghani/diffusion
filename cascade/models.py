@@ -307,7 +307,7 @@ class ActSequence(object):
 
     def get_active_parents(self, uid, graph):
         rond_set = self.get_rond_set(graph)
-        parents = set(graph.predecessors(uid)) if uid in graph.nodes() else set()
+        parents = set(graph.predecessors(uid)) if uid in graph else set()
         if uid in rond_set:
             active_parents = parents & set(self.users)
         else:
@@ -329,10 +329,6 @@ class AsLT(object):
         self.users_map = None
 
         self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
-        # logger.info('sum of columns:')
-        # for i in range(self.w.shape[1]):
-        #     if self.w[:, i].nnz:
-        #         logger.info('%d: %f', i, self.w[:, i].sum())
         self.w = self.w.tocsr()
         self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
 
@@ -352,8 +348,8 @@ class AsLT(object):
         :param users_map:   dictionary of user ids to their indexes
         :return:    dictionary of thresholds to trees
         """
-        if not hasattr(self, 'w') or not hasattr(self, 'r'):
-            raise Exception('No w and r parameters found. Train the AsLT first.')
+        if not hasattr(self, 'w'):
+            raise Exception('No w parameters found. Train the model first.')
 
         # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
         trees = {thr: initial_tree.copy() for thr in thresholds}
@@ -402,18 +398,21 @@ class AsLT(object):
 
                     for thr in thresholds:
                         if thr <= prob and thr <= max_predicted_thr:
-                            # Get delay parameter.
-                            delay_param = self.r[v_i]
+                            if hasattr(self, 'r'):
+                                # Get delay parameter.
+                                delay_param = self.r[v_i]
 
-                            # Set the delay to mean of exponential distribution with parameter delay_param.
-                            delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
-                            if delay > self.max_delay:
-                                delay = self.max_delay
-                            send_dt = str_to_datetime(node.datetime)
-                            receive_dt = send_dt + timedelta(days=delay)
+                                # Set the delay to mean of exponential distribution with parameter delay_param.
+                                delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
+                                if delay > self.max_delay:
+                                    delay = self.max_delay
+                                send_dt = str_to_datetime(node.datetime)
+                                receive_dt = (send_dt + timedelta(days=delay)).strftime(DT_FORMAT)
+                            else:
+                                receive_dt = None
 
                             # Add it to the tree.
-                            child = trees[thr].add_child(u, v, receive_dt.strftime(DT_FORMAT))
+                            child = trees[thr].add_child(u, v, act_time=receive_dt)
                             child_max_pred_thr = thr
                             logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
 
@@ -421,7 +420,10 @@ class AsLT(object):
                         next_step.append((child, child_max_pred_thr))
                         active_ids.add(v)
 
-            cur_step = sorted(next_step, key=lambda n: n[0].datetime)
+            cur_step = next_step
+            if hasattr(self, 'r'):
+                cur_step = sorted(cur_step, key=lambda n: n[0].datetime)
+
             step += 1
 
         return trees
