@@ -82,13 +82,18 @@ class ProjectTester(abc.ABC):
 
     def _get_mean_results(self, precisions: dict, recalls: dict, f1s: dict, fprs: dict, prp1s: dict,
                           prp2s: dict) -> Tuple[dict, dict, dict, dict]:
+        if not any(list(precisions.values())):
+            logger.info('no average results since the initial depth is more than or equal to the depths of all trees')
+            dic = {thr: None for thr in precisions}
+            return (dic,) * 4
+
         mean_prec = {}
         mean_rec = {}
         mean_fpr = {}
         mean_f1 = {}
         logs = [f'{"threshold":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
         for thr in precisions:
-            mean_prec[thr] = np.array(precisions[thr]).mean()
+            mean_prec[thr] = np.array([precisions[thr]]).mean()
             mean_rec[thr] = np.array(recalls[thr]).mean()
             mean_fpr[thr] = np.array(fprs[thr]).mean()
             mean_f1[thr] = np.array(f1s[thr]).mean()

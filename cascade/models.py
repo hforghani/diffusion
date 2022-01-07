@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
 from datetime import timedelta
 import json
 import os
 import random
+from functools import reduce
 
 from anytree import Node, RenderTree
 from bson.objectid import ObjectId
@@ -26,6 +26,9 @@ class CascadeNode(object):
         self.post_id = post_id
         self.parent_id = parent_id
         self.children = []
+
+    def __repr__(self):
+        return f'CascadeNode({self.user_id})'
 
     def get_dict(self):
         """
@@ -218,6 +221,14 @@ class CascadeTree(object):
                     nodes_list.extend(self.nodes(child, max_depth))
         return nodes_list
 
+    def nodes_at_depth(self, depth):
+        cur_nodes = self.roots.copy()
+        for cur_depth in range(depth):
+            cur_nodes = reduce(lambda x, y: x + y, [node.children for node in cur_nodes], [])
+            if not cur_nodes:
+                break
+        return cur_nodes
+
     def edges(self, node=None):
         edges_list = []
         if node is None:
@@ -355,6 +366,9 @@ class AsLT(object):
         trees = {thr: initial_tree.copy() for thr in thresholds}
 
         # Initialize values.
+        max_depth = initial_tree.depth
+        cur_step_nodes = sorted(initial_tree.nodes_at_depth(max_depth),
+                                key=lambda n: n.datetime)  # Set the nodes with maximum depth as initial step.
         cur_step_nodes = sorted(initial_tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         max_thr = max(thresholds)
         cur_step = [(node, max_thr) for node in cur_step_nodes]

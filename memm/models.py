@@ -2,6 +2,7 @@ import abc
 import math
 import pprint
 import random
+import typing
 from functools import reduce
 from multiprocessing.pool import Pool
 
@@ -29,10 +30,10 @@ class MEMMModel(abc.ABC):
 
     def __init__(self, project):
         self.project = project
-        self.__memms = {}
+        self._memms = {}
 
     @time_measure(level='debug')
-    def __prepare_evidences(self, train_set, multi_processed=False):
+    def _prepare_evidences(self, train_set, multi_processed=False):
         """
         Prepare the sequence of observations and states to train the MEMM models.
         :param train_set: list of training cascade id's
@@ -79,7 +80,7 @@ class MEMMModel(abc.ABC):
                 evidences = self._extract_evidences(train_set, graph=graph, act_seqs=act_seqs, trees=trees)
 
             # Delete evidences of totally inactive users since they will never be activated.
-            inactives = self.__get_inactives(evidences)
+            inactives = self._get_inactives(evidences)
             for uid in inactives:
                 evidences.pop(uid)
             logger.info('Evidences of %d totally inactive users deleted since they have no state 1', len(inactives))
@@ -92,7 +93,7 @@ class MEMMModel(abc.ABC):
 
         return evidences
 
-    def __get_inactives(self, evidences):
+    def _get_inactives(self, evidences):
         """
         Get totally inactive users which means they have no state 1.
         :type evidences:
@@ -108,7 +109,7 @@ class MEMMModel(abc.ABC):
                 user_ids.append(uid)
         return user_ids
 
-    def __separate_big_ev(self, evidences):
+    def _separate_big_ev(self, evidences):
         """
         Sort the evidences by their sizes. Select as many small evidences to fill 80% of available memory and
         put them in a dictionary named small_ev_user_ids. Put the others in a dictionary named large_ev_user_ids.
@@ -138,7 +139,7 @@ class MEMMModel(abc.ABC):
         logger.debugv('size of 10 first large evidences: %s', [sizes[uid] for uid in large_ev_user_ids[:10]])
         return large_ev_user_ids, small_ev_user_ids
 
-    def __fit_multiproc(self, evidences):
+    def _fit_multiproc(self, evidences):
         """
         Train the MEMMs using evidences given in multiprocessing mode.
         Side effect: Clears the evidences' dictionary.
@@ -177,17 +178,15 @@ class MEMMModel(abc.ABC):
 
         return memms
 
-    def __fit_by_evidences(self, train_set, multi_processed=False):
-        evidences = self.__prepare_evidences(train_set, multi_processed)
+    def _fit_by_evidences(self, train_set, multi_processed=False):
+        evidences = self._prepare_evidences(train_set, multi_processed)
 
         if multi_processed:
             single_process_ev = {}  # Evidences to train sequentially in a single process.
             multi_processed_ev = {}  # Evidences to train simultaneously in multiple processes.
 
-            # Divide evidences into some parts. Each time load a part from evidences and train the
-            # corresponding MEMMS to avoid high RAM consumption.
             logger.info('separating large and small evidences ...')
-            large_ev_user_ids, small_ev_user_ids = self.__separate_big_ev(evidences)
+            large_ev_user_ids, small_ev_user_ids = self._separate_big_ev(evidences)
             logger.info('%d large and %d small evidences considered', len(large_ev_user_ids), len(small_ev_user_ids))
             for uid in large_ev_user_ids:
                 single_process_ev[uid] = evidences.pop(uid)  # to free RAM
@@ -195,24 +194,7 @@ class MEMMModel(abc.ABC):
                 multi_processed_ev[uid] = evidences.pop(uid)  # to free RAM
             del evidences
 
-            # Train not-big evidences if in multi-processed is True.
-            # parts_count = 5
-            # part_size = int(math.ceil(len(small_ev_user_ids) / parts_count))
-
-            # for j in range(parts_count):
-            #     logger.info('loading evidences of part %d of users', j + 1)
-            #     part_j = small_ev_user_ids[j * part_size: (j + 1) * part_size]
-            #     evidences_j = {}
-            #     for uid in part_j:
-            #         evidences_j[uid] = multi_processed_ev.pop(uid)  # to free RAM
-            #     logger.info("training %d MEMM's related to part %d of users simultaneously ...", len(part_j), j + 1)
-            #     memms = self.__fit_multiproc(evidences_j)
-            #
-            #     logger.info('inserting MEMMs into db ...')
-            #     MEMMManager(self.project).insert(memms)
-            # del memms, evidences_j
-
-            memms = self.__fit_multiproc(multi_processed_ev)
+            memms = self._fit_multiproc(multi_processed_ev)
             logger.info('inserting MEMMs into db ...')
             MEMMManager(self.project, self.method).insert(memms)
             del memms, multi_processed_ev
@@ -242,11 +224,11 @@ class MEMMModel(abc.ABC):
         # Train MEMMs if they are not saved in DB.
         if not manager.db_exists():
             logger.info('MEMMs do not exist in db. They will be trained')
-            self.__fit_by_evidences(train_set, multi_processed)
+            self._fit_by_evidences(train_set, multi_processed)
 
         logger.info('loading MEMMs from db ...')
         try:
-            self.__memms = manager.fetch_all()
+            self._memms = manager.fetch_all()
 
         except pymongo.errors.AutoReconnect:
             """ In the case of memory leak, it may raise AutoReconnect error. Then it loads MEMMs 
@@ -276,12 +258,15 @@ class MEMMModel(abc.ABC):
         trees = {thr: initial_tree.copy() for thr in thresholds}
 
         # Initialize values.
-        cur_step_nodes = sorted(initial_tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
+        max_depth = initial_tree.depth
+        cur_step_nodes = sorted(initial_tree.nodes_at_depth(max_depth),
+                                key=lambda n: n.datetime)  # Set the nodes with maximum depth as the initial step.
         max_thr = max(thresholds)
         cur_step = [(node.user_id, max_thr) for node in cur_step_nodes]
         active_ids = set(initial_tree.node_ids())
         step_num = 1
 
+        obs_dic = self._get_initial_observations(initial_tree, cur_step_nodes, graph)
         """
             Create dictionary of current observations of the nodes for each threshold:
             observations = {
@@ -290,7 +275,7 @@ class MEMMModel(abc.ABC):
                             ...
                             }
         """
-        observations = {thr: {} for thr in thresholds}
+        observations = {thr: obs_dic.copy() for thr in thresholds}
 
         # Predict the cascade tree.
         # At each iteration find newly activated nodes based on MEMM probabilities and add them to the tree.
@@ -305,7 +290,7 @@ class MEMMModel(abc.ABC):
 
             i = 0
             for node_id, max_predicted_thr in cur_step:
-                children = children_dic.pop(node_id, [])  # to get and free RAM
+                children = children_dic.pop(node_id, [])  # to free RAM
 
                 if children:
                     logger.debug('user %s has %d children:', node_id, len(children))
@@ -316,37 +301,38 @@ class MEMMModel(abc.ABC):
                     for child_id in children:
 
                         if child_id not in active_ids:
-                            memm = self.get_memm(child_id)
+                            memm = self._get_memm(child_id)
 
                             if memm is not None:
 
-                                with timers[1]:
-                                    # Update the observation of this child.
-                                    self.update_observation(child_id, node_id, observations, memm, parents_dic,
-                                                            thresholds, max_predicted_thr)
-
+                                index = parents_dic[child_id].index(node_id)
                                 child_max_pred_thr = None
                                 last_prob = None
                                 last_obs = None
 
                                 for thr in thresholds:
                                     if thr <= max_predicted_thr:
-                                        obs = observations[thr][child_id]
-                                        logger.debugv('testing reshare to user %s using thr %f ...', child_id, thr)
-                                        with timers[2]:
-                                            if (obs == last_obs).all():
-                                                prob = last_prob
-                                            else:
-                                                prob = memm.get_prob(obs)
-                                                # prob = memm.get_prob(obs, [timers[2], timers[3]])
-                                                if prob == np.nan:
-                                                    logger.warning('activation prob. of obs. %s is nan', obs)
-                                                last_obs, last_prob = obs, prob
+                                        with timers[1]:
+                                            obs = self._get_new_observation(child_id, index, observations[thr], memm)
 
-                                        if prob >= thr and trees[thr].get_node(node_id):
-                                            trees[thr].add_child(node_id, child_id)
-                                            child_max_pred_thr = thr
-                                            logger.debugv('a reshare predicted %f >= %f', prob, thr)
+                                        if obs is not None:
+                                            observations[thr][child_id] = obs
+
+                                            logger.debugv('testing reshare to user %s using thr %f ...', child_id, thr)
+                                            with timers[2]:
+                                                if (obs == last_obs).all():
+                                                    prob = last_prob
+                                                else:
+                                                    prob = memm.get_prob(obs)
+                                                    # prob = memm.get_prob(obs, [timers[2], timers[3]])
+                                                    if prob == np.nan:
+                                                        logger.warning('activation prob. of obs. %s is nan', obs)
+                                                    last_obs, last_prob = obs, prob
+
+                                            if prob >= thr and trees[thr].get_node(node_id):
+                                                trees[thr].add_child(node_id, child_id)
+                                                child_max_pred_thr = thr
+                                                logger.debugv('a reshare predicted %f >= %f', prob, thr)
                                     else:
                                         break
 
@@ -369,7 +355,8 @@ class MEMMModel(abc.ABC):
                         if timer.sum != 0:
                             timer.report_sum()
 
-            self._set_next_state_observations(observations)
+            for thr, obs_thr in observations.items():
+                self._set_next_state_observations(obs_thr)
 
             cur_step = next_step
             step_num += 1
@@ -380,34 +367,24 @@ class MEMMModel(abc.ABC):
 
         return trees
 
-    def update_observation(self, child_id: ObjectId, parent_id: ObjectId, observations: dict, child_memm: MEMM,
-                           parents_dic: dict, thresholds: list, max_predicted_thr: float):
+    def _get_new_observation(self, child_id: ObjectId, active_parent_index: int,
+                             observations: typing.Dict[ObjectId, np.ndarray], child_memm: MEMM):
         """
-        Update the observations the child node for all thresholds in such a way that reflects the activation of the
+        Update the observations of the child node for all thresholds in such a way that reflects the activation of the
         parent given.
-        :param child_id: child id
-        :param parent_id: parent id
-        :param observations: dictionary of the thresholds to observation dicts. Each observation dict maps child ids to their observation.
+        :param child_id: the child id
+        :param active_parent_index: index of the newly active parent in the list of parents of the child
+        :param observations: dictionary of child ids to their observations.
         :param child_memm: MEMM of the child node
-        :param parents_dic: dictionary of node ids to their parent ids list.
-        :param thresholds: list of thresholds
-        :param max_predicted_thr: the maximum threshold in which the parent is predicted as activated. So the child observation is updated up to this threshold.
+        :return: new observation vector of the child. Return None if the parent index is not found.
         """
-        parents = parents_dic[child_id]
-        index = parents.index(parent_id)
         try:
-            decreased_ind = child_memm.orig_indexes.index(index)
+            converted_ind = child_memm.orig_indexes.index(active_parent_index)
         except ValueError:
-            decreased_ind = None
-        for thr in thresholds:
-            if thr <= max_predicted_thr:
-                obs_thr = observations[thr]
-                obs = obs_thr.get(child_id, self._get_zero_obs(len(child_memm.orig_indexes)))
-                if decreased_ind is not None:  # If the index found in the original indexes
-                    obs[decreased_ind] = 1
-                obs_thr[child_id] = obs
-            else:
-                break
+            return None
+        obs = observations.get(child_id, self._get_zero_obs(len(child_memm.orig_indexes)))
+        obs[converted_ind] = 1
+        return obs
 
     @abc.abstractmethod
     def _get_zero_obs(self, dim):
@@ -425,15 +402,40 @@ class MEMMModel(abc.ABC):
         parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in children if user_id in graph}
         return parents_dic
 
-    def get_memm(self, user_id):
-        if self.__memms:
-            return self.__memms.get(user_id, None)
+    def _get_memm(self, user_id):
+        if self._memms:
+            return self._memms.get(user_id, None)
         else:
             return MEMMManager(self.project, self.method).fetch_one(user_id)
 
-    def _fetch_parents_dic(self, children, graph):
-        parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in children if user_id in graph}
-        return parents_dic
+    def _get_initial_observations(self, initial_tree, max_depth_nodes, graph):
+        observations = {}
+        cur_step = initial_tree.roots
+        max_depth_nodes_set = set(max_depth_nodes)
+
+        while cur_step:
+            children_dic = {node.user_id: set(graph.successors(node.user_id)) & max_depth_nodes_set for node in cur_step
+                            if node.user_id in graph}
+            max_depth_node_ids = [node.user_id for node in max_depth_nodes]
+            parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in max_depth_node_ids if
+                           user_id in graph}
+            for node in cur_step:
+                children = children_dic.pop(node.user_id, [])  # to free RAM
+                for child_id in children:
+                    memm = self._get_memm(child_id)
+                    if memm is not None:
+                        # Update the observation of this child.
+                        index = parents_dic[child_id].index(node.user_id)
+                        obs = self._get_new_observation(child_id, index, observations, memm)
+                        if obs is not None:
+                            observations[child_id] = obs
+
+            next_step = reduce(lambda x, y: x + y, [node.children for node in cur_step], [])
+            if next_step:
+                self._set_next_state_observations(observations)
+            cur_step = next_step
+
+        return observations
 
     @abc.abstractmethod
     def _async_extract_evidences(self, pool, cascade_ids, **kwargs):
@@ -500,6 +502,6 @@ class FloatMEMMModel(MEMMModel):
     def _get_zero_obs(self, dim):
         return np.zeros(dim)
 
-    def _set_next_state_observations(self, observations: dict):
-        for thr, obs_thr in observations.items():
-            observations[thr] = {child_id: obs / 2 for child_id, obs in obs_thr.items()}
+    def _set_next_state_observations(self, observations: typing.Dict[ObjectId, np.ndarray]):
+        for user_id, obs in observations.items():
+            observations[user_id] = obs / 2

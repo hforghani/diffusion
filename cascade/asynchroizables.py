@@ -91,6 +91,11 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
         for cid in cascade_ids:
             tree = trees[cid]
 
+            if initial_depth >= tree.depth:
+                count += 1
+                logger.info('cascade <%s> ignored since the initial depth is more than or equal to the tree depth', cid)
+                continue
+
             logger.info('running prediction with method <%s> on cascade <%s>', method, cid)
 
             # Copy roots in a new tree.

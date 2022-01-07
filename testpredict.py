@@ -75,7 +75,8 @@ class Command:
                 raise ArgumentError('must specify the threshold via -t option when --validation options is not given')
             prec, rec, f1, fpr = tester.run_test(args.min_threshold, args.initial_depth, args.max_depth)
 
-        logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', prec, rec, f1, fpr)
+        if prec is not None:
+            logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', prec, rec, f1, fpr)
 
 
 if __name__ == '__main__':
