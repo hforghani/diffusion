@@ -3,7 +3,7 @@ from typing import Tuple
 
 from cascade.avg import LTAvg
 from cascade.models import Project
-from cascade.saito import Saito
+from cascade.aslt import AsLT
 
 from cascade.validation import Validation
 from memm.models import MEMMModel, BinMEMMModel, FloatMEMMModel
@@ -53,7 +53,7 @@ def train_cascades(method, project, multi_processed=False):
         train_set, _, _ = project.load_sets()
         model = FloatMEMMModel(project).fit(train_set, multi_processed)
     elif method == 'aslt':
-        model = Saito(project)
+        model = AsLT(project)
     elif method == 'avg':
         model = LTAvg(project)
     else:

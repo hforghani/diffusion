@@ -326,7 +326,7 @@ class ActSequence(object):
         return active_parents
 
 
-class AsLT(object):
+class LT(object):
     def __init__(self, project):
         """
         w_param_name and r_param_name must be set in children.
@@ -341,7 +341,7 @@ class AsLT(object):
 
         self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
         self.w = self.w.tocsr()
-        self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
+        self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
 
     def fit(self):
         pass

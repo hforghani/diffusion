@@ -3,10 +3,10 @@ from scipy import sparse
 
 from db.managers import DBManager
 from settings import logger
-from cascade.models import AsLT, ParamTypes
+from cascade.models import LT, ParamTypes
 
 
-class LTAvg(AsLT):
+class LTAvg(LT):
     def __init__(self, project):
         self.project = project
         self.w_param_name = 'w-avg'

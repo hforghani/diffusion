@@ -9,7 +9,7 @@ from scipy import sparse
 from sklearn.preprocessing import normalize
 
 import settings
-from cascade.models import AsLT, ParamTypes
+from cascade.models import LT, ParamTypes
 from db.managers import DBManager
 from settings import logger
 from utils.time_utils import Timer, time_measure
@@ -295,19 +295,23 @@ def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, c_set1
         raise
 
 
-class Saito(AsLT):
+class AsLT(LT):
     def __init__(self, project):
         self.project = project
         self.sample_count = 2500
-        self.w_param_name = 'w-saito'
-        self.r_param_name = 'r-saito'
+        self.w_param_name = 'w-aslt'
+        self.r_param_name = 'r-aslt'
 
         try:
-            super(Saito, self).__init__(project)
+            super(AsLT, self).__init__(project)
         except FileNotFoundError:
             pass
 
-    def calc_parameters(self, iterations=10):
+    def fit(self, iterations=10):
+        train_set, _, _ = self.project.load_sets()
+        self.calc_parameters(iterations)
+
+    def calc_parameters(self, iterations):
         # Load dataset.
         logger.info('extracting data ...')
         train_set, _, _ = self.project.load_sets()
