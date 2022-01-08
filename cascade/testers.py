@@ -19,6 +19,7 @@ class ProjectTester(abc.ABC):
     def __init__(self, project, method):
         self.project = project
         self.method = method
+        self.model = None
 
         if method in ['aslt', 'avg']:
             # Create dictionary of user id's to their sorted index.
@@ -32,12 +33,12 @@ class ProjectTester(abc.ABC):
 
     @abc.abstractmethod
     def run_validation_test(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int) \
-            -> Tuple[dict, dict, dict, dict]:
+            -> Tuple[float, float, float, float, float]:
         """ Run the training, validation, and test stages for the project """
 
     @abc.abstractmethod
     def run_test(self, threshold: numbers.Number, initial_depth: int, max_depth: int) \
-            -> Tuple[dict, dict, dict, dict]:
+            -> Tuple[float, float, float, float]:
         """ Run the training, and test stages for the project """
 
     @abc.abstractmethod
@@ -142,15 +143,17 @@ class ProjectTester(abc.ABC):
 
 class DefaultTester(ProjectTester):
     def run_validation_test(self, thresholds, initial_depth, max_depth):
-        with Timer('training'):
-            model = self.train()
+        if self.model is None:
+            with Timer('training'):
+                self.model = self.train()
 
         with Timer('validation & test'):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
-            thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=model)
+            thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=self.model)
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
-            return self.test(test_set, thr, initial_depth, max_depth, model=model)
+            precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth, model=self.model)
+            return precision, recall, f1, fpr, thr
 
     def run_test(self, threshold, initial_depth, max_depth):
         with Timer('training'):
@@ -205,7 +208,8 @@ class MultiProcTester(ProjectTester):
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
             thr = self.validate(val_set, thresholds, initial_depth, max_depth)
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
-            return self.test(test_set, thr, initial_depth, max_depth)
+            precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth)
+            return precision, recall, f1, fpr, thr
 
     def run_test(self, threshold, initial_depth, max_depth):
         with Timer('training'):
