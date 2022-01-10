@@ -1,12 +1,14 @@
 import traceback
 from typing import Tuple
 
+import settings
 from cascade.avg import LTAvg
 from cascade.models import Project
 from cascade.aslt import AsLT
 
 from cascade.validation import Validation
-from memm.models import MEMMModel, BinMEMMModel, FloatMEMMModel
+from log_levels import DEBUG_LEVELV_NUM
+from memm.models import BinMEMMModel, FloatMEMMModel, ParentFloatMEMMModel
 from mln.file_generators import FileCreator
 from mln.models import MLN
 from settings import logger
@@ -26,18 +28,20 @@ def evaluate(initial_tree, res_tree, tree, all_nodes, max_depth=None):
     return meas, res_output, true_output
 
 
-def log_trees(tree, res_tree, max_depth=None):
-    if max_depth is not None:
-        tree = tree.copy(max_depth)
-    tree_render = tree.render(digest=True).split('\n')
-    res_tree_render = res_tree.render(digest=True).split('\n')
-    max_len = max([len(line) for line in tree_render])
-    max_lines = max(len(tree_render), len(res_tree_render))
-    formatted_line = '{:' + str(max_len + 5) + '}{}'
-    logger.debugv(formatted_line.format('true tree:', 'output tree:'))
-    for i in range(max_lines):
-        logger.debugv(formatted_line.format(tree_render[i] if i < len(tree_render) else '',
-                                            res_tree_render[i] if i < len(res_tree_render) else ''))
+def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
+    # TODO: res_trees is a dictionary of thresholds to trees.
+    if settings.LOG_LEVEL <= level:
+        if max_depth is not None:
+            tree = tree.copy(max_depth)
+        tree_render = tree.render(digest=True).split('\n')
+        res_tree_render = res_trees.render(digest=True).split('\n')
+        max_len = max([len(line) for line in tree_render])
+        max_lines = max(len(tree_render), len(res_tree_render))
+        formatted_line = '{:' + str(max_len + 5) + '}{}'
+        logger.log(level, formatted_line.format('true tree:', 'output tree:'))
+        for i in range(max_lines):
+            logger.log(level, formatted_line.format(tree_render[i] if i < len(tree_render) else '',
+                                                    res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
 def train_cascades(method, project, multi_processed=False):
@@ -52,10 +56,13 @@ def train_cascades(method, project, multi_processed=False):
     elif method == 'floatmemm':
         train_set, _, _ = project.load_sets()
         model = FloatMEMMModel(project).fit(train_set, multi_processed)
+    elif method == 'parentmemm':
+        train_set, _, _ = project.load_sets()
+        model = ParentFloatMEMMModel(project).fit(train_set, multi_processed)
     elif method == 'aslt':
-        model = AsLT(project)
+        model = AsLT(project).fit()
     elif method == 'avg':
-        model = LTAvg(project)
+        model = LTAvg(project).fit()
     else:
         raise Exception('invalid method "%s"' % method)
     return model
@@ -109,7 +116,7 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                 elif method in ['aslt', 'avg']:
                     res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
                                               user_ids=user_ids, users_map=users_map)
-                elif method in ['binmemm', 'floatmemm']:
+                elif method in ['binmemm', 'floatmemm', 'parentmemm']:
                     res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
                                               multiprocessed=False)
 
@@ -140,7 +147,7 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                         f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{prec:10.3f}{rec:10.3f}{f1:10.3f}')
                     # if method in ['aslt', 'avg']:
                     #     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-                    # log_trees(tree, res_trees, max_depth) # Notice: This line takes too much execution time:
+                    # log_trees(tree, res_trees, max_depth)
 
                 logger.info(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
 

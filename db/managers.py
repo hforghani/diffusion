@@ -20,8 +20,7 @@ class EvidenceManager:
         self.project = project
         self.method = method
         mongo_client = pymongo.MongoClient(MONGO_URL)
-        method_prefix = 'bin' if method == MEMMMethod.BIN_MEMM else 'float'
-        self.db = mongo_client[f'{project.db}_{method_prefix}_memm_evid_{project.project_name}']
+        self.db = mongo_client[f'{project.db}_{method.value}_evid_{project.project_name}']
 
     def get_one(self, user_id):
         if not isinstance(user_id, ObjectId):
@@ -111,19 +110,15 @@ class EvidenceManager:
 
     def _sequences_to_str(self, sequences):
         if self.method == MEMMMethod.BIN_MEMM:
-            return str(sequences)
-        elif self.method == MEMMMethod.FLOAT_MEMM:
-            return str([[(obs.tolist(), state) for obs, state in seq] for seq in sequences])
+            return str([[(obs.astype(int).tolist(), state) for obs, state in seq] for seq in sequences])
         else:
-            raise ValueError()
+            return str([[(obs.tolist(), state) for obs, state in seq] for seq in sequences])
 
     def _str_to_sequences(self, seq_str):
         if self.method == MEMMMethod.BIN_MEMM:
-            return eval(seq_str)
-        elif self.method == MEMMMethod.FLOAT_MEMM:
-            return [[(np.fromiter(obs, np.float64), state) for obs, state in seq] for seq in eval(seq_str)]
+            return [[(np.fromiter(obs, bool), state) for obs, state in seq] for seq in eval(seq_str)]
         else:
-            raise ValueError()
+            return [[(np.fromiter(obs, np.float64), state) for obs, state in seq] for seq in eval(seq_str)]
 
     def create_index(self):
         """
@@ -142,8 +137,7 @@ class MEMMManager:
     def __init__(self, project, method):
         self.project = project
         self.client = pymongo.MongoClient(MONGO_URL)
-        method_prefix = 'bin' if method == MEMMMethod.BIN_MEMM else 'float'
-        self.db_name = f'{project.db}_{method_prefix}_memm_{project.project_name}'
+        self.db_name = f'{project.db}_{method.value}_{project.project_name}'
         self.db = self.client[self.db_name]
         self.method = method
 
@@ -197,10 +191,8 @@ class MEMMManager:
         memm_data = eval(data)
         if self.method == MEMMMethod.BIN_MEMM:
             memm = BinMEMM()
-        elif self.method == MEMMMethod.FLOAT_MEMM:
-            memm = FloatMEMM()
         else:
-            raise ValueError(f'invalid method {self.method}')
+            memm = FloatMEMM()
         memm.orig_indexes = memm_data['orig_indexes']
         memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
         return memm

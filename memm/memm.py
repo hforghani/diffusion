@@ -30,7 +30,10 @@ def array_to_obs(arr: np.array) -> int:
 
 
 def array_to_str(arr: np.array) -> str:
-    return ''.join(str(int(d)) for d in arr)
+    if arr.dtype == bool:
+        return ''.join(str(int(d)) for d in arr)
+    else:
+        return str(arr.tolist())
 
 
 class MEMM(abc.ABC):
@@ -52,7 +55,7 @@ class MEMM(abc.ABC):
         if new_dim == 0:
             raise MemmException('Cannot train MEMM with all observations given zero')
 
-        all_obs_arr, map_obs_index = self._get_all_obs_mat(new_sequences, new_dim)
+        all_obs_arr, map_obs_index = self.get_all_obs_mat(new_sequences)
         logger.debugv('all_obs_arr =\n%s', all_obs_arr)
 
         # Create matrices of observations and states of which previous state is zero.
@@ -131,24 +134,25 @@ class MEMM(abc.ABC):
         next_state = int(prob >= threshold)
         return next_state, prob
 
-    def _get_all_obs_mat(self, sequences, dim):
-        all_obs = reduce(lambda s1, s2: s1 | s2, [{pair[0] for pair in seq} for seq in sequences])
-        all_obs = list(all_obs)
-        all_obs_arr = np.array([obs_to_array(obs, dim) for obs in all_obs])
-        map_obs_index = {v: k for k, v in dict(enumerate(all_obs)).items()}
+    def get_all_obs_mat(self, sequences):
+        all_obs = list(reduce(lambda li1, li2: li1 + li2, [[pair[0] for pair in seq] for seq in sequences]))
+        all_obs_arr = np.unique(np.array(all_obs), axis=0)
+        map_obs_index = {tuple(all_obs_arr[i, :]): i for i in range(all_obs_arr.shape[0])}
         return all_obs_arr, map_obs_index
 
     def _create_matrices(self, sequences, all_obs_arr, map_obs_index):
         obs_indexes = []
         states = []
+        obs_mat = []
         for seq in sequences:
             if not seq:
                 continue
-            obs_indexes.extend(map_obs_index[obs] for obs, state in seq[1:])
+            obs_mat.extend(obs for obs, state in seq[1:])
+            obs_indexes.extend(map_obs_index[tuple(obs)] for obs, state in seq[1:])
             states.extend(state for obs, state in seq[1:])
-        obs_mat = all_obs_arr[obs_indexes, :]
-        states_array = np.array(states, dtype=bool)
-        return obs_mat, states_array, obs_indexes
+        obs_mat = np.array(obs_mat)
+        states = np.array(states, dtype=bool)
+        return obs_mat, states, obs_indexes
 
     @staticmethod
     @abc.abstractmethod
@@ -213,30 +217,16 @@ class MEMM(abc.ABC):
         :return:            new sequences, map of new indexes to the old ones; with one difference that
                             the observation is numpy array in tuple (obs, state)
         """
-        # Find the dimensions with any non-zero value.
-        has_nonzero = 0
-        for seq in sequences:
-            for obs, state in seq[1:]:
-                has_nonzero |= obs
-
-        # Extract indexes of non-zero values of observations. These are the dimension we want to preserve.
-        orig_indexes = []
-        for i in range(dim):
-            if has_nonzero % 2:
-                orig_indexes.append(i)
-            has_nonzero >>= 1
-            if has_nonzero == 0:
-                break
-
-        # Count the used (nonzero) dimensions
+        all_obs_mat, map_obs_index = self.get_all_obs_mat(sequences)
+        union = all_obs_mat.any(axis=0)
+        orig_indexes = list(np.nonzero(union)[0])
         new_dim = len(orig_indexes)
 
         if new_dim == dim:
             return sequences, list(range(dim))
 
         # Decrease the dimensions and create the new sequences.
-        new_sequences = [[(self.decrease_dim_by_indexes(obs, orig_indexes), state) for obs, state in seq] for seq in
-                         sequences]
+        new_sequences = [[(obs[orig_indexes], state) for obs, state in seq] for seq in sequences]
 
         return new_sequences, orig_indexes
 
@@ -275,37 +265,3 @@ class FloatMEMM(MEMM):
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
         features = np.concatenate((features, last_feat), axis=1)
         return features, C
-
-    def decrease_dim(self, sequences, dim):
-        all_obs_mat, map_obs_index = self._get_all_obs_mat(sequences, dim)
-        union = all_obs_mat.any(axis=0)
-        orig_indexes = list(np.nonzero(union)[0])
-        new_dim = len(orig_indexes)
-
-        if new_dim == dim:
-            return sequences, list(range(dim))
-
-        # Decrease the dimensions and create the new sequences.
-        new_sequences = [[(obs[orig_indexes], state) for obs, state in seq] for seq in sequences]
-
-        return new_sequences, orig_indexes
-
-    def _get_all_obs_mat(self, sequences, dim):
-        all_obs = list(reduce(lambda li1, li2: li1 + li2, [[pair[0] for pair in seq] for seq in sequences]))
-        all_obs_arr = np.unique(np.array(all_obs), axis=0)
-        map_obs_index = {tuple(all_obs_arr[i, :]): i for i in range(all_obs_arr.shape[0])}
-        return all_obs_arr, map_obs_index
-
-    def _create_matrices(self, sequences, all_obs_arr, map_obs_index):
-        obs_indexes = []
-        states = []
-        obs_mat = []
-        for seq in sequences:
-            if not seq:
-                continue
-            obs_mat.extend(obs for obs, state in seq[1:])
-            obs_indexes.extend(map_obs_index[tuple(obs)] for obs, state in seq[1:])
-            states.extend(state for obs, state in seq[1:])
-        obs_mat = np.array(obs_mat)
-        states = np.array(states, dtype=bool)
-        return obs_mat, states, obs_indexes

@@ -2,5 +2,6 @@ from enum import Enum
 
 
 class MEMMMethod(Enum):
-    BIN_MEMM = 0
-    FLOAT_MEMM = 1
+    BIN_MEMM = 'binmemm'
+    FLOAT_MEMM = 'floatmemm'
+    PARENT_SENS_FLOAT_MEMM = 'parentmemm'

@@ -5,6 +5,7 @@ from argparse import ArgumentError
 from cascade.models import Project
 import settings
 from cascade.testers import MultiProcTester, DefaultTester
+from memm.enum import MEMMMethod
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -52,7 +53,7 @@ def run_predict(method, project_name, validation, min_threshold, max_threshold, 
 @time_measure('info')
 def handle(args):
     res = run_predict(args.method, args.project, args.validation, args.min_threshold, args.max_threshold,
-                      args.thresholds_count, args.initial_depth, args.max_depth, args.multiprocessed)
+                      args.thresholds_count, args.initial_depth, args.max_depth, args.multi_processed)
     prec, rec, f1, fpr = res[:4]
 
     if prec is not None:
@@ -63,7 +64,7 @@ def main():
     parser = argparse.ArgumentParser('Test information diffusion prediction')
     parser.add_argument("-p", "--project", type=str, dest="project", help="project name")
     parser.add_argument("-m", "--method", type=str, dest="method", required=True,
-                        choices=['mlnprac', 'mlnalch', 'binmemm', 'floatmemm', 'aslt', 'avg'],
+                        choices=['mlnprac', 'mlnalch', 'aslt', 'avg'] + [e.value for e in MEMMMethod],
                         help="the method by which we want to test")
     parser.add_argument("-t", "--min_threshold", type=float,
                         help="minimum threshold to apply on the method")

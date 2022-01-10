@@ -339,12 +339,10 @@ class LT(object):
         self.user_ids = None
         self.users_map = None
 
+    def fit(self, *args, **kwargs):
         self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
         self.w = self.w.tocsr()
         self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
-
-    def fit(self):
-        pass
 
     # @profile
     def predict(self, initial_tree, thresholds: list = None, max_step: int = None, user_ids: list = None,
@@ -369,7 +367,6 @@ class LT(object):
         max_depth = initial_tree.depth
         cur_step_nodes = sorted(initial_tree.nodes_at_depth(max_depth),
                                 key=lambda n: n.datetime)  # Set the nodes with maximum depth as initial step.
-        cur_step_nodes = sorted(initial_tree.get_leaves(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
         max_thr = max(thresholds)
         cur_step = [(node, max_thr) for node in cur_step_nodes]
         active_ids = set(initial_tree.node_ids())

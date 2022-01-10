@@ -308,13 +308,14 @@ class AsLT(LT):
             pass
 
     def fit(self, iterations=10):
-        train_set, _, _ = self.project.load_sets()
-        self.calc_parameters(iterations)
+        try:
+            super().fit()
+        except FileNotFoundError:
+            train_set, _, _ = self.project.load_sets()
+            self.calc_parameters(train_set, iterations)
+        return self
 
-    def calc_parameters(self, iterations):
-        # Load dataset.
-        logger.info('extracting data ...')
-        train_set, _, _ = self.project.load_sets()
+    def calc_parameters(self, train_set, iterations):
         graph, sequences = self.project.load_or_extract_graph_seq()
 
         # Create maps from users and cascades db id's to their matrix id's.
@@ -407,6 +408,8 @@ class AsLT(LT):
                 # Save r and w.
                 self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
                 self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
+                self.r = r
+                self.w = w.tocsr()
 
                 # Delete all except w and r.
                 self.project.delete_param('h', ParamTypes.SPARSE)

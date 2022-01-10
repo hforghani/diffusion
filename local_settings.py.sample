@@ -15,6 +15,7 @@ WEIBO_UIDLIST_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\uidlist.txt'
 THRESHOLDS = {
     'binmemm': (0.1, 1),
     'floatmemm': (0.1, 1),
+    'parentmemm': (0, 1),
     'mlnprac': (5, 10),
     'mlnalch': (0, 0.5),
     'aslt': (0, 1),

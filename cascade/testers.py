@@ -11,6 +11,7 @@ from matplotlib import pyplot
 import settings
 from cascade.asynchroizables import train_cascades, test_cascades, test_cascades_multiproc
 from db.managers import DBManager, MEMMManager
+from memm.enum import MEMMMethod
 from settings import logger
 from utils.time_utils import time_measure, Timer
 
@@ -62,7 +63,7 @@ class ProjectTester(abc.ABC):
 
         logger.info(f'F1 max = {best_f1} in threshold = {best_thr}')
 
-        self.__save_charts(best_thr, precs, recs, f1s, fprs, thresholds)
+        self.__save_charts(best_thr, precs, recs, f1s, fprs, thresholds, initial_depth, max_depth)
         return best_thr
 
     @abc.abstractmethod
@@ -106,13 +107,14 @@ class ProjectTester(abc.ABC):
         logger.info('averages:\n' + '\n'.join(logs))
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
-    def __save_charts(self, best_thr: float, precs: dict, recs: dict, f1s: dict, fprs: dict, thresholds: list):
+    def __save_charts(self, best_thr: float, precs: dict, recs: dict, f1s: dict, fprs: dict, thresholds: list,
+                      initial_depth: int, max_depth: int):
         precs_list = [precs[thr] for thr in thresholds]
         recs_list = [recs[thr] for thr in thresholds]
         f1s_list = [f1s[thr] for thr in thresholds]
         fprs_list = [fprs[thr] for thr in thresholds]
 
-        pyplot.figure(1)
+        pyplot.figure()
         pyplot.subplot(221)
         pyplot.plot(thresholds, precs_list)
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
@@ -136,7 +138,8 @@ class ProjectTester(abc.ABC):
         results_path = os.path.join(settings.BASEPATH, 'results')
         if not os.path.exists(results_path):
             os.mkdir(results_path)
-        filename = os.path.join(results_path, f'{self.project.project_name}-{self.method}.png')
+        filename = os.path.join(results_path,
+                                f'{self.project.project_name}-{self.method}-{initial_depth}-{max_depth}.png')
         pyplot.savefig(filename)
         # pyplot.show()
 
@@ -200,7 +203,7 @@ class MultiProcTester(ProjectTester):
         with Timer('training'):
             # Train the cascades once and save them. Then the trained model is fetched from disk and used at each process.
             # The model is not passed to each process due to pickling size limit.
-            if not MEMMManager(self.project, self.method).db_exists():
+            if not MEMMManager(self.project, MEMMMethod(self.method)).db_exists():
                 self.train()
 
         with Timer('validation & test'):

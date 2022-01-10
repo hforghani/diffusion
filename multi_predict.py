@@ -2,6 +2,7 @@ import argparse
 
 from cascade.models import Project
 from cascade.testers import DefaultTester
+from memm.enum import MEMMMethod
 from settings import logger
 from utils.time_utils import time_measure
 

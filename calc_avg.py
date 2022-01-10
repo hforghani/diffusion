@@ -9,8 +9,12 @@ from cascade.avg import LTAvg
 from cascade.models import Project
 
 logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('calcavg')
+logger = logging.getLogger('calc_avg')
 logger.setLevel(settings.LOG_LEVEL)
+
+# import pydevd_pycharm
+#
+# pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
 
 class Command():

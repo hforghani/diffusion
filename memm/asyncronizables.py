@@ -28,10 +28,8 @@ def train_memms(evidences, method, save_in_db=False, project=None):
 
             if method == MEMMMethod.BIN_MEMM:
                 memm = BinMEMM()
-            elif method == MEMMMethod.FLOAT_MEMM:
-                memm = FloatMEMM()
             else:
-                raise ValueError(f'invalid method {method}')
+                memm = FloatMEMM()
 
             try:
                 memm.fit(ev)
@@ -80,12 +78,12 @@ def extract_bin_memm_evidences(train_set, graph, act_seqs):
 
                 # Put the last observation with state 1 in the sequence of (observation, state) if exists.
                 if parents_count and uid in cascade_seqs:
-                    observations.setdefault(uid, 0)  # initial observation: 0000000
+                    observations.setdefault(uid, np.zeros(parents_count, dtype=bool))  # initial observation: 0000000
                     uid_cur_seqs = cascade_seqs[uid]
                     if uid_cur_seqs:
                         obs = uid_cur_seqs[-1][0]
                         del uid_cur_seqs[-1]
-                        uid_cur_seqs.append((obs, 1))
+                        uid_cur_seqs.append((obs, True))
 
                 if children:
                     logger.debug('iterating on %d children ...', len(children))
@@ -97,12 +95,12 @@ def extract_bin_memm_evidences(train_set, graph, act_seqs):
                         child_parents = list(graph.predecessors(child)) if child in graph else []
                         if child_parents:
                             parent_sizes[child] = len(child_parents)
-                            obs = observations.setdefault(child, 0)
+                            obs = observations.setdefault(child, np.zeros(len(child_parents),
+                                                                          dtype=bool))  # initial observation: 0000000
                             index = child_parents.index(uid)
-                            obs |= 1 << index
-                            observations[child] = obs
-                            cascade_seqs.setdefault(child, [(0, 0)])
-                            cascade_seqs[child].append((obs, 0))
+                            obs[index] = True
+                            cascade_seqs.setdefault(child, [(np.zeros(len(child_parents), dtype=bool), False)])
+                            cascade_seqs[child].append((obs.copy(), False))
                     j += 1
                     if j % 1000 == 0:
                         logger.debug('%d children done', j)
@@ -171,6 +169,7 @@ def extract_float_memm_evidences(train_set, graph, trees):
                         del observations[uid]
 
                 user_num = 1
+                children_to_add = set()
 
                 for node in cur_step:
                     uid = node.user_id
@@ -179,7 +178,7 @@ def extract_float_memm_evidences(train_set, graph, trees):
                     if children:
                         logger.debug('iterating on %d children ...', len(children))
 
-                    # Set the related coefficient of the children observations equal to 1.
+                    # Set the related coefficient of the observations of all children equal to 1.
                     child_num = 1
                     for child in children:
                         if child not in activated:
@@ -190,9 +189,9 @@ def extract_float_memm_evidences(train_set, graph, trees):
                                     len(child_parents)))  # initial observation: 0000000
                                 index = child_parents.index(uid)
                                 obs[index] = 1
-                                observations[child] = obs
-                                cascade_seqs.setdefault(child, [(np.zeros(len(child_parents)), False)])
-                                cascade_seqs[child].append((obs, False))
+                                # child_node = tree.get_node(child)
+                                # obs[index] = 1 if child_node and uid == child_node.parent_id else 0.5
+                                children_to_add.add(child)
                         if child_num % 1000 == 0:
                             logger.debugv('%d children done', child_num)
                         child_num += 1
@@ -200,14 +199,128 @@ def extract_float_memm_evidences(train_set, graph, trees):
                     logger.debug('cascade %d -> step %d -> %d users done', cascade_num, step_num, user_num)
                     user_num += 1
 
-                # Divide all observations by 2 at the end of the step to apply the latency impact on activation.
-                for uid, obs in observations.items():
-                    observations[uid] = obs / 2
+                for child in children_to_add:
+                    obs = observations[child]
+                    cascade_seqs.setdefault(child, [(np.zeros(obs.shape[0]), False)])
+                    cascade_seqs[child].append((obs.copy(), False))
 
                 # Update current step nodes.
                 cur_step = reduce(lambda li1, li2: li1 + li2, [node.children for node in cur_step])
 
-                logger.info('%d steps done', step_num)
+                # Divide all observations by 2 at the end of the step to apply the latency impact on activation.
+                if cur_step:
+                    for uid, obs in observations.items():
+                        observations[uid] = obs / 2
+
+                logger.debug('%d steps done', step_num)
+                step_num += 1
+
+            if cascade_num % 1000 == 0:
+                logger.info('%d cascades done', cascade_num)
+            cascade_num += 1
+
+            # Add current sequence of pairs (observation, state) to the MEMM evidences.
+            logger.debug('adding sequences of current cascade ...')
+            for uid in cascade_seqs:
+                dim = parent_sizes[uid]
+                evidences.setdefault(uid, {
+                    'dimension': dim,
+                    'sequences': []
+                })
+                evidences[uid]['sequences'].append(cascade_seqs[uid])
+
+        return evidences
+    except:
+        logger.error(traceback.format_exc())
+        raise
+
+
+def extract_parent_sens_float_memm_evidences(train_set, graph, trees):
+    try:
+        evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
+        cascade_num = 1
+
+        # Iterate each activation sequence and extract sequences of (observation, state) for each user
+        for cascade_id in train_set:
+            cascade_seqs = {}  # dictionary of user id's to the sequences of ObsPair instances for the current cascade
+            tree = trees[cascade_id]
+            observations = {}  # current observation of each user
+            activated = set()  # set of current activated users
+            parent_sizes = {}  # dictionary of user id's to number of their parents
+            logger.info('cascade %d ...', cascade_num)
+
+            cur_step = tree.roots
+            step_num = 1
+
+            while cur_step:
+                logger.debug('step %d with %d users started', step_num, len(cur_step))
+                logger.debug('extracting parents and children ...')
+                for node in cur_step:
+                    if node.user_id in graph:
+                        parent_sizes[node.user_id] = graph.in_degree(node.user_id)
+
+                # Put the state of the last observation in the sequence of (observation, state) equal to 1 (activated)
+                # for all nodes in the current step.
+                for node in cur_step:
+                    uid = node.user_id
+                    activated.add(uid)
+                    parents_count = parent_sizes.get(uid, 0)
+
+                    if parents_count and uid in cascade_seqs and uid in observations:
+                        uid_cur_seqs = cascade_seqs[uid]
+                        if uid_cur_seqs:
+                            obs = uid_cur_seqs[-1][0]
+                            del uid_cur_seqs[-1]
+                            uid_cur_seqs.append((obs, True))
+                        del observations[uid]
+
+                user_num = 1
+                children_to_add = set()
+
+                for node in cur_step:
+                    uid = node.user_id
+                    children = list(graph.successors(uid)) if uid in graph else []
+
+                    if children:
+                        logger.debug('iterating on %d children ...', len(children))
+
+                    # Set the related coefficient of the observations of all children equal to 1.
+                    child_num = 1
+                    for child in children:
+                        if child not in activated:
+                            child_parents = list(graph.predecessors(child)) if child in graph else []
+                            if child_parents:
+                                parent_sizes[child] = len(child_parents)
+                                obs = observations.setdefault(child, np.zeros(
+                                    len(child_parents)))  # initial observation: 0000000
+                                index = child_parents.index(uid)
+
+                                # Different with Float MEMM:
+                                child_node = tree.get_node(child)
+                                obs[index] = 1 if child_node and uid == child_node.parent_id else 0.5
+
+                                children_to_add.add(child)
+                        if child_num % 1000 == 0:
+                            logger.debugv('%d children done', child_num)
+                        child_num += 1
+
+                    logger.debug('cascade %d -> step %d -> %d users done', cascade_num, step_num, user_num)
+                    user_num += 1
+
+                for child in children_to_add:
+                    obs = observations[child]
+                    cascade_seqs.setdefault(child, [(np.zeros(obs.shape[0]), False)])
+                    cascade_seqs[child].append((obs.copy(), False))
+
+                # Update current step nodes.
+                cur_step = reduce(lambda li1, li2: li1 + li2, [node.children for node in cur_step])
+
+                # Divide all observations by 2 at the end of the step to apply the latency impact on activation.
+                if cur_step:
+                    for uid, obs in observations.items():
+                        observations[uid] = obs / 2
+
+                logger.debug('%d steps done', step_num)
                 step_num += 1
 
             if cascade_num % 1000 == 0:

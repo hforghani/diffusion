@@ -7,7 +7,7 @@ import settings
 from utils.time_utils import time_measure
 
 logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('calcsaito')
+logger = logging.getLogger('calc_aslt')
 logger.setLevel(settings.LOG_LEVEL)
 
 
@@ -40,7 +40,7 @@ class Command:
         project = Project(project_name)
 
         # Calculate AsLT parameters.
-        AsLT(project).calc_parameters(args.iterations)
+        AsLT(project).fit(args.iterations)
 
 
 if __name__ == '__main__':
