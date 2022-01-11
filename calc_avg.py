@@ -12,6 +12,7 @@ logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('calc_avg')
 logger.setLevel(settings.LOG_LEVEL)
 
+
 # import pydevd_pycharm
 #
 # pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
@@ -61,7 +62,7 @@ class Command():
             project = Project(project_name)
 
             lt_avg = LTAvg(project)
-            lt_avg.fit(args.weight, args.delay, args.continu)
+            lt_avg.calc_parameters(args.weight, args.delay, args.continu)
 
             logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:

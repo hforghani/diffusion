@@ -1,6 +1,8 @@
 import traceback
 from typing import Tuple
 
+from networkx import DiGraph
+
 import settings
 from cascade.avg import LTAvg
 from cascade.models import Project
@@ -69,21 +71,21 @@ def train_cascades(method, project, multi_processed=False):
 
 
 def test_cascades_multiproc(cascade_ids: list, method, project: Project, threshold: list, initial_depth: int,
-                            max_depth: int, trees: dict, all_node_ids: list, user_ids: list, users_map: dict) \
+                            max_depth: int, trees: dict, graph: DiGraph, all_node_ids: list) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
         # Train (or fetch trained models from db) in each process due to size limit for pickling in Python
         # multi-processing.
         model = train_cascades(method, project)
-        return test_cascades(cascade_ids, method, model, threshold, initial_depth, max_depth, trees, all_node_ids,
-                             user_ids, users_map)
+        return test_cascades(cascade_ids, method, model, threshold, initial_depth, max_depth, trees, graph,
+                             all_node_ids)
     except:
         logger.error(traceback.format_exc())
         raise
 
 
 def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initial_depth: int, max_depth: int,
-                  trees: dict, all_node_ids: list, user_ids: list, users_map: dict) \
+                  trees: dict, graph: DiGraph, all_node_ids: list) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
         prp1_list = {thr: [] for thr in thresholds}
@@ -114,10 +116,9 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                 if method in ['mlnprac', 'mlnalch']:
                     res_trees = model.predict(cid, initial_tree, threshold=thresholds)
                 elif method in ['aslt', 'avg']:
-                    res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
-                                              user_ids=user_ids, users_map=users_map)
+                    res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step)
                 elif method in ['binmemm', 'floatmemm', 'parentmemm']:
-                    res_trees = model.predict(initial_tree, thresholds=thresholds, max_step=max_step,
+                    res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step,
                                               multiprocessed=False)
 
             # Evaluate the results.
@@ -149,7 +150,7 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                     #     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                     # log_trees(tree, res_trees, max_depth)
 
-                logger.info(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
+                logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
 
             count += 1
 

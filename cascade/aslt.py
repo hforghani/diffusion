@@ -10,7 +10,6 @@ from sklearn.preprocessing import normalize
 
 import settings
 from cascade.models import LT, ParamTypes
-from db.managers import DBManager
 from settings import logger
 from utils.time_utils import Timer, time_measure
 
@@ -23,8 +22,10 @@ def calc_h(sequences, graph, w, r, user_map):
         cols = []
 
         i = 0
-        for mindex, sequence in sequences.items():
+        for cindex, sequence in sequences.items():
             for uid in sequence.users:
+                if str(uid) not in user_map:
+                    continue
                 uindex = user_map[str(uid)]
                 val = 0
                 if sequence.user_times[uid] == sequence.times[0]:
@@ -44,7 +45,7 @@ def calc_h(sequences, graph, w, r, user_map):
 
                 if val:
                     values.append(val)
-                    rows.append(mindex)
+                    rows.append(cindex)
                     cols.append(uindex)
             i += 1
             if c_count >= 10 and i % (c_count // 10) == 0:
@@ -64,7 +65,7 @@ def calc_g(sequences, graph, w, r, user_map):
         cols = []
         i = 0
 
-        for mindex, sequence in sequences.items():
+        for cindex, sequence in sequences.items():
             rond_set = sequence.get_rond_set(graph)
 
             for uid in rond_set:
@@ -85,7 +86,7 @@ def calc_g(sequences, graph, w, r, user_map):
                 if np.float32(val) == 0:
                     logger.warning('\tg = 0')
                 values.append(val)
-                rows.append(mindex)
+                rows.append(cindex)
                 cols.append(uindex)
 
             i += 1
@@ -111,6 +112,8 @@ def calc_phi_h(sequences, graph, w, r, h, user_map):
             cols = []
 
             for v in sequence.users:
+                if str(v) not in user_map:
+                    continue
                 vindex = user_map[str(v)]
                 active_parents = sequence.get_active_parents(v, graph)
                 if not active_parents:
@@ -320,8 +323,7 @@ class AsLT(LT):
 
         # Create maps from users and cascades db id's to their matrix id's.
         logger.info('creating user and cascade id maps ...')
-        db = DBManager(self.project.db).db
-        user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
+        user_ids = sorted(graph.nodes())
         user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
         cascade_map = {str(train_set[i]): i for i in range(len(train_set))}
         logger.info('train set size = %d', len(train_set))
@@ -603,10 +605,11 @@ class AsLT(LT):
         logger.info('\textracting sigma domains ...')
         c_set1 = {v: [] for v in user_ids}
         c_set2 = {v: [] for v in user_ids}
+        uid_set = set(user_ids)
         for c in cascade_ids:
-            for v in data[c].users:
+            for v in set(data[c].users) & uid_set:
                 c_set1[v].append(c)
-            for v in data[c].get_rond_set(graph):
+            for v in data[c].get_rond_set(graph) & uid_set:
                 c_set2[v].append(c)
 
         if multi_processed:

@@ -10,6 +10,7 @@ import numpy as np
 import psutil
 import pymongo
 from bson import ObjectId
+from networkx import DiGraph
 from pymongo.errors import PyMongoError
 from pympler.asizeof import asizeof
 
@@ -249,13 +250,12 @@ class MEMMModel(abc.ABC):
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
         return self
 
-    def predict(self, initial_tree: CascadeTree, thresholds: list, max_step: int = None,
+    def predict(self, initial_tree: CascadeTree, graph: DiGraph, thresholds: list, max_step: int = None,
                 multiprocessed: bool = True) -> dict:
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return: dictionary of predicted tree for thresholds
         """
-        graph = self.project.load_or_extract_graph()
         timers = [Timer(f'predict part {i}', level='debug', unit=TimeUnit.SECONDS, silent=True) for i in range(10)]
 
         # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
@@ -546,13 +546,11 @@ class ParentFloatMEMMModel(FloatMEMMModel):
             raise ValueError('keyword argument "graph" must be given')
         return extract_parent_sens_float_memm_evidences(cascade_ids, graph, trees)
 
-    def predict(self, initial_tree, thresholds, max_step=None, multiprocessed=True):
+    def predict(self, initial_tree, graph, thresholds, max_step=None, multiprocessed=True):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return: dictionary of predicted tree for thresholds
         """
-        graph = self.project.load_or_extract_graph()
-
         # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
         trees = {thr: initial_tree.copy() for thr in thresholds}
 

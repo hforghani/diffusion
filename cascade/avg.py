@@ -21,24 +21,25 @@ class LTAvg(LT):
         try:
             super().fit()
         except FileNotFoundError:
-            train_set, _, _ = self.project.load_sets()
-
-            logger.info('querying posts of the cascades ...')
-            db = DBManager(self.project.db).db
-            posts_ids = [pc['post_id'] for pc in
-                         db.postcascades.find({'cascade_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
-
-            logger.info('getting user ids ...')
-            user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
-            users_count = len(user_ids)
-            users_map = {user_ids[i]: i for i in range(users_count)}
-
-            if calc_weights or not calc_delays:
-                self.calc_weights(posts_ids, users_map)
-            if calc_delays or not calc_weights:
-                self.calc_delays(posts_ids, users_map, continue_calc)
+            self.calc_parameters(calc_delays, calc_weights, continue_calc)
 
         return self
+
+    def calc_parameters(self, calc_delays, calc_weights, continue_calc):
+        train_set, _, _ = self.project.load_sets()
+        logger.info('querying posts of the cascades ...')
+        db = DBManager(self.project.db).db
+        posts_ids = [pc['post_id'] for pc in
+                     db.postcascades.find({'cascade_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
+        logger.info('getting user ids ...')
+        graph = self.project.load_or_extract_graph()
+        user_ids = sorted(graph.nodes())
+        users_count = len(user_ids)
+        users_map = {user_ids[i]: i for i in range(users_count)}
+        if calc_weights or not calc_delays:
+            self.calc_weights(posts_ids, users_map)
+        if calc_delays or not calc_weights:
+            self.calc_delays(posts_ids, users_map, continue_calc)
 
     def calc_weights(self, posts_ids, users_map):
         logger.info('counting reshares of users ...')
@@ -70,12 +71,13 @@ class LTAvg(LT):
         ij = np.zeros((2, resh_count))
         i = 0
         for resh in resh_counts:
-            values[i] = resh['count'] / post_counts[resh['ref_user_id']]
-            sender_ind = users_map[resh['ref_user_id']]
-            receiver_ind = users_map[resh['user_id']]
-            ij[:, i] = [sender_ind, receiver_ind]
-            logger.debug('%s to %s: reshares count = %d, i posts count = %d, weight = %f', resh['ref_user_id'],
-                         resh['user_id'], resh['count'], post_counts[resh['ref_user_id']], values[i])
+            sender_uid, receiver_uid = resh['ref_user_id'], resh['user_id']
+            values[i] = resh['count'] / post_counts[sender_uid]
+            if sender_uid in users_map and receiver_uid in users_map:
+                sender_ind, receiver_ind = users_map[sender_uid], users_map[receiver_uid]
+                ij[:, i] = [sender_ind, receiver_ind]
+                logger.debug('%s to %s: reshares count = %d, i posts count = %d, weight = %f', resh['ref_user_id'],
+                             resh['user_id'], resh['count'], post_counts[resh['ref_user_id']], values[i])
             i += 1
             if i % 10000 == 0:
                 logger.info('\t%d edges done', i)
@@ -130,7 +132,7 @@ class LTAvg(LT):
                     logger.info('calculating diff. delays ...')
                     ignoring = False
             i += 1
-            if resh['ref_datetime'] is not None:
+            if resh['user_id'] in users_map and resh['ref_datetime'] is not None:
                 delay = (resh['datetime'] - resh['ref_datetime']).total_seconds() / (3600.0 * 24)  # in days
                 ind = users_map[resh['user_id']]
                 if not counts[ind] == 0:

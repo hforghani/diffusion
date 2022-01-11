@@ -7,6 +7,7 @@ from typing import Union, Tuple
 
 import numpy as np
 from matplotlib import pyplot
+from networkx import DiGraph
 
 import settings
 from cascade.asynchroizables import train_cascades, test_cascades, test_cascades_multiproc
@@ -21,16 +22,6 @@ class ProjectTester(abc.ABC):
         self.project = project
         self.method = method
         self.model = None
-
-        if method in ['aslt', 'avg']:
-            # Create dictionary of user id's to their sorted index.
-            logger.info('creating dictionary of user ids to their sorted index ...')
-            db = DBManager(self.project.db).db
-            self.user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
-            self.users_map = {self.user_ids[i]: i for i in range(len(self.user_ids))}
-        else:
-            self.user_ids = None
-            self.users_map = None
 
     @abc.abstractmethod
     def run_validation_test(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int) \
@@ -183,13 +174,13 @@ class DefaultTester(ProjectTester):
         # Load training and test sets and cascade trees.
         trees = self.project.load_trees()
         all_node_ids = self.project.get_all_nodes()
+        graph = self.project.load_or_extract_graph()
 
         logger.info('number of cascades : %d' % len(test_set))
 
         precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_cascades(test_set, self.method, model, thresholds,
-                                                                             initial_depth, max_depth, trees,
-                                                                             all_node_ids, self.user_ids,
-                                                                             self.users_map)
+                                                                             initial_depth, max_depth, trees, graph,
+                                                                             all_node_ids)
         mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
                                                                         prp2_list)
         if isinstance(thr, numbers.Number):
@@ -239,16 +230,16 @@ class MultiProcTester(ProjectTester):
         else:
             thresholds = thr
 
-        # Load training and test sets and cascade trees.
+        # Load cascade trees and graph.
         trees = self.project.load_trees()
-
+        graph = self.project.load_or_extract_graph()
         all_node_ids = self.project.get_all_nodes()
         # all_node_ids = self.user_ids
 
         logger.info('number of cascades : %d' % len(test_set))
 
         precisions, recalls, f1s, fprs, prp1_list, prp2_list \
-            = self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, all_node_ids)
+            = self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, graph, all_node_ids)
 
         mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
                                                                         prp2_list)
@@ -258,7 +249,7 @@ class MultiProcTester(ProjectTester):
             return mean_prec, mean_rec, mean_f1, mean_fpr
 
     def __test_multi_processed(self, test_set: list, thresholds: list, initial_depth: int, max_depth: int, trees: dict,
-                               all_node_ids: list):
+                               graph: DiGraph, all_node_ids: list):
         """
         Create a process pool to distribute the prediction.
         """
@@ -270,7 +261,7 @@ class MultiProcTester(ProjectTester):
             cascade_ids = test_set[j: j + step]
             res = pool.apply_async(test_cascades_multiproc,
                                    (cascade_ids, self.method, self.project, thresholds, initial_depth, max_depth,
-                                    trees, all_node_ids, self.user_ids, self.users_map))
+                                    trees, graph, all_node_ids))
             results.append(res)
 
         pool.close()

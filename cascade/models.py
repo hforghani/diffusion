@@ -309,9 +309,8 @@ class ActSequence(object):
         # Return set of non-active nodes with at least one active parent node for each.
         if self.rond_set is None:
             result = set()
-            for uid in self.users:
-                if uid in graph:
-                    result.update(set(graph.successors(uid)))
+            for uid in set(self.users) & set(graph.nodes()):
+                result.update(set(graph.successors(uid)))
             result = result - set(self.users)
             self.rond_set = result
         return self.rond_set
@@ -345,16 +344,14 @@ class LT(object):
         self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
 
     # @profile
-    def predict(self, initial_tree, thresholds: list = None, max_step: int = None, user_ids: list = None,
-                users_map: dict = None) -> dict:
+    def predict(self, initial_tree, graph: DiGraph, thresholds: list = None, max_step: int = None) -> dict:
         """
         Predict activation cascade in the future starting from initial nodes given. Return a dict containing
         a tree for each threshold given.
         :param initial_tree:    initial tree of activated nodes
+        :param graph:           DiGraph extracted from the training set
         :param thresholds:       list of thresholds of activation probability
         :param max_step:       maximum step to which prediction is done
-        :param user_ids:        list of possible users for activation. All of users if value is None.
-        :param users_map:   dictionary of user ids to their indexes
         :return:    dictionary of thresholds to trees
         """
         if not hasattr(self, 'w'):
@@ -371,11 +368,9 @@ class LT(object):
         cur_step = [(node, max_thr) for node in cur_step_nodes]
         active_ids = set(initial_tree.node_ids())
         self.probabilities = {}
-        db = DBManager(self.project.db).db
 
-        if user_ids is None or users_map is None:
-            user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
-            users_map = {user_ids[i]: i for i in range(len(user_ids))}
+        user_ids = sorted(graph.nodes())
+        users_map = {user_ids[i]: i for i in range(len(user_ids))}
         self.user_ids = user_ids
         self.users_map = users_map
 
@@ -389,6 +384,8 @@ class LT(object):
             # Iterate on current step nodes to check if a child will be activated.
             for node, max_predicted_thr in cur_step:
                 u = node.user_id  # sender user id
+                if u not in self.users_map:
+                    continue
                 u_i = self.users_map[u]
                 w_u = self.w[u_i, :]
                 if w_u.nnz:

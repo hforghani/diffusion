@@ -40,7 +40,9 @@ class Command:
         project = Project(project_name)
 
         # Calculate AsLT parameters.
-        AsLT(project).fit(args.iterations)
+        aslt = AsLT(project)
+        train_set, _, _ = aslt.project.load_sets()
+        aslt.calc_parameters(train_set, args.iterations)
 
 
 if __name__ == '__main__':
