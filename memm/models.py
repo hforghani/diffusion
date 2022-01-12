@@ -266,8 +266,7 @@ class MEMMModel(abc.ABC):
         max_depth = initial_tree.depth
         cur_step_nodes = sorted(initial_tree.nodes_at_depth(max_depth),
                                 key=lambda n: n.datetime)  # Set the nodes with maximum depth as the initial step.
-        max_thr = max(thresholds)
-        cur_step = [(node.user_id, max_thr) for node in cur_step_nodes]
+        cur_step = [(node.user_id, set(thresholds)) for node in cur_step_nodes]
         active_ids = set(initial_tree.node_ids())
         step_num = 1
 
@@ -294,7 +293,7 @@ class MEMMModel(abc.ABC):
             parents_dic = self._fetch_children_parents(children_dic, graph)
 
             i = 0
-            for node_id, max_predicted_thr in cur_step:
+            for node_id, node_thresholds in cur_step:
                 children = children_dic.pop(node_id, [])  # to free RAM
 
                 if children:
@@ -311,12 +310,12 @@ class MEMMModel(abc.ABC):
                             if memm is not None:
 
                                 index = parents_dic[child_id].index(node_id)
-                                child_max_pred_thr = None
+                                child_thresholds = set()
                                 last_prob = None
                                 last_obs = None
 
                                 for thr in thresholds:
-                                    if thr <= max_predicted_thr:
+                                    if thr in node_thresholds:
                                         with timers[1]:
                                             updated, _ = self._update_observation(child_id, [index], observations[thr],
                                                                                   memm)
@@ -336,15 +335,15 @@ class MEMMModel(abc.ABC):
                                             if prob >= thr:
                                                 if trees[thr].get_node(node_id):
                                                     trees[thr].add_child(node_id, child_id)
-                                                    child_max_pred_thr = thr
+                                                    child_thresholds.add(thr)
                                                     logger.debugv('a reshare predicted %f >= %f', prob, thr)
                                                 else:
                                                     logger.warning('parent node %s does not exist', node_id)
                                     else:
                                         break
 
-                                if child_max_pred_thr is not None:
-                                    next_step.append((child_id, child_max_pred_thr))
+                                if child_thresholds:
+                                    next_step.append((child_id, child_thresholds))
                                     active_ids.add(child_id)
                             else:
                                 logger.debugv('user %s does not have any MEMM', child_id)
@@ -379,25 +378,20 @@ class MEMMModel(abc.ABC):
         bool, list]:
         """
         Update the observations of the child node for all thresholds in such a way that reflects the activation of the
-        parent given.
+        parents given.
         :param child_id: the child id
-        :param active_parent_indexes: index of the newly active parent in the list of parents of the child
+        :param active_parent_indexes: indexes of the newly active parents in the list of parents of the child
         :param observations: dictionary of child ids to their observations.
         :param child_memm: MEMM of the child node
         :return: True if the observation updated, False otherwise.
         """
         updated = False
-        conv_indexes = []
         obs = observations.setdefault(child_id, self._get_zero_obs(len(child_memm.orig_indexes)))
-        for ind in active_parent_indexes:
-            try:
-                converted_ind = child_memm.orig_indexes.index(ind)
-            except ValueError:
-                pass
-            else:
-                obs[converted_ind] = 1
-                conv_indexes.append(converted_ind)
-                updated = True
+        conv_indexes = [child_memm.orig_indexes.index(ind) for ind in
+                        set(active_parent_indexes) & set(child_memm.orig_indexes)]
+        if conv_indexes:
+            obs[conv_indexes] = 1
+            updated = True
         return updated, conv_indexes
 
     def _get_zero_obs(self, dim):
@@ -603,16 +597,8 @@ class BinMEMMModel(MEMMModel):
         pass  # Do nothing!
 
 
-class ReducedBinMEMMModel(MEMMModel):
+class ReducedBinMEMMModel(ReducedMEMMModel):
     method = Method.REDUCED_BIN_MEMM
-
-    def _async_extract_evidences(self, pool, cascade_ids, graph, act_seqs, trees):
-        cur_act_seqs = {cid: seq for cid, seq in act_seqs.items() if cid in cascade_ids}
-        res = pool.apply_async(extract_reduced_memm_evidences, (cascade_ids, graph, cur_act_seqs, self.method))
-        return res
-
-    def _extract_evidences(self, cascade_ids, graph, act_seqs, trees):
-        return extract_reduced_memm_evidences(cascade_ids, graph, act_seqs, self.method)
 
     def _get_zero_obs(self, dim):
         return np.zeros(dim, dtype=bool)
