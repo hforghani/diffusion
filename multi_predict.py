@@ -1,8 +1,8 @@
 import argparse
 
+from cascade.enum import Method
 from cascade.models import Project
 from cascade.testers import DefaultTester
-from memm.enum import MEMMMethod
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -14,6 +14,8 @@ def multiple_run(methods, depth_settings, project_name):
     for initial_depth, max_depth in depth_settings:
         cur_results = {}
         for method in methods:
+            logger.info('running prediction from depth %d to %s using method %s ...', initial_depth,
+                        max_depth if max_depth is not None else 'end', method.value)
             thresholds = [i / 100 for i in range(101)]
             _, _, f1, _, _ = testers[method].run_validation_test(thresholds, initial_depth, max_depth)
             cur_results[method] = f1
@@ -31,14 +33,15 @@ def main():
     training, validation, test = project.load_sets()
     trees = project.load_trees()
     max_test_depth = max(trees[cid].depth for cid in test)
-    methods = ['floatmemm', 'binmemm', 'aslt', 'avg']
+    # methods = [Method.FLOAT_MEMM, Method.BIN_MEMM, Method.ASLT, Method.AVG]
+    methods = [Method.REDUCED_FLOAT_MEMM, Method.FLOAT_MEMM]
 
     one_step_depths = [(i, i + 1) for i in range(max_test_depth)]
     thorough_depths = [(i, None) for i in range(max_test_depth)]
     depth_settings = one_step_depths + thorough_depths
     results = multiple_run(methods, depth_settings, args.project)
 
-    logs = [f'{"from depth":<15}{"to depth":<15}' + ''.join(f'{method:<15}' for method in methods)]
+    logs = [f'{"from depth":<15}{"to depth":<15}' + ''.join(f'{method.value:<15}' for method in methods)]
     for init_depth, max_depth in results:
         cur_results = results[(init_depth, max_depth)]
         row = f'{init_depth:<15}{max_depth if max_depth else "end":<15}'

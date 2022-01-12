@@ -5,12 +5,13 @@ from networkx import DiGraph
 
 import settings
 from cascade.avg import LTAvg
+from cascade.enum import Method
 from cascade.models import Project
 from cascade.aslt import AsLT
 
 from cascade.validation import Validation
 from log_levels import DEBUG_LEVELV_NUM
-from memm.models import BinMEMMModel, FloatMEMMModel, ParentFloatMEMMModel
+from memm.models import BinMEMMModel, FloatMEMMModel, ReducedFloatMEMMModel, ReducedBinMEMMModel
 from mln.file_generators import FileCreator
 from mln.models import MLN
 from settings import logger
@@ -47,30 +48,28 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
 
 
 def train_cascades(method, project, multi_processed=False):
+    model_classes = {
+        Method.ASLT: AsLT,
+        Method.AVG: LTAvg,
+        Method.BIN_MEMM: BinMEMMModel,
+        Method.FLOAT_MEMM: FloatMEMMModel,
+        Method.REDUCED_FLOAT_MEMM: ReducedFloatMEMMModel,
+        Method.REDUCED_BIN_MEMM: ReducedBinMEMMModel
+    }
     # Create and train the model if needed.
-    if method == 'mlnprac':
+    if method == Method.MLN_PRAC:
         model = MLN(project, method='edge', format=FileCreator.FORMAT_PRACMLN)
-    elif method == 'mlnalch':
+    elif method == Method.MLN_ALCH:
         model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
-    elif method == 'binmemm':
-        train_set, _, _ = project.load_sets()
-        model = BinMEMMModel(project).fit(train_set, multi_processed)
-    elif method == 'floatmemm':
-        train_set, _, _ = project.load_sets()
-        model = FloatMEMMModel(project).fit(train_set, multi_processed)
-    elif method == 'parentmemm':
-        train_set, _, _ = project.load_sets()
-        model = ParentFloatMEMMModel(project).fit(train_set, multi_processed)
-    elif method == 'aslt':
-        model = AsLT(project).fit()
-    elif method == 'avg':
-        model = LTAvg(project).fit()
+    elif method in model_classes:
+        model_clazz = model_classes[method]
+        model = model_clazz(project).fit(multi_processed)
     else:
-        raise Exception('invalid method "%s"' % method)
+        raise Exception('invalid method "%s"' % method.value)
     return model
 
 
-def test_cascades_multiproc(cascade_ids: list, method, project: Project, threshold: list, initial_depth: int,
+def test_cascades_multiproc(cascade_ids: list, method: Method, project: Project, threshold: list, initial_depth: int,
                             max_depth: int, trees: dict, graph: DiGraph, all_node_ids: list) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
@@ -84,7 +83,7 @@ def test_cascades_multiproc(cascade_ids: list, method, project: Project, thresho
         raise
 
 
-def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initial_depth: int, max_depth: int,
+def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, initial_depth: int, max_depth: int,
                   trees: dict, graph: DiGraph, all_node_ids: list) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
@@ -105,7 +104,7 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                 logger.info('cascade <%s> ignored since the initial depth is more than or equal to the tree depth', cid)
                 continue
 
-            logger.info('running prediction with method <%s> on cascade <%s>', method, cid)
+            logger.info('running prediction with method <%s> on cascade <%s>', method.value, cid)
 
             # Copy roots in a new tree.
             initial_tree = tree.copy(initial_depth)
@@ -113,13 +112,10 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
             # Predict remaining nodes.
             with Timer('prediction', level='debug'):
                 # TODO: apply max_depth for all methods.
-                if method in ['mlnprac', 'mlnalch']:
+                if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
                     res_trees = model.predict(cid, initial_tree, threshold=thresholds)
-                elif method in ['aslt', 'avg']:
+                else:
                     res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step)
-                elif method in ['binmemm', 'floatmemm', 'parentmemm']:
-                    res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step,
-                                              multiprocessed=False)
 
             # Evaluate the results.
             with Timer('evaluating results', level='debug'):
@@ -128,7 +124,7 @@ def test_cascades(cascade_ids: list, method: str, model, thresholds: list, initi
                     res_tree = res_trees[thr]
                     meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)
 
-                    if method in ['aslt', 'avg']:
+                    if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
                         prp = meas.prp(model.probabilities)
                         prp1 = prp[0] if prp else 0
                         prp2 = prp[1] if len(prp) > 1 else 0

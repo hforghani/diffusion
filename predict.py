@@ -1,11 +1,10 @@
 import argparse
 # from profilehooks import timecall, profile
-from argparse import ArgumentError
 
 from cascade.models import Project
 import settings
 from cascade.testers import MultiProcTester, DefaultTester
-from memm.enum import MEMMMethod
+from cascade.enum import Method
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -15,9 +14,10 @@ from utils.time_utils import time_measure
 # pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
 
-def run_predict(method, project_name, validation, min_threshold, max_threshold, thresholds_count, initial_depth,
+def run_predict(method_name, project_name, validation, min_threshold, max_threshold, thresholds_count, initial_depth,
                 max_depth, multi_processed):
     project = Project(project_name)
+    method = Method(method_name)
 
     if validation:
         thres_min = min_threshold if min_threshold else settings.THRESHOLDS[method][0]
@@ -32,7 +32,7 @@ def run_predict(method, project_name, validation, min_threshold, max_threshold, 
     # Log the test configuration.
     logger.info('{0} DB : {1} {0}'.format('=' * 20, project.db))
     logger.info('{0} PROJECT : {1} {0}'.format('=' * 20, project_name))
-    logger.info('{0} METHOD : {1} {0}'.format('=' * 20, method))
+    logger.info('{0} METHOD : {1} {0}'.format('=' * 20, method_name))
     logger.info('{0} INITIAL DEPTH : {1} {0}'.format('=' * 20, initial_depth))
     logger.info('{0} MAX DEPTH : {1} {0}'.format('=' * 20, max_depth))
     logger.info('{0} TESTING ON THRESHOLD(S) : {1} {0}'.format('=' * 20, thresholds))
@@ -63,8 +63,7 @@ def handle(args):
 def main():
     parser = argparse.ArgumentParser('Test information diffusion prediction')
     parser.add_argument("-p", "--project", type=str, dest="project", help="project name")
-    parser.add_argument("-m", "--method", type=str, dest="method", required=True,
-                        choices=['mlnprac', 'mlnalch', 'aslt', 'avg'] + [e.value for e in MEMMMethod],
+    parser.add_argument("-m", "--method", type=str, dest="method", required=True, choices=[e.value for e in Method],
                         help="the method by which we want to test")
     parser.add_argument("-t", "--min_threshold", type=float,
                         help="minimum threshold to apply on the method")

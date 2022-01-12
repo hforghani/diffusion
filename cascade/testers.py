@@ -11,14 +11,15 @@ from networkx import DiGraph
 
 import settings
 from cascade.asynchroizables import train_cascades, test_cascades, test_cascades_multiproc
-from db.managers import DBManager, MEMMManager
-from memm.enum import MEMMMethod
+from cascade.models import Project
+from db.managers import MEMMManager
+from cascade.enum import Method
 from settings import logger
 from utils.time_utils import time_measure, Timer
 
 
 class ProjectTester(abc.ABC):
-    def __init__(self, project, method):
+    def __init__(self, project: Project, method: Method):
         self.project = project
         self.method = method
         self.model = None
@@ -194,7 +195,7 @@ class MultiProcTester(ProjectTester):
         with Timer('training'):
             # Train the cascades once and save them. Then the trained model is fetched from disk and used at each process.
             # The model is not passed to each process due to pickling size limit.
-            if not MEMMManager(self.project, MEMMMethod(self.method)).db_exists():
+            if not MEMMManager(self.project, Method(self.method)).db_exists():
                 self.train()
 
         with Timer('validation & test'):

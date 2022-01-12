@@ -310,15 +310,15 @@ class AsLT(LT):
         except FileNotFoundError:
             pass
 
-    def fit(self, iterations=10):
+    def fit(self, iterations=10, multi_processed=True):
         try:
             super().fit()
         except FileNotFoundError:
             train_set, _, _ = self.project.load_sets()
-            self.calc_parameters(train_set, iterations)
+            self.calc_parameters(train_set, iterations, multi_processed)
         return self
 
-    def calc_parameters(self, train_set, iterations):
+    def calc_parameters(self, train_set, iterations, multi_processed=True):
         graph, sequences = self.project.load_or_extract_graph_seq()
 
         # Create maps from users and cascades db id's to their matrix id's.
@@ -392,9 +392,9 @@ class AsLT(LT):
 
                 logger.info('estimating r ...')
                 last_r = r
-                multi_processed = len(user_ids) < 2 * 10 ** 7
+                r_multi_processed = multi_processed and len(user_ids) < 2 * 10 ** 7
                 r = self.calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, cascade_map, user_map,
-                                   multi_processed)
+                                   r_multi_processed)
 
                 phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
                 logger.info('phi_g loaded')

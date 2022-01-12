@@ -5,7 +5,7 @@ import numpy as np
 
 from db.exceptions import DataDoesNotExist
 from memm.memm import BinMEMM, FloatMEMM
-from memm.enum import MEMMMethod
+from cascade.enum import Method
 from settings import logger, MONGO_URL
 
 
@@ -109,13 +109,13 @@ class EvidenceManager:
                 logger.info('%d documents inserted', i)
 
     def _sequences_to_str(self, sequences):
-        if self.method == MEMMMethod.BIN_MEMM:
+        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
             return str([[(obs.astype(int).tolist(), state) for obs, state in seq] for seq in sequences])
         else:
             return str([[(obs.tolist(), state) for obs, state in seq] for seq in sequences])
 
     def _str_to_sequences(self, seq_str):
-        if self.method == MEMMMethod.BIN_MEMM:
+        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
             return [[(np.fromiter(obs, bool), state) for obs, state in seq] for seq in eval(seq_str)]
         else:
             return [[(np.fromiter(obs, np.float64), state) for obs, state in seq] for seq in eval(seq_str)]
@@ -189,7 +189,7 @@ class MEMMManager:
     def __doc_to_memm(self, doc):
         data = doc.read()
         memm_data = eval(data)
-        if self.method == MEMMMethod.BIN_MEMM:
+        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
             memm = BinMEMM()
         else:
             memm = FloatMEMM()

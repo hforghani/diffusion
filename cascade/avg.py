@@ -17,7 +17,7 @@ class LTAvg(LT):
         except FileNotFoundError:
             pass
 
-    def fit(self, calc_weights=True, calc_delays=True, continue_calc=False):
+    def fit(self, calc_weights=True, calc_delays=True, continue_calc=False, multi_processed=True):
         try:
             super().fit()
         except FileNotFoundError:

@@ -1,13 +1,11 @@
 import argparse
-from functools import reduce
 from pprint import PrettyPrinter
 from bson import ObjectId
-import numpy as np
 
-from db.managers import EvidenceManager, DBManager, MEMMManager
+from db.managers import EvidenceManager, MEMMManager
 from cascade.models import Project
-from memm.enum import MEMMMethod
-from memm.memm import MEMM, array_to_str, BinMEMM
+from cascade.enum import Method
+from memm.memm import array_to_str
 
 
 # import pydevd_pycharm
@@ -49,7 +47,7 @@ def handle():
     parser.add_argument('-m', '--method', type=str, help='MEMM method', required=True)
     args = parser.parse_args()
 
-    methods = {e.value: e for e in MEMMMethod}
+    methods = {e.value: e for e in Method}
     project = Project(args.project)
     memm = MEMMManager(project, methods[args.method]).fetch_one(args.user_id)
     m = EvidenceManager(project, methods[args.method])
