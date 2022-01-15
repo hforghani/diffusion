@@ -34,7 +34,8 @@ def main():
     trees = project.load_trees()
     max_test_depth = max(trees[cid].depth for cid in test)
     # methods = [Method.FLOAT_MEMM, Method.BIN_MEMM, Method.ASLT, Method.AVG]
-    methods = [Method.REDUCED_FLOAT_MEMM, Method.FLOAT_MEMM]
+    methods = [Method.REDUCED_FLOAT_MEMM, Method.FLOAT_MEMM, Method.REDUCED_BIN_MEMM, Method.BIN_MEMM, Method.ASLT,
+               Method.AVG]
 
     one_step_depths = [(i, i + 1) for i in range(max_test_depth)]
     thorough_depths = [(i, None) for i in range(max_test_depth)]

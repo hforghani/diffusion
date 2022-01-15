@@ -36,6 +36,9 @@ class MEMMModel(abc.ABC):
     def __init__(self, project):
         self.project = project
         self._memms = {}
+        self._last_obs = None
+        self._last_prob = None
+        self._last_state = None
 
     @time_measure(level='debug')
     def _prepare_evidences(self, train_set, multi_processed=False):
@@ -165,7 +168,7 @@ class MEMMModel(abc.ABC):
                 evidences_i[uid] = evidences.pop(uid)  # to free RAM
 
             # Train a MEMM for each user.
-            res = pool.apply_async(train_memms, (evidences_i, self.method))
+            res = pool.apply_async(train_memms, (evidences_i, self.method, False, self.project))
             results.append(res)
 
         del evidences  # to free RAM
@@ -326,8 +329,8 @@ class MEMMModel(abc.ABC):
                                                 if (obs == last_obs).all():
                                                     prob = last_prob
                                                 else:
-                                                    prob = memm.get_prob(obs)
-                                                    # prob = memm.get_prob(obs, [timers[2], timers[3]])
+                                                    prob = memm.get_prob(obs, True, [False, True])
+                                                    # prob = memm.get_prob(obs, True, [False, True], [timers[2], timers[3]])
                                                     if prob == np.nan:
                                                         logger.warning('activation prob. of obs. %s is nan', obs)
                                                     last_obs, last_prob = obs, prob
@@ -383,7 +386,9 @@ class MEMMModel(abc.ABC):
         :param active_parent_indexes: indexes of the newly active parents in the list of parents of the child
         :param observations: dictionary of child ids to their observations.
         :param child_memm: MEMM of the child node
-        :return: True if the observation updated, False otherwise.
+        :return: tuple of (updated, conv_indexes). updated is True if the observation updated, False otherwise.
+            conv_indexes is the list of original indexes of the current step active parents who are also in the
+            training data.
         """
         updated = False
         obs = observations.setdefault(child_id, self._get_zero_obs(len(child_memm.orig_indexes)))
@@ -493,7 +498,7 @@ class ReducedMEMMModel(MEMMModel, ABC):
                             ...
                             }
         """
-        logger.debugv('initial observations:\n%s', pprint.pformat(obs_dic))
+        # logger.debugv('initial observations:\n%s', pprint.pformat(obs_dic))
         observations = {thr: obs_dic.copy() for thr in thresholds}
 
         # Predict the cascade tree.
@@ -508,7 +513,6 @@ class ReducedMEMMModel(MEMMModel, ABC):
             children_sets = (set(graph.successors(node_id)) for node_id in cur_step_ids if node_id in graph)
             all_children = list(reduce(lambda x, y: x | y, children_sets, set()))
 
-            parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in all_children if user_id in graph}
             cur_step_thresholds = {node_id: thr for node_id, thr in cur_step}
 
             j = 0
@@ -519,11 +523,11 @@ class ReducedMEMMModel(MEMMModel, ABC):
 
                     if memm is not None:
 
-                        cur_step_parents = set(parents_dic[child_id]) & cur_step_ids
-                        parents = parents_dic[child_id]
+                        parents = list(graph.predecessors(child_id))
+                        cur_step_parents = set(parents) & cur_step_ids
                         child_thresholds = set()
-                        last_prob = None
-                        last_obs = None
+                        self._last_prob = None
+                        self._last_obs = None
 
                         for thr in thresholds:
                             parent_indexes = [parents.index(uid) for uid in cur_step_parents if
@@ -537,24 +541,10 @@ class ReducedMEMMModel(MEMMModel, ABC):
                                 obs = observations[thr][child_id]
                                 logger.debugv('testing reshare to user %s with obs %s using thr %f ...', child_id, obs,
                                               thr)
-                                if (obs == last_obs).all():
-                                    prob = last_prob
-                                else:
-                                    prob = memm.get_prob(obs)
-                                    if prob == np.nan:
-                                        logger.warning('activation prob. of obs. %s is nan', obs)
-                                    last_obs, last_prob = obs, prob
-
-                                if prob >= thr:
-                                    # Set the parent with the maximum value of Lambda as the predicted parent of this child.
-                                    max_lambda_ind = np.argmax(memm.Lambda[conv_indexes])
-                                    node_id = parents[memm.orig_indexes[conv_indexes[max_lambda_ind]]]
-                                    if trees[thr].get_node(node_id):
-                                        trees[thr].add_child(node_id, child_id)
-                                        child_thresholds.add(thr)
-                                        logger.debugv('a reshare predicted %f >= %f', prob, thr)
-                                    else:
-                                        logger.warning('parent node %s does not exist', node_id)
+                                node_id = self._predict_by_obs(obs, thr, memm, trees[thr], parents, conv_indexes)
+                                if node_id:
+                                    trees[thr].add_child(node_id, child_id)
+                                    child_thresholds.add(thr)
 
                         # Set the maximum threshold in which each node is activated.
                         if child_thresholds:
@@ -577,6 +567,38 @@ class ReducedMEMMModel(MEMMModel, ABC):
             step_num += 1
 
         return trees
+
+    def _predict_by_obs(self, obs, thr, memm, tree, parents, conv_active_parent_indexes):
+        """
+
+        :param obs: observation
+        :param thr: threshold
+        :param memm: MEMM
+        :param tree: current predicted tree
+        :param parents: list of parents
+        :param conv_active_parent_indexes: the indexes of the current step active parents in decreased dimension space
+        of the MEMM features.
+        :return: The parent id is returned if the diffusion is predicted, otherwise None.
+        """
+        if (obs == self._last_obs).all():
+            prob = self._last_prob
+        else:
+            prob = memm.get_prob(obs, True, [False, True])
+            if prob == np.nan:
+                logger.warning('activation prob. of obs. %s is nan', obs)
+            self._last_obs, self._last_prob = obs, prob
+
+        if prob >= thr:
+            # Set the parent with the maximum value of Lambda as the predicted parent of this child.
+            max_lambda_ind = np.argmax(memm.Lambda[conv_active_parent_indexes])
+            node_id = parents[memm.orig_indexes[conv_active_parent_indexes[max_lambda_ind]]]
+            if tree.get_node(node_id):
+                logger.debugv('a reshare predicted %f >= %f', prob, thr)
+                return node_id
+            else:
+                logger.warning('parent node %s does not exist', node_id)
+
+        return None
 
 
 class BinMEMMModel(MEMMModel):
@@ -627,3 +649,44 @@ class ReducedFloatMEMMModel(ReducedMEMMModel):
 
     def _set_next_state_observations(self, observations: typing.Dict[ObjectId, np.ndarray]):
         divide_obs_by_2(observations)
+
+
+class ParentSensFloatMEMMModel(ReducedFloatMEMMModel):
+    method = Method.PARENT_SENS_FLOAT_MEMM
+
+    def _predict_by_obs(self, obs, thr, memm, tree, parents, conv_active_parent_indexes):
+        if (obs == self._last_obs).all():
+            state, prob = self._last_state, self._last_prob
+        else:
+            all_states = list(range(len(parents) + 1))
+            probs = memm.get_probs(obs, all_states)
+            # states = [0] + [memm.orig_indexes[i] + 1 for i in conv_active_parent_indexes]
+            # probs = [probs[0]] + [probs[1 + memm.orig_indexes[ind]] for ind in conv_active_parent_indexes]
+            # i = np.argmax(probs)
+            # state, prob = states[i], probs[i]
+
+            active_states = [memm.orig_indexes[i] + 1 for i in conv_active_parent_indexes]
+            inactive_prob = probs[0]
+            active_prob = 1 - inactive_prob
+            active_probs = [probs[1 + memm.orig_indexes[i]] for i in conv_active_parent_indexes]
+            # logger.debugv('probs = %s', probs)
+            # logger.debugv('conv_active_parent_indexes = %s', conv_active_parent_indexes)
+            # logger.debugv('memm.orig_indexes = %s', memm.orig_indexes)
+            # logger.debugv('active_states = %s', active_states)
+            # logger.debugv('active_probs = %s', active_probs)
+
+            i = np.argmax(active_probs)
+            state, prob = active_states[i], active_prob
+            # logger.debugv('state if activated = %d', state)
+            # logger.debugv('sum of activation prob = %f', prob)
+            self._last_obs, self._last_prob, self._last_state = obs, prob, state
+
+        if state > 0 and prob >= thr:
+            node_id = parents[state - 1]
+            if tree.get_node(node_id):
+                logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
+                return node_id
+            else:
+                logger.warning('parent node %s does not exist', node_id)
+
+        return None

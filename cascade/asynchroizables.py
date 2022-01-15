@@ -11,7 +11,8 @@ from cascade.aslt import AsLT
 
 from cascade.validation import Validation
 from log_levels import DEBUG_LEVELV_NUM
-from memm.models import BinMEMMModel, FloatMEMMModel, ReducedFloatMEMMModel, ReducedBinMEMMModel
+from memm.models import BinMEMMModel, FloatMEMMModel, ReducedFloatMEMMModel, ReducedBinMEMMModel, \
+    ParentSensFloatMEMMModel
 from mln.file_generators import FileCreator
 from mln.models import MLN
 from settings import logger
@@ -54,7 +55,8 @@ def train_cascades(method, project, multi_processed=False):
         Method.BIN_MEMM: BinMEMMModel,
         Method.FLOAT_MEMM: FloatMEMMModel,
         Method.REDUCED_FLOAT_MEMM: ReducedFloatMEMMModel,
-        Method.REDUCED_BIN_MEMM: ReducedBinMEMMModel
+        Method.REDUCED_BIN_MEMM: ReducedBinMEMMModel,
+        Method.PARENT_SENS_FLOAT_MEMM: ParentSensFloatMEMMModel,
     }
     # Create and train the model if needed.
     if method == Method.MLN_PRAC:

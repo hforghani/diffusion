@@ -1,11 +1,12 @@
 import argparse
 from pprint import PrettyPrinter
 from bson import ObjectId
+import numpy as np
 
 from db.managers import EvidenceManager, MEMMManager
 from cascade.models import Project
 from cascade.enum import Method
-from memm.memm import array_to_str
+from memm.memm import array_to_str, ParentTDMEMM
 
 
 # import pydevd_pycharm
@@ -16,7 +17,6 @@ def print_info(user_id, evidences, memm, graph):
     dim = evidences['dimension']
     pp = PrettyPrinter()
     new_sequences, orig_indexes = memm.decrease_dim(evidences['sequences'], dim)
-    new_dim = len(orig_indexes)
     str_sequences = [[(array_to_str(obs), state) for obs, state in seq] for seq in new_sequences]
     parents = list(graph.predecessors(user_id))
     parent_user_ids = [parents[index] for index in orig_indexes]
@@ -25,11 +25,7 @@ def print_info(user_id, evidences, memm, graph):
     pp.pprint(list(memm.Lambda))
     print('\nActivation probability of observations:')
     all_obs, _ = memm.get_all_obs_mat(new_sequences)
-    print(f"{'decreased vector':{new_dim * 3}}{'probability'}")
-    for i in range(all_obs.shape[0]):
-        obs = all_obs[i, :]
-        prob = memm.get_prob(obs)
-        print(f"{array_to_str(obs):{new_dim * 3}}{prob:10.5f}")
+    print_probs(all_obs, memm, parents)
     print('\nSelected indexes:')
     pp.pprint(orig_indexes)
     print('\nUser ids of selected indexes:')
@@ -38,6 +34,29 @@ def print_info(user_id, evidences, memm, graph):
     pp.pprint(str_sequences)
     # print('\nEvidences:')
     # pp.pprint([[(obs_to_str(obs, dim), state) for obs, state in seq] for seq in evidences['sequences']])
+
+
+def print_probs(all_obs, memm, parents):
+    new_dim = len(memm.orig_indexes)
+
+    if isinstance(memm, ParentTDMEMM):
+        all_states = list(range(len(parents) + 1))
+        states = [0] + [i + 1 for i in memm.orig_indexes]
+        probs = np.zeros((all_obs.shape[0], len(states) + 1))
+        for i in range(all_obs.shape[0]):
+            obs = all_obs[i, :]
+            probs[i, :] = memm.get_probs(obs, all_states)
+    else:
+        states = [True]
+        probs = np.zeros((all_obs.shape[0], 1))
+        for i in range(all_obs.shape[0]):
+            obs = all_obs[i, :]
+            probs[i] = memm.get_prob(obs, True, [False, True])
+
+    print(f"{'decreased vector':<{(new_dim + 1) * 5}}" + ''.join([f"{s:<10}" for s in states]))
+    for i in range(all_obs.shape[0]):
+        obs = all_obs[i, :]
+        print(f"{array_to_str(obs):<{(new_dim + 1) * 5}}" + ''.join([f"{p:<10.5f}" for p in probs[i, :]]))
 
 
 def handle():

@@ -5,10 +5,12 @@ from functools import reduce
 from random import shuffle
 import numpy as np
 from bson import ObjectId
+from networkx import DiGraph
 
+from cascade.models import CascadeTree
 from db.managers import MEMMManager
 from cascade.enum import Method
-from memm.memm import BinMEMM, FloatMEMM
+from memm.memm import BinMEMM, FloatMEMM, ParentTDMEMM
 from memm.exceptions import MemmException
 from settings import logger
 
@@ -21,19 +23,26 @@ def train_memms(evidences, method, save_in_db=False, project=None):
         memms = {}
         count = 0
         manager = MEMMManager(project, method) if save_in_db else None
+        graph = None
+        if method == Method.PARENT_SENS_FLOAT_MEMM:
+            graph = project.load_or_extract_graph()
 
         for uid in user_ids:
             count += 1
             ev = evidences.pop(uid)  # to free RAM
             logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev['dimension'])
 
-            if method == Method.BIN_MEMM:
+            states = [False, True]
+            if method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
                 memm = BinMEMM()
+            elif method == Method.PARENT_SENS_FLOAT_MEMM:
+                memm = ParentTDMEMM()
+                states = list(range(graph.in_degree(uid) + 1))
             else:
                 memm = FloatMEMM()
 
             try:
-                memm.fit(ev)
+                memm.fit(ev, states)
                 memms[uid] = memm
             except MemmException:
                 logger.warn('evidences for user %s ignored due to insufficient data', uid)
@@ -130,15 +139,6 @@ def extract_bin_memm_evidences(train_set, graph, act_seqs):
         raise
 
 
-def divide_obs_by_2(observations: typing.Dict[ObjectId, np.ndarray]):
-    """
-    Divide all observations by 2 at the end of the step to apply the latency impact on activation.
-    :param observations: dictionary of user ids to their observation vectors
-    """
-    for user_id, obs in observations.items():
-        observations[user_id] = obs / 2
-
-
 def extract_reduced_memm_evidences(train_set, graph, trees, method):
     try:
         evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
@@ -168,48 +168,38 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
                     parents_count = graph.in_degree(uid) if uid in graph else 0
 
                     if parents_count and uid in cascade_seqs and uid in observations:
-                        uid_cur_seqs = cascade_seqs[uid]
-                        if uid_cur_seqs:
-                            obs = uid_cur_seqs[-1][0]
-                            del uid_cur_seqs[-1]
-                            uid_cur_seqs.append((obs, True))
+                        if cascade_seqs[uid]:
+                            obs = cascade_seqs[uid][-1][0]
+                            state = active_state(method, node, graph)
+                            cascade_seqs[uid] = cascade_seqs[uid][:-1] + [(obs, state)]
+                            logger.debugv('(obs, state) updated for %s : (%s, %d)', uid, obs, state)
                         del observations[uid]
 
-                # Get the children whom at least one of their parents are in current step.
+                # Get the children whom at least one of their parents are in the current step.
                 children_sets = (set(graph.successors(node_id)) for node_id in cur_step_ids if node_id in graph)
                 all_children = list(reduce(lambda x, y: x | y, children_sets, set()))
-                parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in
-                               set(all_children) & set(graph.nodes())}
+                logger.debugv('all_children = %s', all_children)
 
                 # Update the observation of each child and add the new observation-state to the current sequences.
                 for child_id in all_children:
                     if child_id not in activated:
-                        cur_step_parents = set(parents_dic[child_id]) & cur_step_ids
-                        parents = parents_dic[child_id]
-                        parent_indexes = [parents.index(uid) for uid in cur_step_parents]
-                        zero_obs = np.zeros(graph.in_degree(child_id))  # initial observation: 0000000
-                        if method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
-                            zero_obs = zero_obs.astype(bool)
+                        if child_id not in graph:
+                            continue
+                        zero_obs = get_zero_obs(graph.in_degree(child_id), method)  # initial observation: 0000000
                         obs = observations.setdefault(child_id, zero_obs.copy())
+                        new_obs = get_new_obs(child_id, cur_step_ids, obs, graph)
+                        observations[child_id] = new_obs
+                        state = inactive_state(method)
+                        cascade_seqs.setdefault(child_id, [(zero_obs.copy(), state)])
+                        cascade_seqs[child_id].append((new_obs, state))
+                        logger.debugv('(obs, state) added for %s : (%s, %d)', child_id, new_obs, state)
 
-                        for index in parent_indexes:
-                            if method == Method.PARENT_SENS_FLOAT_MEMM:
-                                child_node = tree.get_node(child_id)
-                                obs[index] = 1 if child_node and parents[index] == child_node.parent_id else 0.5
-                            else:
-                                obs[index] = 1
-
-                        cascade_seqs.setdefault(child_id, [(zero_obs.copy(), False)])
-                        cascade_seqs[child_id].append((obs.copy(), False))
-
-                # Update current step nodes.
+                # Update the current step nodes.
                 cur_step = reduce(lambda li1, li2: li1 + li2, [node.children for node in cur_step])
 
-                # Update the observations for the next step if the method is Float MEMM or Parent-sensitive Float MEMM.
-                if cur_step and method in [Method.FLOAT_MEMM,
-                                           Method.REDUCED_FLOAT_MEMM,
-                                           Method.PARENT_SENS_FLOAT_MEMM]:
-                    divide_obs_by_2(observations)
+                # Update the observations for the next step if necessary.
+                if cur_step:
+                    set_next_state_observations(observations, method)
 
                 logger.debug('%d steps done', step_num)
                 step_num += 1
@@ -220,6 +210,7 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
 
             # Add current sequence of pairs (observation, state) to the MEMM evidences.
             logger.debug('adding sequences of current cascade ...')
+            logger.debugv('cascade_seqs =\n%s', pprint.pformat(cascade_seqs))
             for uid in cascade_seqs:
                 dim = graph.in_degree(uid)
                 evidences.setdefault(uid, {
@@ -232,3 +223,48 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
     except:
         logger.error(traceback.format_exc())
         raise
+
+
+def get_zero_obs(dim, method):
+    if method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
+        return np.zeros(dim, dtype=bool)
+    else:
+        return np.zeros(dim)
+
+
+def set_next_state_observations(observations, method):
+    if method in [Method.FLOAT_MEMM,
+                  Method.REDUCED_FLOAT_MEMM,
+                  Method.PARENT_SENS_FLOAT_MEMM]:
+        divide_obs_by_2(observations)
+
+
+def divide_obs_by_2(observations):
+    for user_id, obs in observations.items():
+        observations[user_id] = obs / 2
+
+
+def get_new_obs(child_id: ObjectId, cur_step_ids: set, obs: np.ndarray, graph: DiGraph) -> np.ndarray:
+    parents = list(graph.predecessors(child_id))
+    cur_step_parents = set(parents) & cur_step_ids
+    parent_indexes = [parents.index(uid) for uid in cur_step_parents]
+    new_obs = obs.copy()
+    new_obs[parent_indexes] = 1
+
+    return new_obs
+
+
+def inactive_state(method):
+    if method == Method.PARENT_SENS_FLOAT_MEMM:
+        return 0
+    else:
+        return False
+
+
+def active_state(method, node, graph):
+    if method == Method.PARENT_SENS_FLOAT_MEMM:
+        parents = list(graph.predecessors(node.user_id))
+        index = parents.index(node.parent_id)
+        return index + 1
+    else:
+        return True
