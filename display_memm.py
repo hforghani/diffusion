@@ -69,6 +69,8 @@ def handle():
     methods = {e.value: e for e in Method}
     project = Project(args.project)
     memm = MEMMManager(project, methods[args.method]).fetch_one(args.user_id)
+    if memm is None:
+        parser.error('MEMM does not exist')
     m = EvidenceManager(project, methods[args.method])
     evidences = m.get_one(ObjectId(args.user_id))
     graph = project.load_or_extract_graph()

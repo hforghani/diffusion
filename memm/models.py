@@ -629,8 +629,11 @@ class ReducedBinMEMMModel(ReducedMEMMModel):
         pass  # Do nothing!
 
 
-class FloatMEMMModel(MEMMModel):
-    method = Method.FLOAT_MEMM
+class TDMEMMModel(MEMMModel):
+    """
+    Time-Decay MEMM Model
+    """
+    method = Method.TD_MEMM
 
     def _async_extract_evidences(self, pool, cascade_ids, graph, act_seqs, trees):
         cur_trees = {cid: tree for cid, tree in trees.items() if cid in cascade_ids}
@@ -644,15 +647,21 @@ class FloatMEMMModel(MEMMModel):
         divide_obs_by_2(observations)
 
 
-class ReducedFloatMEMMModel(ReducedMEMMModel):
-    method = Method.REDUCED_FLOAT_MEMM
+class ReducedTDMEMMModel(ReducedMEMMModel):
+    """
+    Time-Decay MEMM model with reduced observation-state sequences
+    """
+    method = Method.REDUCED_TD_MEMM
 
     def _set_next_state_observations(self, observations: typing.Dict[ObjectId, np.ndarray]):
         divide_obs_by_2(observations)
 
 
-class ParentSensFloatMEMMModel(ReducedFloatMEMMModel):
-    method = Method.PARENT_SENS_FLOAT_MEMM
+class ParentSensTDMEMMModel(ReducedTDMEMMModel):
+    """
+    Parent-sensitive Time-Decay MEMM model
+    """
+    method = Method.PARENT_SENS_TD_MEMM
 
     def _predict_by_obs(self, obs, thr, memm, tree, parents, conv_active_parent_indexes):
         if (obs == self._last_obs).all():
@@ -660,11 +669,6 @@ class ParentSensFloatMEMMModel(ReducedFloatMEMMModel):
         else:
             all_states = list(range(len(parents) + 1))
             probs = memm.get_probs(obs, all_states)
-            # states = [0] + [memm.orig_indexes[i] + 1 for i in conv_active_parent_indexes]
-            # probs = [probs[0]] + [probs[1 + memm.orig_indexes[ind]] for ind in conv_active_parent_indexes]
-            # i = np.argmax(probs)
-            # state, prob = states[i], probs[i]
-
             active_states = [memm.orig_indexes[i] + 1 for i in conv_active_parent_indexes]
             inactive_prob = probs[0]
             active_prob = 1 - inactive_prob
@@ -690,3 +694,7 @@ class ParentSensFloatMEMMModel(ReducedFloatMEMMModel):
                 logger.warning('parent node %s does not exist', node_id)
 
         return None
+
+
+class LongParentSensTDMEMMModel(ParentSensTDMEMMModel):
+    method = Method.LONG_PARENT_SENS_TD_MEMM

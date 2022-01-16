@@ -66,6 +66,7 @@ class MEMM(abc.ABC):
         # Calculate features for observation-state pairs. Shape of features is obs_num * (obs_dim+1)
         features, C = self._calc_features(obs_mat, state_mat, states)
         logger.debugv('features =\n%s', features)
+        feat_dim = features.shape[1]
 
         # Calculate the training data average for each feature.
         F = np.mean(features, axis=0).T
@@ -73,7 +74,7 @@ class MEMM(abc.ABC):
 
         # Initialize Lambda as 1 then learn from training data.
         # Lambda is different per s' (previous state), But here just we use s' = 0.
-        self.Lambda = np.ones(new_dim + 1)
+        self.Lambda = np.ones(feat_dim)
 
         # GIS, run until convergence
         epsilon = 10 ** -4
@@ -90,7 +91,7 @@ class MEMM(abc.ABC):
             self.Lambda = self.__build_next_lambda(self.Lambda, C, F, E)
             logger.debugv('lambda = %s', self.Lambda)
 
-            diff = np.linalg.norm(Lambda0 - self.Lambda) / np.sqrt(new_dim + 1)
+            diff = np.linalg.norm(Lambda0 - self.Lambda) / np.sqrt(feat_dim)
             if diff < epsilon or iter_count >= max_iteration:
                 logger.debug('GIS iterations = %d, diff = %s', iter_count, diff)
                 break
@@ -108,10 +109,9 @@ class MEMM(abc.ABC):
         #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
 
         # with timers[0]:
-        dim = len(self.orig_indexes)
         obs_mat = np.tile(obs, (len(all_states), 1))
         f, _ = self._calc_features(obs_mat, np.array(all_states).reshape((len(all_states), 1)), all_states)
-        dots = f.dot(self.Lambda.reshape(dim + 1, 1))
+        dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         s_value = dots[all_states.index(state)]
         prob = float(1 / np.sum(np.array([np.exp(dots[i] - s_value) for i in range(len(all_states))])))
         return prob
@@ -123,10 +123,9 @@ class MEMM(abc.ABC):
         :param all_states:  list of all possible states
         :return:            list of probabilities related to the states given
         """
-        dim = len(self.orig_indexes)
         obs_mat = np.tile(obs, (len(all_states), 1))
         f, _ = self._calc_features(obs_mat, np.array(all_states).reshape((len(all_states), 1)), all_states)
-        dots = f.dot(self.Lambda.reshape(dim + 1, 1))
+        dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         probs = np.zeros(len(all_states))
         for i in range(len(all_states)):
             exp_sum = np.sum(np.array([np.exp(dots[j] - dots[i]) for j in range(len(all_states)) if j != i]))
@@ -134,7 +133,7 @@ class MEMM(abc.ABC):
         # logger.debug('obs = %s', obs)
         # logger.debug('states = %s', states)
         # logger.debug('all_states = %s', all_states)
-        # logger.debug('f =\n%s', f)
+        # logger.debug('features =\n%s', f)
         # logger.debug('self.Lambda = %s', self.Lambda)
         # logger.debug('dots =\n%s', dots)
         # logger.debug('probs =%s', probs)
@@ -211,6 +210,8 @@ class MEMM(abc.ABC):
         """
         Use Generalized iterative scaling (GIS) to learn Lambda parameter
         """
+        F[F == 0] = 10 ** -10
+        E[E == 0] = 10 ** -10
         Lambda += (np.log(F) - np.log(E)) / C
         Lambda[F == 0] = 0
         return Lambda
@@ -252,7 +253,7 @@ class BinMEMM(MEMM):
         return features, C
 
 
-class FloatMEMM(MEMM):
+class TDMEMM(MEMM):
     def _calc_features(self, obs_mat, state_mat, states=None):
         obs_num, obs_dim = obs_mat.shape
         features = obs_mat.copy()
@@ -264,11 +265,7 @@ class FloatMEMM(MEMM):
         return features, C
 
 
-class MultiStateMEMM(MEMM, ABC):
-    pass
-
-
-class ParentTDMEMM(MultiStateMEMM):
+class ParentTDMEMM(MEMM):
 
     def _calc_features(self, obs_mat, state_mat, states=None):
         if states is None:
@@ -277,18 +274,49 @@ class ParentTDMEMM(MultiStateMEMM):
         #               np.concatenate((obs_mat, state_mat.reshape(state_mat.shape[0], 1)), axis=1))
         # logger.debugv('states =\n%s', states)
         obs_num, obs_dim = obs_mat.shape
-        features = obs_mat.copy()
-        features[np.where(state_mat == 0), :] = 1 - features[np.where(state_mat == 0), :]
+        features = np.zeros((obs_num, 2 * obs_dim))
         # logger.debugv('features of state 0 update :\n%s', features)
 
         state_to_index = {self.orig_indexes[i] + 1: i for i in range(obs_dim)}
         # logger.debugv('state_to_index = %s', state_to_index)
         for i in range(obs_num):
             s = int(state_mat[i])
-            if s in state_to_index:
-                features[i, :] = 0
+            if s == 0:
+                features[i, :obs_dim] = 1 - obs_mat[i, :]
+            elif s in state_to_index:
                 ind = state_to_index[s]
-                features[i, ind] = obs_mat[i, ind]
+                features[i, obs_dim + ind] = obs_mat[i, ind]
+
+        C = obs_dim + 1
+        feat_sum = np.sum(features, axis=1)
+        last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
+        features = np.concatenate((features, last_feat), axis=1)
+        # logger.debugv('features =\n%s', features)
+        return features, C
+
+
+class LongParentTDMEMM(MEMM):
+
+    def _calc_features(self, obs_mat, state_mat, states=None):
+        if states is None:
+            raise ValueError('states must be given for ParentTDMEMM')
+        # logger.debugv('obs_mat, state_mat =\n%s',
+        #               np.concatenate((obs_mat, state_mat.reshape(state_mat.shape[0], 1)), axis=1))
+        # logger.debugv('states =\n%s', states)
+        obs_num, obs_dim = obs_mat.shape
+        features = np.zeros((obs_num, (obs_dim + 1) * obs_dim))
+        # logger.debugv('features of state 0 update :\n%s', features)
+
+        state_to_index = {self.orig_indexes[i] + 1: i for i in range(obs_dim)}
+        # logger.debugv('state_to_index = %s', state_to_index)
+        for i in range(obs_num):
+            s = int(state_mat[i])
+            if s == 0:
+                features[i, :obs_dim] = 1 - obs_mat[i, :]
+            elif s in state_to_index:
+                ind = state_to_index[s]
+                start = (ind + 1) * obs_dim
+                features[i, start: start + obs_dim] = obs_mat[i, :]
 
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)

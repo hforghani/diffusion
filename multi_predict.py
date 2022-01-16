@@ -2,7 +2,7 @@ import argparse
 
 from cascade.enum import Method
 from cascade.models import Project
-from cascade.testers import DefaultTester
+from cascade.testers import DefaultTester, MultiProcTester
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -10,7 +10,8 @@ from utils.time_utils import time_measure
 def multiple_run(methods, depth_settings, project_name):
     project = Project(project_name)
     results = {}
-    testers = {method: DefaultTester(project, method) for method in methods}
+    # testers = {method: DefaultTester(project, method) for method in methods}
+    testers = {method: MultiProcTester(project, method) for method in methods}
     for initial_depth, max_depth in depth_settings:
         cur_results = {}
         for method in methods:
@@ -33,8 +34,13 @@ def main():
     training, validation, test = project.load_sets()
     trees = project.load_trees()
     max_test_depth = max(trees[cid].depth for cid in test)
-    # methods = [Method.FLOAT_MEMM, Method.BIN_MEMM, Method.ASLT, Method.AVG]
-    methods = [Method.REDUCED_FLOAT_MEMM, Method.FLOAT_MEMM, Method.REDUCED_BIN_MEMM, Method.BIN_MEMM, Method.ASLT,
+    methods = [Method.LONG_PARENT_SENS_TD_MEMM,
+               Method.PARENT_SENS_TD_MEMM,
+               Method.REDUCED_TD_MEMM,
+               Method.TD_MEMM,
+               Method.REDUCED_BIN_MEMM,
+               Method.BIN_MEMM,
+               Method.ASLT,
                Method.AVG]
 
     one_step_depths = [(i, i + 1) for i in range(max_test_depth)]

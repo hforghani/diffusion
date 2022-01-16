@@ -4,7 +4,7 @@ from bson import ObjectId
 import numpy as np
 
 from db.exceptions import DataDoesNotExist
-from memm.memm import BinMEMM, FloatMEMM, ParentTDMEMM
+from memm.memm import BinMEMM, TDMEMM, ParentTDMEMM, LongParentTDMEMM
 from cascade.enum import Method
 from settings import logger, MONGO_URL
 
@@ -191,10 +191,12 @@ class MEMMManager:
         memm_data = eval(data)
         if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
             memm = BinMEMM()
-        elif self.method == Method.PARENT_SENS_FLOAT_MEMM:
+        elif self.method == Method.PARENT_SENS_TD_MEMM:
             memm = ParentTDMEMM()
+        elif self.method == Method.LONG_PARENT_SENS_TD_MEMM:
+            memm = LongParentTDMEMM()
         else:
-            memm = FloatMEMM()
+            memm = TDMEMM()
         memm.orig_indexes = memm_data['orig_indexes']
         memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
         return memm

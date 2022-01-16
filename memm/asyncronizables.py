@@ -10,7 +10,7 @@ from networkx import DiGraph
 from cascade.models import CascadeTree
 from db.managers import MEMMManager
 from cascade.enum import Method
-from memm.memm import BinMEMM, FloatMEMM, ParentTDMEMM
+from memm.memm import BinMEMM, TDMEMM, ParentTDMEMM, LongParentTDMEMM
 from memm.exceptions import MemmException
 from settings import logger
 
@@ -24,7 +24,7 @@ def train_memms(evidences, method, save_in_db=False, project=None):
         count = 0
         manager = MEMMManager(project, method) if save_in_db else None
         graph = None
-        if method == Method.PARENT_SENS_FLOAT_MEMM:
+        if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:
             graph = project.load_or_extract_graph()
 
         for uid in user_ids:
@@ -35,11 +35,14 @@ def train_memms(evidences, method, save_in_db=False, project=None):
             states = [False, True]
             if method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
                 memm = BinMEMM()
-            elif method == Method.PARENT_SENS_FLOAT_MEMM:
-                memm = ParentTDMEMM()
+            elif method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:
                 states = list(range(graph.in_degree(uid) + 1))
+                if method == Method.PARENT_SENS_TD_MEMM:
+                    memm = ParentTDMEMM()
+                else:
+                    memm = LongParentTDMEMM()
             else:
-                memm = FloatMEMM()
+                memm = TDMEMM()
 
             try:
                 memm.fit(ev, states)
@@ -233,9 +236,10 @@ def get_zero_obs(dim, method):
 
 
 def set_next_state_observations(observations, method):
-    if method in [Method.FLOAT_MEMM,
-                  Method.REDUCED_FLOAT_MEMM,
-                  Method.PARENT_SENS_FLOAT_MEMM]:
+    if method in [Method.TD_MEMM,
+                  Method.REDUCED_TD_MEMM,
+                  Method.PARENT_SENS_TD_MEMM,
+                  Method.LONG_PARENT_SENS_TD_MEMM]:
         divide_obs_by_2(observations)
 
 
@@ -255,14 +259,14 @@ def get_new_obs(child_id: ObjectId, cur_step_ids: set, obs: np.ndarray, graph: D
 
 
 def inactive_state(method):
-    if method == Method.PARENT_SENS_FLOAT_MEMM:
+    if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:
         return 0
     else:
         return False
 
 
 def active_state(method, node, graph):
-    if method == Method.PARENT_SENS_FLOAT_MEMM:
+    if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:
         parents = list(graph.predecessors(node.user_id))
         index = parents.index(node.parent_id)
         return index + 1

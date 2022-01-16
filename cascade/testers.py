@@ -234,8 +234,8 @@ class MultiProcTester(ProjectTester):
         # Load cascade trees and graph.
         trees = self.project.load_trees()
         graph = self.project.load_or_extract_graph()
-        all_node_ids = self.project.get_all_nodes()
-        # all_node_ids = self.user_ids
+        # all_node_ids = self.project.get_all_nodes()
+        all_node_ids = list(graph.nodes())
 
         logger.info('number of cascades : %d' % len(test_set))
 
