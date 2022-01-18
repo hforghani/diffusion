@@ -229,16 +229,9 @@ class CascadeTree(object):
                 break
         return cur_nodes
 
-    def edges(self, node=None):
-        edges_list = []
-        if node is None:
-            for root in self.roots:
-                edges_list.extend(self.edges(root))
-        else:
-            parent_id = node.user_id
-            edges_list = [(parent_id, child.user_id) for child in node.children]
-            for child in node.children:
-                edges_list.extend(self.edges(child))
+    def edges(self, node=None, max_depth=None):
+        nodes = self.nodes(node, max_depth)
+        edges_list = [(node.parent_id, node.user_id) for node in nodes if node.parent_id]
         return edges_list
 
     def copy(self, max_depth=None):
@@ -268,7 +261,7 @@ class CascadeTree(object):
         """
         parent = self.get_node(parent_id)
         if parent:
-            child = CascadeNode(child_id, datetime=act_time)
+            child = CascadeNode(child_id, parent_id=parent_id, datetime=act_time)
             parent.children.append(child)
             self._id_to_node[child_id] = child
             return child
@@ -569,10 +562,7 @@ class Project(object):
         self.validation = list(val_set)
         self.test = list(test_set)
         data = {'training': train_set, 'validation': val_set, 'test': test_set}
-        if not os.path.exists(self.project_path):
-            os.mkdir(self.project_path)
-        sample_path = os.path.join(self.project_path, 'samples.json')
-        json.dump(data, open(sample_path, 'w'), indent=4)
+        self.save_param(data, 'samples', ParamTypes.JSON)
 
     def load_sets(self):
         sample_set_path = os.path.join(self.project_path, 'samples.json')

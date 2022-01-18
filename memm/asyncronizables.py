@@ -1,13 +1,11 @@
 import pprint
 import traceback
-import typing
 from functools import reduce
 from random import shuffle
 import numpy as np
 from bson import ObjectId
 from networkx import DiGraph
 
-from cascade.models import CascadeTree
 from db.managers import MEMMManager
 from cascade.enum import Method
 from memm.memm import BinMEMM, TDMEMM, ParentTDMEMM, LongParentTDMEMM

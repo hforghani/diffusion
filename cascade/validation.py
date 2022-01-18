@@ -5,22 +5,20 @@ class Validation(object):
         :param true_output:     real positive items
         :param ref:         all positive and negative items
         """
-        self.output = list(output)
-        self.true_output = list(true_output)
+        self.output = output
+        self.true_output = true_output
         out_set = set(output)
         true_set = set(true_output)
 
         if ref is None:
-            ref_set = out_set.union(true_set)
-            self.ref = list(ref_set)
+            self.ref = out_set | true_set
         else:
-            ref_set = set(ref)
-            self.ref = list(ref)
+            self.ref = set(ref)
 
         self.tp = len(out_set.intersection(true_set))
         self.fp = len(out_set - true_set)
         self.fn = len(true_set - out_set)
-        self.tn = len(ref_set - out_set - true_set)
+        self.tn = len(self.ref - out_set - true_set)
 
     def precision(self):
         if len(self.output) == 0:

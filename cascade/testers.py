@@ -2,6 +2,7 @@ import abc
 import math
 import numbers
 import os
+from enum import Enum
 from multiprocessing import Pool
 from typing import Union, Tuple
 
@@ -13,16 +14,17 @@ import settings
 from cascade.asynchroizables import train_cascades, test_cascades, test_cascades_multiproc
 from cascade.models import Project
 from db.managers import MEMMManager
-from cascade.enum import Method
+from cascade.enum import Method, Criterion
 from settings import logger
 from utils.time_utils import time_measure, Timer
 
 
 class ProjectTester(abc.ABC):
-    def __init__(self, project: Project, method: Method):
+    def __init__(self, project: Project, method: Method, criterion=Criterion.NODES):
         self.project = project
         self.method = method
         self.model = None
+        self.criterion = criterion
 
     @abc.abstractmethod
     def run_validation_test(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int) \

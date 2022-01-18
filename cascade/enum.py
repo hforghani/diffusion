@@ -12,3 +12,8 @@ class Method(Enum):
     REDUCED_TD_MEMM = 'redtdmemm'
     PARENT_SENS_TD_MEMM = 'parentmemm'
     LONG_PARENT_SENS_TD_MEMM = 'longparentmemm'
+
+
+class Criterion(Enum):
+    NODES = 'nodes'
+    EDGES = 'edges'

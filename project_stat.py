@@ -8,9 +8,10 @@ import time
 from cascade.models import Project, CascadeTree
 import settings
 from db.managers import DBManager
+from utils.time_utils import time_measure
 
 logging.basicConfig(format=settings.LOG_FORMAT)
-logger = logging.getLogger('displaytree')
+logger = logging.getLogger('project_stat')
 logger.setLevel(settings.LOG_LEVEL)
 
 
@@ -23,10 +24,14 @@ class Command:
     def __init__(self):
         super(Command, self).__init__()
 
+    @time_measure()
     def handle(self, args):
         try:
-            start = time.time()
             project = Project(args.project)
+
+            graph, sequence = project.load_or_extract_graph_seq()
+            print('Number of nodes:', len(graph.nodes()))
+
             training, validation, test = project.load_sets()
             cascade_ids = training + validation + test
             db = DBManager(project.db).db
@@ -35,7 +40,6 @@ class Command:
             print(f'{"cascade id":30}{"size":10}{"depth":10}')
             for cascade in cascades:
                 print(f'{str(cascade["_id"]):30}{cascade["size"]:<10}{cascade["depth"]:<10}')
-            logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:
             logger.info(traceback.format_exc())
             raise

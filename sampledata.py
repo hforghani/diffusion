@@ -9,6 +9,8 @@ from cascade.models import Project
 from db.managers import DBManager
 import numpy as np
 
+from utils.time_utils import time_measure
+
 logging.basicConfig(format=settings.LOG_FORMAT)
 logger = logging.getLogger('displaytree')
 logger.setLevel(settings.LOG_LEVEL)
@@ -22,7 +24,7 @@ class Command:
         parser.add_argument('--max', type=int, help='max number of cascade users')
         parser.add_argument("-n", "--number", type=int,
                             help="number of samples consisting training, validation and test sets")
-        parser.add_argument("-d", "--mindepth", type=int, dest="min_depth", default=0,
+        parser.add_argument("-D", "--mindepth", type=int, dest="min_depth", default=0,
                             help="minimum depth of cascade trees")
         parser.add_argument("-p", "--project", type=str, help="project name")
         parser.add_argument('-d', '--db', required=True, help="db name")
@@ -30,9 +32,9 @@ class Command:
     def __init__(self):
         super(Command, self).__init__()
 
+    @time_measure()
     def handle(self, args):
         try:
-            start = time.time()
             query = {}
             if args.min:
                 query['size'] = {'$gte': args.min}
@@ -64,11 +66,11 @@ class Command:
             val_set = samples[:val_num]
             test_set = samples[val_num:val_num + test_num]
             train_set = samples[val_num + test_num:]
-            project = Project(args.project)
+            project = Project(args.project, db=args.db)
             project.save_sets(train_set, val_set, test_set)
             logger.info('project %s sampled containing %d cascades', args.project, len(samples))
-
-            logger.info('command done in %f min' % ((time.time() - start) / 60))
+            logger.info('sizes -> training: %d, validation: %d, test: %d', len(samples) - val_num - test_num, val_num,
+                        test_num)
 
         except:
             logger.error(traceback.format_exc())

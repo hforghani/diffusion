@@ -79,7 +79,7 @@ def main():
     parser.add_argument("-d", "--max-depth", type=int, dest="max_depth",
                         help="the maximum depth of cascade prediction")
     parser.add_argument("-u", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
-                        help="if this options is given, the task is ran on multiple processes")
+                        help="if this option is given, the task is ran on multiple processes")
 
     args = parser.parse_args()
     handle(args)

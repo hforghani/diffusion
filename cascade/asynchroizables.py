@@ -1,3 +1,4 @@
+import pprint
 import traceback
 from typing import Tuple
 
@@ -5,7 +6,7 @@ from networkx import DiGraph
 
 import settings
 from cascade.avg import LTAvg
-from cascade.enum import Method
+from cascade.enum import Method, Criterion
 from cascade.models import Project
 from cascade.aslt import AsLT
 
@@ -19,16 +20,42 @@ from settings import logger
 from utils.time_utils import Timer
 
 
-def evaluate(initial_tree, res_tree, tree, all_nodes, max_depth=None):
+def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph):
+    if criterion == Criterion.NODES:
+        all_node_ids = list(graph.nodes())
+        meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, all_node_ids,
+                                                       max_depth)
+    else:
+        all_edges = set(graph.edges())
+        meas, res_output, true_output = evaluate_edges(initial_tree, res_tree, tree, all_edges, max_depth)
+    return meas, res_output, true_output
+
+
+def evaluate_nodes(initial_tree, res_tree, tree, all_nodes, max_depth=None):
     # Get predicted and true nodes.
     res_nodes = set(res_tree.node_ids())
     true_nodes = set(tree.node_ids(max_depth=max_depth))
     initial_nodes = set(initial_tree.node_ids())
     res_output = res_nodes - initial_nodes
     true_output = true_nodes - initial_nodes
+    ref_set = set(all_nodes) - initial_nodes
 
     # Evaluate the result.
-    meas = Validation(res_output, true_output, all_nodes)
+    meas = Validation(res_output, true_output, ref_set)
+    return meas, res_output, true_output
+
+
+def evaluate_edges(initial_tree, res_tree, tree, all_edges, max_depth=None):
+    # Get predicted and true nodes.
+    res_edges = set(res_tree.edges(max_depth=max_depth))
+    true_edges = set(tree.edges(max_depth=max_depth))
+    initial_edges = set(initial_tree.edges())
+    res_output = res_edges - initial_edges
+    true_output = true_edges - initial_edges
+    ref_set = set(all_edges) - initial_edges
+
+    # Evaluate the result.
+    meas = Validation(res_output, true_output, ref_set)
     return meas, res_output, true_output
 
 
@@ -87,7 +114,7 @@ def test_cascades_multiproc(cascade_ids: list, method: Method, project: Project,
 
 
 def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, initial_depth: int, max_depth: int,
-                  trees: dict, graph: DiGraph, all_node_ids: list) \
+                  criterion, trees: dict, graph: DiGraph) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
         prp1_list = {thr: [] for thr in thresholds}
@@ -125,7 +152,8 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, in
                 logs = [f'{"threshold":>10}{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
                 for thr in thresholds:
                     res_tree = res_trees[thr]
-                    meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, all_node_ids, max_depth)
+
+                    meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph)
 
                     if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
                         prp = meas.prp(model.probabilities)

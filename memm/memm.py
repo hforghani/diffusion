@@ -210,10 +210,12 @@ class MEMM(abc.ABC):
         """
         Use Generalized iterative scaling (GIS) to learn Lambda parameter
         """
-        F[F == 0] = 10 ** -10
-        E[E == 0] = 10 ** -10
-        Lambda += (np.log(F) - np.log(E)) / C
-        Lambda[F == 0] = 0
+        fcopy = F.copy()
+        ecopy = E.copy()
+        fcopy[F == 0] = 10 ** -10
+        ecopy[E == 0] = 10 ** -10
+        Lambda += (np.log(fcopy) - np.log(ecopy)) / C
+        # Lambda[F == 0] = 0
         return Lambda
 
     def decrease_dim(self, sequences, dim):

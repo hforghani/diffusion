@@ -1,17 +1,22 @@
 import argparse
 
-from cascade.enum import Method
+from cascade.enum import Method, Criterion
 from cascade.models import Project
 from cascade.testers import DefaultTester, MultiProcTester
 from settings import logger
 from utils.time_utils import time_measure
 
 
-def multiple_run(methods, depth_settings, project_name):
+def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_processed: bool,
+                 criterion: Criterion) -> dict:
     project = Project(project_name)
     results = {}
-    # testers = {method: DefaultTester(project, method) for method in methods}
-    testers = {method: MultiProcTester(project, method) for method in methods}
+
+    if multi_processed:
+        testers = {method: MultiProcTester(project, method, criterion) for method in methods}
+    else:
+        testers = {method: DefaultTester(project, method, criterion) for method in methods}
+
     for initial_depth, max_depth in depth_settings:
         cur_results = {}
         for method in methods:
@@ -28,6 +33,10 @@ def multiple_run(methods, depth_settings, project_name):
 def main():
     parser = argparse.ArgumentParser('Test information diffusion prediction')
     parser.add_argument("-p", "--project", type=str, dest="project", help="project name")
+    parser.add_argument("-u", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
+                        help="if this option is given, the task is ran on multiple processes")
+    parser.add_argument("-c", "--criterion", choices=[e.value for e in Criterion], default="nodes",
+                        help="the criterion on which the evaluation is done")
     args = parser.parse_args()
 
     project = Project(args.project)
@@ -46,7 +55,7 @@ def main():
     one_step_depths = [(i, i + 1) for i in range(max_test_depth)]
     thorough_depths = [(i, None) for i in range(max_test_depth)]
     depth_settings = one_step_depths + thorough_depths
-    results = multiple_run(methods, depth_settings, args.project)
+    results = multiple_run(methods, depth_settings, args.project, args.multi_processed, Criterion(args.criterion))
 
     logs = [f'{"from depth":<15}{"to depth":<15}' + ''.join(f'{method.value:<15}' for method in methods)]
     for init_depth, max_depth in results:
