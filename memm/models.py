@@ -41,7 +41,7 @@ class MEMMModel(abc.ABC):
         self._last_state = None
 
     @time_measure(level='debug')
-    def _prepare_evidences(self, train_set, multi_processed=False):
+    def _prepare_evidences(self, train_set, multi_processed=False, eco=False):
         """
         Prepare the sequence of observations and states to train the MEMM models.
         :param train_set: list of training cascade id's
@@ -50,12 +50,17 @@ class MEMMModel(abc.ABC):
         logger.debug('method = %s', self.method)
         evid_manager = EvidenceManager(self.project, self.method)
 
-        try:
-            logger.info('loading MEMM evidences ...')
-            evidences = evid_manager.get_many()
+        evid_loaded = False
+        if eco:
+            try:
+                logger.info('loading MEMM evidences ...')
+                evidences = evid_manager.get_many()
+                evid_loaded = True
+            except DataDoesNotExist:
+                logger.info('no evidences found!')
 
-        except DataDoesNotExist:
-            logger.info('no evidences found! extraction started')
+        if not evid_loaded:
+            logger.info('Evidence extraction started')
             evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
             graph, act_seqs = self.project.load_or_extract_graph_seq()
             trees = self.project.load_trees()
@@ -91,14 +96,16 @@ class MEMMModel(abc.ABC):
             inactives = self._get_inactives(evidences)
             for uid in inactives:
                 evidences.pop(uid)
-            logger.info('Evidences of %d totally inactive users deleted since they have no state 1', len(inactives))
+            logger.info('Evidences of %d totally inactive users deleted since they have no nonzero state',
+                        len(inactives))
 
             if settings.LOG_LEVEL <= DEBUG_LEVELV_NUM:
                 logger.debugv('evidences = \n%s', pprint.pformat(evidences))
 
-            logger.info('inserting evidences into db and creating indexes ...')
-            evid_manager.insert(evidences)
-            evid_manager.create_index()
+            if eco:
+                logger.info('inserting evidences into db and creating indexes ...')
+                evid_manager.insert(evidences)
+                evid_manager.create_index()
 
         return evidences
 
@@ -187,8 +194,10 @@ class MEMMModel(abc.ABC):
 
         return memms
 
-    def _fit_by_evidences(self, train_set, multi_processed=False):
-        evidences = self._prepare_evidences(train_set, multi_processed)
+    def _fit_by_evidences(self, train_set, multi_processed=False, eco=False):
+        evidences = self._prepare_evidences(train_set, multi_processed, eco)
+        memms = {}
+        logger.info('training MEMMs started')
 
         if multi_processed:
             single_process_ev = {}  # Evidences to train sequentially in a single process.
@@ -204,9 +213,12 @@ class MEMMModel(abc.ABC):
             del evidences
 
             memms = self._fit_multiproc(multi_processed_ev)
-            logger.info('inserting MEMMs into db ...')
-            MEMMManager(self.project, self.method).insert(memms)
-            del memms, multi_processed_ev
+
+            del multi_processed_ev
+            if eco:
+                logger.info('inserting MEMMs into db ...')
+                MEMMManager(self.project, self.method).insert(memms)
+                memms = {}
 
         else:
             single_process_ev = evidences
@@ -216,13 +228,16 @@ class MEMMModel(abc.ABC):
         evidences otherwise.
         """
         logger.info('training %d MEMMs sequentially', len(single_process_ev))
-        train_memms(single_process_ev, self.method, save_in_db=True, project=self.project)
+        single_proc_memms = train_memms(single_process_ev, self.method, save_in_db=True, project=self.project)
         del single_process_ev
+        if not eco:
+            memms.update(single_proc_memms)
 
         logger.info('training MEMMs finished')
+        return memms
 
     @time_measure(level='debug')
-    def fit(self, multi_processed=False):
+    def fit(self, multi_processed=False, eco=False):
         """
         Load MEMM's from DB if exist, otherwise train a MEMM for each user in the training set.
         :return: self
@@ -230,26 +245,28 @@ class MEMMModel(abc.ABC):
         train_set, _, _ = self.project.load_sets()
         manager = MEMMManager(self.project, self.method)
 
-        # Train MEMMs if they are not saved in DB.
-        if not manager.db_exists():
-            logger.info('MEMMs do not exist in db. They will be trained')
-            self._fit_by_evidences(train_set, multi_processed)
+        # If it is in economical mode, train the MEMMs only if they are not saved in DB.
+        if not eco or not manager.db_exists():
+            if eco and not manager.db_exists():
+                logger.info('MEMMs do not exist in db.')
+            self._memms = self._fit_by_evidences(train_set, multi_processed, eco=eco)
 
-        logger.info('loading MEMMs from db ...')
-        try:
-            self._memms = manager.fetch_all()
+        if eco:
+            logger.info('loading MEMMs from db ...')
+            try:
+                self._memms = manager.fetch_all()
 
-        except pymongo.errors.AutoReconnect:
-            """ In the case of memory leak, it may raise AutoReconnect error. Then it loads MEMMs 
-            one by one at the test stage via get_memm function. """
-            logger.warning('AutoReconnect error!')
-            reconnect()
-        except MemoryError:
-            """If the MEMMs size is too large, the Mongo connection will be lost due to memory leak.
-            So it will be cleaned up. Then it fetches MEMMs one by one from db at the test stage via
-            get_memm function."""
-            logger.warning('Memory error!')
-            reconnect()
+            except pymongo.errors.AutoReconnect:
+                """ In the case of memory leak, it may raise AutoReconnect error. Then it loads MEMMs 
+                one by one at the test stage via get_memm function. """
+                logger.warning('AutoReconnect error!')
+                reconnect()
+            except MemoryError:
+                """If the MEMMs size is too large, the Mongo connection will be lost due to memory leak.
+                So it will be cleaned up. Then it fetches MEMMs one by one from db at the test stage via
+                get_memm function."""
+                logger.warning('Memory error!')
+                reconnect()
 
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
         return self

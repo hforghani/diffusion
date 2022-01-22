@@ -151,7 +151,7 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
             tree = trees[cascade_id]
             observations = {}  # current observation of each user
             activated = set()  # set of current activated users
-            logger.info('cascade %d ...', cascade_num)
+            logger.debug('cascade %d ...', cascade_num)
 
             cur_step = tree.roots
             step_num = 1
@@ -205,7 +205,7 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
                 logger.debug('%d steps done', step_num)
                 step_num += 1
 
-            if cascade_num % 1000 == 0:
+            if cascade_num % 100 == 0:
                 logger.info('%d cascades done', cascade_num)
             cascade_num += 1
 
@@ -220,6 +220,7 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
                 })
                 evidences[uid]['sequences'].append(cascade_seqs[uid])
 
+        logger.info('evidences extracted from %d cascades', len(train_set))
         return evidences
     except:
         logger.error(traceback.format_exc())

@@ -33,9 +33,9 @@ def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_
 def main():
     parser = argparse.ArgumentParser('Test information diffusion prediction')
     parser.add_argument("-p", "--project", type=str, dest="project", help="project name")
-    parser.add_argument("-u", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
+    parser.add_argument("-M", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
                         help="if this option is given, the task is ran on multiple processes")
-    parser.add_argument("-c", "--criterion", choices=[e.value for e in Criterion], default="nodes",
+    parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
                         help="the criterion on which the evaluation is done")
     args = parser.parse_args()
 

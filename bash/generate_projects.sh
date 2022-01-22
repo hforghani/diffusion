@@ -13,5 +13,6 @@ for i in $(seq 1 $project_num); do
   project="$db-analysis-$i"
   echo "running : python3 sampledata.py -d $db -D $min_depth -n $total_num -p $project"
   python3 sampledata.py -d $db -D $min_depth -n $total_num -p $project
+  python3 prepare_initials.py $project
   python3 project_stat.py $project
 done

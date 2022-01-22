@@ -29,7 +29,7 @@ class Command:
         try:
             project = Project(args.project)
 
-            graph, sequence = project.load_or_extract_graph_seq()
+            graph = project.load_or_extract_graph()
             print('Number of nodes:', len(graph.nodes()))
 
             training, validation, test = project.load_sets()

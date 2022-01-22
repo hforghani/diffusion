@@ -42,7 +42,9 @@ class Command:
         # Calculate AsLT parameters.
         aslt = AsLT(project)
         train_set, _, _ = aslt.project.load_sets()
-        aslt.calc_parameters(train_set, args.iterations)
+        aslt.project.delete_param(aslt.w_param_name)
+        aslt.project.delete_param(aslt.r_param_name)
+        aslt.calc_parameters(train_set, args.iterations, multi_processed=True, eco=True)
 
 
 if __name__ == '__main__':

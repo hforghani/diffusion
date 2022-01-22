@@ -66,20 +66,20 @@ class FileCreator:
         if out_file is not None:
             file_name = out_file
         else:
-            file_name = 'tolearn-%s-%s.mln' % (self.project.project_name, self.format)
-        out_path = os.path.join(self.project.project_path, file_name)
+            file_name = 'tolearn-%s-%s.mln' % (self.project.name, self.format)
+        out_path = os.path.join(self.project.path, file_name)
 
         with open(out_path, 'w') as f:
             f.write(contents)
 
     def create_evidence(self, target_set, multiple):
-        out_dir = os.path.join(self.project.project_path, 'evidence-%s' % self.format)
+        out_dir = os.path.join(self.project.path, 'evidence-%s' % self.format)
         if not os.path.exists(out_dir):
             os.mkdir(out_dir)
 
         if target_set is None or target_set == 'train':
             # Get and delete the content of evidence file.
-            out_file = os.path.join(out_dir, 'ev-train-%s-%s.db' % (self.project.project_name, self.format))
+            out_file = os.path.join(out_dir, 'ev-train-%s-%s.db' % (self.project.name, self.format))
             open(out_file, 'w').close()
 
             logger.info('rules will be created for training set')
@@ -98,7 +98,7 @@ class FileCreator:
 
         if target_set is None or target_set == 'test':
             # Get and delete the content of evidence file.
-            out_file = os.path.join(out_dir, 'ev-test-%s-%s.db' % (self.project.project_name, self.format))
+            out_file = os.path.join(out_dir, 'ev-test-%s-%s.db' % (self.project.name, self.format))
             open(out_file, 'w').close()
 
             logger.info('rules will be created for test set')
@@ -109,9 +109,9 @@ class FileCreator:
             if multiple:
                 logger.info('>>> writing "isActivated" rules ...')
                 for cascade_id in self.test_cascades:
-                    cascade_out_file = os.path.join(self.project.project_path, 'evidence-%s' % self.format,
+                    cascade_out_file = os.path.join(self.project.path, 'evidence-%s' % self.format,
                                                  'ev-test-%s-%s-%s.db' % (
-                                                     self.project.project_name, self.format, cascade_id))
+                                                        self.project.name, self.format, cascade_id))
                     open(out_file, 'w').close()
                     self.__write_isactivated(self.trees, [cascade_id], cascade_out_file, initials=True)
 

@@ -20,7 +20,7 @@ class EvidenceManager:
         self.project = project
         self.method = method
         mongo_client = pymongo.MongoClient(MONGO_URL)
-        self.db = mongo_client[f'{project.db}_{method.value}_evid_{project.project_name}']
+        self.db = mongo_client[f'{project.db}_{method.value}_evid_{project.name}']
 
     def get_one(self, user_id):
         if not isinstance(user_id, ObjectId):
@@ -64,7 +64,7 @@ class EvidenceManager:
             }
         else:
             raise DataDoesNotExist(
-                f'No MEMM evidences exist on project {self.project.project_name}'
+                f'No MEMM evidences exist on project {self.project.name}'
                 f'{" for user set given" if user_ids else ""}')
 
     def get_many_generator(self, user_ids=None):
@@ -85,7 +85,7 @@ class EvidenceManager:
                 yield doc['user_id'], evidences
         else:
             raise DataDoesNotExist(
-                f'No MEMM evidences exist on project {self.project.project_name}'
+                f'No MEMM evidences exist on project {self.project.name}'
                 f'{" for user set given" if user_ids else ""}')
 
     def insert(self, evidences):
@@ -137,7 +137,7 @@ class MEMMManager:
     def __init__(self, project, method):
         self.project = project
         self.client = pymongo.MongoClient(MONGO_URL)
-        self.db_name = f'{project.db}_{method.value}_{project.project_name}'
+        self.db_name = f'{project.db}_{method.value}_{project.name}'
         self.db = self.client[self.db_name]
         self.method = method
 

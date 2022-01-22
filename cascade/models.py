@@ -330,6 +330,8 @@ class LT(object):
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
         self.user_ids = None
         self.users_map = None
+        self.w = None
+        self.r = None
 
     def fit(self, *args, **kwargs):
         self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
@@ -540,10 +542,10 @@ class GraphTypes:
 
 class Project(object):
     def __init__(self, project_name, db=None):
-        self.project_name = project_name
-        self.project_path = os.path.join(settings.BASEPATH, 'data', project_name)
-        if not os.path.exists(self.project_path):
-            os.mkdir(self.project_path)  # Create the project path if it does not exist.
+        self.name = project_name
+        self.path = os.path.join(settings.BASEPATH, 'data', project_name)
+        if not os.path.exists(self.path):
+            os.mkdir(self.path)  # Create the project path if it does not exist.
         try:
             self.db = self.load_param('db', ParamTypes.JSON)['db']
         except:
@@ -565,7 +567,7 @@ class Project(object):
         self.save_param(data, 'samples', ParamTypes.JSON)
 
     def load_sets(self):
-        sample_set_path = os.path.join(self.project_path, 'samples.json')
+        sample_set_path = os.path.join(self.path, 'samples.json')
         if os.path.exists(sample_set_path):
             data = json.load(open(sample_set_path))
             train_cascades, val_cascades, test_cascades = data['training'], data['validation'], data['test']
@@ -577,7 +579,7 @@ class Project(object):
 
         return self.training, self.validation, self.test
 
-    @time_measure(level='info')
+    @time_measure(level='debug')
     def load_trees(self):
         """
         Load trees of cascades in training and test sets.
@@ -623,7 +625,7 @@ class Project(object):
         self.trees = trees
         return trees
 
-    @time_measure(level='info')
+    @time_measure(level='debug')
     def load_or_extract_graph(self, graph_type=GraphTypes.RESHARES):
         """
         Load or extract the graph of cascades in training set.
@@ -645,7 +647,7 @@ class Project(object):
 
         return graph
 
-    @time_measure(level='info')
+    @time_measure(level='debug')
     def load_or_extract_act_seq(self):
         """
         Load or extract list of activation sequences of cascades in training set.
@@ -668,7 +670,7 @@ class Project(object):
 
         return sequences
 
-    @time_measure(level='info')
+    @time_measure(level='debug')
     def load_or_extract_graph_seq(self, graph_type=GraphTypes.RESHARES):
         """
         Load the graph, and list of activation sequences of the project if saved before.
@@ -707,7 +709,7 @@ class Project(object):
 
         return graph, sequences
 
-    @time_measure(level='info')
+    @time_measure(level='debug')
     def __get_cascades_post_ids(self, cascade_ids):
         logger.info('querying posts ids ...')
         db = DBManager(self.db).db
@@ -886,7 +888,7 @@ class Project(object):
     }
 
     def save_param(self, param, name, type):
-        path = os.path.join(self.project_path, '%s.%s' % (name, self.SUFFIXES[type]))
+        path = os.path.join(self.path, '%s.%s' % (name, self.SUFFIXES[type]))
         mkdir_rec(os.path.dirname(path))
 
         if type == ParamTypes.JSON:
@@ -903,7 +905,7 @@ class Project(object):
             raise Exception('invalid type "%s"' % type)
 
     def load_param(self, name, type):
-        path = os.path.join(self.project_path, '%s.%s' % (name, self.SUFFIXES[type]))
+        path = os.path.join(self.path, '%s.%s' % (name, self.SUFFIXES[type]))
         if type == ParamTypes.JSON:
             return json.load(open(path))
         elif type == ParamTypes.ARRAY:
@@ -920,5 +922,5 @@ class Project(object):
             raise Exception('invalid type "%s"' % type)
 
     def delete_param(self, name, type):
-        path = os.path.join(self.project_path, '%s.%s' % (name, self.SUFFIXES[type]))
+        path = os.path.join(self.path, '%s.%s' % (name, self.SUFFIXES[type]))
         os.remove(path)

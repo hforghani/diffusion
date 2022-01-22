@@ -42,20 +42,20 @@ class MLN(object):
         else:
             self.edges[cascade_id] = []
 
-            data_path = os.path.join(settings.BASEPATH, 'data', self.project.project_name)
+            data_path = os.path.join(settings.BASEPATH, 'data', self.project.name)
             if self.format == FileCreator.FORMAT_PRACMLN:
                 results_file_path = os.path.join(data_path, 'results-pracmln',
-                                                 '%s-m%d-gibbs.results' % (self.project.project_name, cascade_id))
+                                                 '%s-m%d-gibbs.results' % (self.project.name, cascade_id))
             elif self.format == FileCreator.FORMAT_ALCHEMY2:
                 if self.method == 'edge':
                     results_file_path = os.path.join(data_path, 'results-alchemy2-activates',
                                                      'results-%s-%s-m%d.results' % (
-                                                         self.project.project_name, FileCreator.FORMAT_ALCHEMY2,
+                                                         self.project.name, FileCreator.FORMAT_ALCHEMY2,
                                                          cascade_id))
                 else:
                     results_file_path = os.path.join(data_path, 'results-alchemy2',
                                                      'results-%s-%s-m%d.results' % (
-                                                         self.project.project_name, FileCreator.FORMAT_ALCHEMY2,
+                                                         self.project.name, FileCreator.FORMAT_ALCHEMY2,
                                                          cascade_id))
 
             else:
@@ -106,15 +106,15 @@ class MLN(object):
         else:
             self.nodes[cascade_id] = []
 
-            data_path = os.path.join(settings.BASEPATH, 'data', self.project.project_name)
+            data_path = os.path.join(settings.BASEPATH, 'data', self.project.name)
             if self.format == FileCreator.FORMAT_PRACMLN:
                 results_file_path = os.path.join(data_path, 'results-pracmln',
                                                  '%s-m%d-isActivated-gibbs.results' % (
-                                                     self.project.project_name, cascade_id))
+                                                     self.project.name, cascade_id))
             elif self.format == FileCreator.FORMAT_ALCHEMY2:
                 results_file_path = os.path.join(data_path, 'results-alchemy2',
                                                  'results-%s-%s-m%d.results' % (
-                                                     self.project.project_name, FileCreator.FORMAT_ALCHEMY2, cascade_id))
+                                                     self.project.name, FileCreator.FORMAT_ALCHEMY2, cascade_id))
             else:
                 raise ValueError('invalid format "%s"' % self.format)
 

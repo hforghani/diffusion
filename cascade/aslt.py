@@ -116,21 +116,28 @@ def calc_phi_h(sequences, graph, w, r, h, user_map):
                     continue
                 vindex = user_map[str(v)]
                 active_parents = sequence.get_active_parents(v, graph)
-                if not active_parents:
+                p_count = len(active_parents)
+                if p_count == 0:
                     continue
+
                 act_par_indexes = [user_map[str(id)] for id in active_parents]
-                act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
-                user_time = np.repeat(np.matrix([sequence.user_times[v]]), len(active_parents))
-                diff = user_time - act_par_times
-                diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
-                w_col = w[:, vindex].todense()
-                val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[vindex] * diff)) * r[vindex] / h[cindex, vindex]
-                if np.isinf(np.float32(val)).any():
-                    logger.warning('\tphi_h = inf')
-                    # if (np.float32(val) == 0).any():
-                #    logger.warning('\phi_h = 0')
+                if p_count == 1:
+                    val = np.ones(1)
+                else:
+                    act_par_times = np.array([sequence.user_times[pid] for pid in active_parents])
+                    diff = np.tile(act_par_times.reshape((p_count, 1)), p_count) - np.tile(
+                        act_par_times.reshape((1, p_count)),
+                        (p_count, 1))
+                    E = np.exp(-r[vindex] * diff)
+                    w_col = w[:, vindex].todense()
+                    act_par_w = w_col[act_par_indexes]
+                    val = np.multiply(act_par_w.T, 1 / act_par_w.T.dot(E))
+                    if np.isinf(np.float32(val)).any():
+                        logger.warning('\tphi_h = inf')
+                        # if (np.float32(val) == 0).any():
+                    #    logger.warning('\phi_h = 0')
                 if val.size > 1:
-                    values.extend(list(np.array(val).squeeze()))
+                    values.extend(val.tolist()[0] if len(val.shape) > 1 else val.tolist())
                 else:
                     values.append(float(val))
                 rows.extend(act_par_indexes)
@@ -310,15 +317,22 @@ class AsLT(LT):
         except FileNotFoundError:
             pass
 
-    def fit(self, iterations=10, multi_processed=True):
-        try:
-            super().fit()
-        except FileNotFoundError:
+    def fit(self, iterations=10, multi_processed=False, eco=False):
+        data_loaded = False
+        if eco:
+            try:
+                super().fit()
+                data_loaded = True
+            except FileNotFoundError:
+                pass
+
+        if not data_loaded:
             train_set, _, _ = self.project.load_sets()
-            self.calc_parameters(train_set, iterations, multi_processed)
+            self.calc_parameters(train_set, iterations, multi_processed, eco=eco)
+
         return self
 
-    def calc_parameters(self, train_set, iterations, multi_processed=True):
+    def calc_parameters(self, train_set, iterations, multi_processed, eco):
         graph, sequences = self.project.load_or_extract_graph_seq()
 
         # Create maps from users and cascades db id's to their matrix id's.
@@ -330,95 +344,65 @@ class AsLT(LT):
         logger.info('user space size = %d', len(user_map))
 
         # Set initial values of w and r.
-        try:
-            w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
-            r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
-            logger.info('w and r loaded')
-        except:
-            logger.info('initializing parameters ...')
-            w, r = self.set_initial_values(graph, user_ids, user_map)
-            self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
-            self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
+        w, r = self._initialize(user_ids, user_map, graph, eco)
 
         # Run EM algorithm.
         logger.info('running algorithm ...')
         for i in range(iterations):
             with Timer('iteration time'):
                 logger.info('#%d' % (i + 1))
-                try:
-                    h = self.project.load_param('h', ParamTypes.SPARSE)
-                    logger.info('h loaded')
-                except:
-                    logger.info('calculating h ...')
-                    h = self.calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map)
-                    self.project.save_param(h, 'h', ParamTypes.SPARSE)
 
-                try:
-                    g = self.project.load_param('g', ParamTypes.SPARSE)
-                    logger.info('g loaded')
-                except:
-                    logger.info('calculating g ...')
-                    g = self.calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map)
-                    self.project.save_param(g, 'g', ParamTypes.SPARSE)
+                # h = self._load_or_calc_h(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco)
+                h = None
+                phi_h = self._load_or_calc_phi_h(sequences, graph, w, r, h, train_set, cascade_map, user_map,
+                                                 multi_processed, eco)
+                if eco:
+                    del phi_h, h
 
-                try:
-                    self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
-                except:
-                    logger.info('calculating phi_h ...')
-                    phi_h = self.calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map)
-                    self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
-                    del phi_h
-                del h
+                g = self._load_or_calc_g(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco)
+                phi_g = self._load_or_calc_phi_g(sequences, graph, w, g, train_set, cascade_map, user_map,
+                                                 multi_processed, eco)
 
-                try:
-                    self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
-                except:
-                    logger.info('calculating phi_g ...')
-                    phi_g = self.calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map)
-                    self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
+                if eco:
                     del phi_g
 
-                try:
-                    psi = self.project.load_param('psi', ParamTypes.SPARSE_LIST)
-                    logger.info('psi loaded')
-                except:
-                    logger.info('calculating psi ...')
-                    psi = self.calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map)
-                    self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
+                psi = self._load_or_calc_psi(sequences, graph, w, r, g, train_set, cascade_map, user_map,
+                                             multi_processed, eco)
 
                 del g
-                phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)
-                logger.info('phi_h loaded')
+                if eco:
+                    phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)
+                    logger.info('phi_h loaded')
 
                 logger.info('estimating r ...')
                 last_r = r
                 r_multi_processed = multi_processed and len(user_ids) < 2 * 10 ** 7
-                r = self.calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, cascade_map, user_map,
-                                   r_multi_processed)
+                r = self._calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, cascade_map, user_map,
+                                    r_multi_processed)
 
-                phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
-                logger.info('phi_g loaded')
+                if eco:
+                    phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
+                    logger.info('phi_g loaded')
 
                 logger.info('estimating w ...')
                 last_w = w
-                w = self.calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, cascade_map)
+                w = self._calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, cascade_map)
 
                 del phi_h
                 del phi_g
                 del psi
 
-                # Save r and w.
-                self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
-                self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
-                self.r = r
-                self.w = w.tocsr()
+                if eco:
+                    # Save r and w.
+                    self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
+                    self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
 
-                # Delete all except w and r.
-                self.project.delete_param('h', ParamTypes.SPARSE)
-                self.project.delete_param('g', ParamTypes.SPARSE)
-                self.project.delete_param('phi_h', ParamTypes.SPARSE_LIST)
-                self.project.delete_param('phi_g', ParamTypes.SPARSE_LIST)
-                self.project.delete_param('psi', ParamTypes.SPARSE_LIST)
+                    # Delete all except w and r.
+                    self.project.delete_param('h', ParamTypes.SPARSE)
+                    self.project.delete_param('g', ParamTypes.SPARSE)
+                    self.project.delete_param('phi_h', ParamTypes.SPARSE_LIST)
+                    self.project.delete_param('phi_g', ParamTypes.SPARSE_LIST)
+                    self.project.delete_param('psi', ParamTypes.SPARSE_LIST)
 
                 # Calculate and report delta r and delta w.
                 r_dif = np.linalg.norm(r - last_r)
@@ -433,8 +417,107 @@ class AsLT(LT):
                     logger.info('Stop condition met: r dif + w dif < 1e-6')
                     break
 
-    @time_measure()
-    def set_initial_values(self, graph, user_ids, user_map):
+        self.w = w.tocsr()
+        self.r = r
+
+    def _load_or_calc_psi(self, sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed, eco):
+        data_loaded = False
+        if eco:
+            try:
+                psi = self.project.load_param('psi', ParamTypes.SPARSE_LIST)
+                logger.info('psi loaded')
+                data_loaded = True
+            except FileNotFoundError:
+                pass
+        if not data_loaded:
+            logger.info('calculating psi ...')
+            psi = self._calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed)
+            if eco:
+                self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
+        return psi
+
+    def _load_or_calc_phi_g(self, sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed, eco):
+        data_loaded = False
+        if eco:
+            try:
+                phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
+                data_loaded = True
+            except FileNotFoundError:
+                pass
+        if not data_loaded:
+            logger.info('calculating phi_g ...')
+            phi_g = self._calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed)
+            if eco:
+                self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
+        return phi_g
+
+    def _load_or_calc_phi_h(self, sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed, eco):
+        data_loaded = False
+        if eco:
+            try:
+                phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
+                data_loaded = True
+            except FileNotFoundError:
+                pass
+        if not data_loaded:
+            logger.info('calculating phi_h ...')
+            phi_h = self._calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed)
+            if eco:
+                self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
+        return phi_h
+
+    def _load_or_calc_g(self, sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco):
+        data_loaded = False
+        if eco:
+            try:
+                g = self.project.load_param('g', ParamTypes.SPARSE)
+                logger.info('g loaded')
+                data_loaded = True
+            except FileNotFoundError:
+                pass
+        if not data_loaded:
+            logger.info('calculating g ...')
+            g = self._calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
+            if eco:
+                self.project.save_param(g, 'g', ParamTypes.SPARSE)
+        return g
+
+    def _load_or_calc_h(self, sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco):
+        data_loaded = False
+        if eco:
+            try:
+                h = self.project.load_param('h', ParamTypes.SPARSE)
+                logger.info('h loaded')
+                data_loaded = True
+            except FileNotFoundError:
+                pass
+        if not data_loaded:
+            logger.info('calculating h ...')
+            h = self._calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
+            if eco:
+                self.project.save_param(h, 'h', ParamTypes.SPARSE)
+        return h
+
+    def _initialize(self, user_ids, user_map, graph, eco):
+        data_loaded = False
+        if eco:
+            try:
+                w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
+                r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
+                logger.info('w and r loaded')
+                data_loaded = True
+            except FileNotFoundError:
+                pass
+        if not data_loaded:
+            logger.info('initializing parameters ...')
+            w, r = self._set_initial_values(graph, user_ids, user_map)
+            if eco:
+                self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
+                self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
+        return w, r
+
+    @time_measure('debug')
+    def _set_initial_values(self, graph, user_ids, user_map):
         u_count = len(user_ids)
         nodes = graph.nodes()
         values = []
@@ -463,142 +546,175 @@ class AsLT(LT):
         return w, r
 
     @time_measure()
-    def calc_h_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map):
+    def _calc_h_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map, multi_processed):
         u_count = len(user_map)
         c_count = len(cascade_ids)
-        process_count = min(settings.PROCESS_COUNT, c_count)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(c_count / process_count))
-        results = []
-        for j in range(0, c_count, step):
-            subset = cascade_ids[j: j + step]
-            sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
-            res = pool.apply_async(calc_h, (sequences, graph, w, r, user_map))
-            results.append(res)
 
-        pool.close()
-        pool.join()
+        if multi_processed:
+            process_count = min(settings.PROCESS_COUNT, c_count)
+            pool = Pool(processes=process_count)
+            step = int(math.ceil(c_count / process_count))
+            results = []
+            for j in range(0, c_count, step):
+                subset = cascade_ids[j: j + step]
+                sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
+                res = pool.apply_async(calc_h, (sequences, graph, w, r, user_map))
+                results.append(res)
 
-        # Collect results of the processes.
-        values = []
-        rows = []
-        cols = []
-        for i in range(len(results)):
-            val_subset, row_subset, col_subset = results[i].get()
-            values.extend(val_subset)
-            rows.extend(row_subset)
-            cols.extend(col_subset)
+            pool.close()
+            pool.join()
+
+            # Collect results of the processes.
+            values = []
+            rows = []
+            cols = []
+            for i in range(len(results)):
+                val_subset, row_subset, col_subset = results[i].get()
+                values.extend(val_subset)
+                rows.extend(row_subset)
+                cols.extend(col_subset)
+        else:
+            sequences = {cascade_map[str(cid)]: data[cid] for cid in data}
+            values, rows, cols = calc_h(sequences, graph, w, r, user_map)
 
         h = sparse.csc_matrix((values, [rows, cols]), shape=(c_count, u_count), dtype=np.float64)
         return h
 
     @time_measure()
-    def calc_g_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map):
+    def _calc_g_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map, multi_processed):
         u_count = len(user_map)
         c_count = len(cascade_ids)
-        process_count = min(settings.PROCESS_COUNT, c_count)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(c_count / process_count))
-        results = []
-        for j in range(0, c_count, step):
-            subset = cascade_ids[j: j + step]
-            sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
-            res = pool.apply_async(calc_g, (sequences, graph, w, r, user_map))
-            results.append(res)
 
-        pool.close()
-        pool.join()
+        if multi_processed:
+            process_count = min(settings.PROCESS_COUNT, c_count)
+            pool = Pool(processes=process_count)
+            step = int(math.ceil(c_count / process_count))
+            results = []
+            for j in range(0, c_count, step):
+                subset = cascade_ids[j: j + step]
+                sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
+                res = pool.apply_async(calc_g, (sequences, graph, w, r, user_map))
+                results.append(res)
 
-        # Collect results of the processes.
-        values = []
-        rows = []
-        cols = []
-        for i in range(len(results)):
-            val_subset, row_subset, col_subset = results[i].get()
-            values.extend(val_subset)
-            rows.extend(row_subset)
-            cols.extend(col_subset)
+            pool.close()
+            pool.join()
+
+            # Collect results of the processes.
+            values = []
+            rows = []
+            cols = []
+            for i in range(len(results)):
+                val_subset, row_subset, col_subset = results[i].get()
+                values.extend(val_subset)
+                rows.extend(row_subset)
+                cols.extend(col_subset)
+        else:
+            sequences = {cascade_map[str(cid)]: data[cid] for cid in data}
+            values, rows, cols = calc_g(sequences, graph, w, r, user_map)
 
         g = sparse.csc_matrix((values, [rows, cols]), shape=(c_count, u_count), dtype=np.float32)
         return g
 
     @time_measure()
-    def calc_phi_h_mp(self, data, graph, w, r, h, cascade_ids, cascade_map, user_map):
+    def _calc_phi_h_mp(self, data, graph, w, r, h, cascade_ids, cascade_map, user_map, multi_processed):
         c_count = len(cascade_ids)
-        process_count = min(settings.PROCESS_COUNT, c_count)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(c_count / process_count))
-        results = []
-        for j in range(0, c_count, step):
-            subset = cascade_ids[j: j + step]
-            sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
-            res = pool.apply_async(calc_phi_h, (sequences, graph, w, r, h, user_map))
-            results.append(res)
 
-        pool.close()
-        pool.join()
+        if multi_processed:
+            process_count = min(settings.PROCESS_COUNT, c_count)
+            pool = Pool(processes=process_count)
+            step = int(math.ceil(c_count / process_count))
+            results = []
+            for j in range(0, c_count, step):
+                subset = cascade_ids[j: j + step]
+                sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
+                res = pool.apply_async(calc_phi_h, (sequences, graph, w, r, h, user_map))
+                results.append(res)
 
-        # Collect results of the processes.
+            pool.close()
+            pool.join()
+
+            # Collect results of the processes.
+            phi_h_dict = {}
+            for i in range(len(results)):
+                phi_h_subset = results[i].get()
+                phi_h_dict.update(phi_h_subset)
+        else:
+            sequences = {cascade_map[str(cid)]: data[cid] for cid in data}
+            phi_h_dict = calc_phi_h(sequences, graph, w, r, h, user_map)
+
         phi_h = [None for _ in range(len(cascade_ids))]
-        for i in range(len(results)):
-            phi_h_subset = results[i].get()
-            for cindex, mat in phi_h_subset.items():
-                phi_h[cindex] = mat
-
+        for cindex, mat in phi_h_dict.items():
+            phi_h[cindex] = mat
         return phi_h
 
     @time_measure()
-    def calc_phi_g_mp(self, data, graph, w, g, cascade_ids, cascade_map, user_map):
+    def _calc_phi_g_mp(self, data, graph, w, g, cascade_ids, cascade_map, user_map, multi_processed):
         c_count = len(cascade_ids)
-        process_count = min(settings.PROCESS_COUNT, c_count)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(c_count / process_count))
-        results = []
-        for j in range(0, c_count, step):
-            subset = cascade_ids[j: j + step]
-            sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
-            res = pool.apply_async(calc_phi_g, (sequences, graph, w, g, user_map))
-            results.append(res)
 
-        pool.close()
-        pool.join()
+        if multi_processed:
+            process_count = min(settings.PROCESS_COUNT, c_count)
+            pool = Pool(processes=process_count)
+            step = int(math.ceil(c_count / process_count))
+            results = []
+            for j in range(0, c_count, step):
+                subset = cascade_ids[j: j + step]
+                sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
+                res = pool.apply_async(calc_phi_g, (sequences, graph, w, g, user_map))
+                results.append(res)
 
-        # Collect results of the processes.
+            pool.close()
+            pool.join()
+
+            # Collect results of the processes.
+            phi_g_dict = {}
+            for i in range(len(results)):
+                phi_g_subset = results[i].get()
+                phi_g_dict.update(phi_g_subset)
+        else:
+            sequences = {cascade_map[str(cid)]: data[cid] for cid in data}
+            phi_g_dict = calc_phi_g(sequences, graph, w, g, user_map)
+
         phi_g = [None for _ in range(len(cascade_ids))]
-        for i in range(len(results)):
-            phi_g_subset = results[i].get()
-            for cindex, mat in phi_g_subset.items():
-                phi_g[cindex] = mat
+        for cindex, mat in phi_g_dict.items():
+            phi_g[cindex] = mat
 
         return phi_g
 
     @time_measure()
-    def calc_psi_mp(self, data, graph, w, r, g, cascade_ids, cascade_map, user_map):
+    def _calc_psi_mp(self, data, graph, w, r, g, cascade_ids, cascade_map, user_map, multi_processed):
         c_count = len(cascade_ids)
-        process_count = min(settings.PROCESS_COUNT, c_count)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(c_count / process_count))
-        results = []
-        for j in range(0, c_count, step):
-            subset = cascade_ids[j: j + step]
-            sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
-            res = pool.apply_async(calc_psi, (sequences, graph, w, r, g, user_map))
-            results.append(res)
 
-        pool.close()
-        pool.join()
+        if multi_processed:
+            process_count = min(settings.PROCESS_COUNT, c_count)
+            pool = Pool(processes=process_count)
+            step = int(math.ceil(c_count / process_count))
+            results = []
+            for j in range(0, c_count, step):
+                subset = cascade_ids[j: j + step]
+                sequences = {cascade_map[str(cid)]: data[cid] for cid in subset}
+                res = pool.apply_async(calc_psi, (sequences, graph, w, r, g, user_map))
+                results.append(res)
 
-        # Collect results of the processes.
-        psi = [None for _ in range(len(cascade_ids))]
-        for i in range(len(results)):
-            psi_subset = results[i].get()
-            for cindex, mat in psi_subset.items():
-                psi[cindex] = mat
+            pool.close()
+            pool.join()
+
+            # Collect results of the processes.
+            psi_dict = {}
+            for i in range(len(results)):
+                psi_subset = results[i].get()
+                psi_dict.update(psi_subset)
+        else:
+            sequences = {cascade_map[str(cid)]: data[cid] for cid in data}
+            psi_dict = calc_psi(sequences, graph, w, r, g, user_map)
+
+        psi = [None for _ in range(c_count)]
+        for cindex, mat in psi_dict.items():
+            psi[cindex] = mat
 
         return psi
 
     @time_measure()
-    def calc_r_mp(self, data, graph, phi_h, psi, user_ids, cascade_ids, cascade_map, user_map, multi_processed=True):
+    def _calc_r_mp(self, data, graph, phi_h, psi, user_ids, cascade_ids, cascade_map, user_map, multi_processed):
         u_count = len(user_ids)
         c_count = len(cascade_ids)
 
@@ -652,7 +768,7 @@ class AsLT(LT):
         return r
 
     @time_measure()
-    def calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, cascade_ids, cascade_map):
+    def _calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, cascade_ids, cascade_map):
         u_count = len(user_ids)
 
         logger.info('\textracting sigma domains ...')

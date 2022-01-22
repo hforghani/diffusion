@@ -20,11 +20,12 @@ from utils.time_utils import time_measure, Timer
 
 
 class ProjectTester(abc.ABC):
-    def __init__(self, project: Project, method: Method, criterion=Criterion.NODES):
+    def __init__(self, project: Project, method: Method, criterion: Criterion = Criterion.NODES, eco: bool = False):
         self.project = project
         self.method = method
         self.model = None
         self.criterion = criterion
+        self.eco = eco
 
     @abc.abstractmethod
     def run_validation_test(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int) \
@@ -133,7 +134,7 @@ class ProjectTester(abc.ABC):
         if not os.path.exists(results_path):
             os.mkdir(results_path)
         filename = os.path.join(results_path,
-                                f'{self.project.project_name}-{self.method}-{initial_depth}-{max_depth}.png')
+                                f'{self.project.name}-{self.method}-{initial_depth}-{max_depth}.png')
         pyplot.savefig(filename)
         # pyplot.show()
 
@@ -141,8 +142,7 @@ class ProjectTester(abc.ABC):
 class DefaultTester(ProjectTester):
     def run_validation_test(self, thresholds, initial_depth, max_depth):
         if self.model is None:
-            with Timer('training'):
-                self.model = self.train()
+            self.model = self.train()
 
         with Timer('validation & test'):
             _, val_set, test_set = self.project.load_sets()
@@ -153,17 +153,17 @@ class DefaultTester(ProjectTester):
             return precision, recall, f1, fpr, thr
 
     def run_test(self, threshold, initial_depth, max_depth):
-        with Timer('training'):
-            model = self.train()
+        if self.model is None:
+            self.model = self.train()
 
         with Timer('test'):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
-            return self.test(test_set, threshold, initial_depth, max_depth, model=model)
+            return self.test(test_set, threshold, initial_depth, max_depth, model=self.model)
 
-    @time_measure(level='debug')
     def train(self):
-        model = train_cascades(self.method, self.project)
+        with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]'):
+            model = train_cascades(self.method, self.project, eco=self.eco)
         return model
 
     @time_measure(level='debug')
@@ -176,14 +176,13 @@ class DefaultTester(ProjectTester):
 
         # Load training and test sets and cascade trees.
         trees = self.project.load_trees()
-        all_node_ids = self.project.get_all_nodes()
         graph = self.project.load_or_extract_graph()
 
         logger.info('number of cascades : %d' % len(test_set))
 
         precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_cascades(test_set, self.method, model, thresholds,
-                                                                             initial_depth, max_depth, trees, graph,
-                                                                             all_node_ids)
+                                                                             initial_depth, max_depth, self.criterion,
+                                                                             trees, graph)
         mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
                                                                         prp2_list)
         if isinstance(thr, numbers.Number):
@@ -194,35 +193,33 @@ class DefaultTester(ProjectTester):
 
 class MultiProcTester(ProjectTester):
     def run_validation_test(self, thresholds, initial_depth, max_depth):
-        with Timer('training'):
-            # Train the cascades once and save them. Then the trained model is fetched from disk and used at each process.
-            # The model is not passed to each process due to pickling size limit.
-            if not MEMMManager(self.project, Method(self.method)).db_exists():
-                self.train()
+        if self.model is None:
+            self.model = self.train()
 
         with Timer('validation & test'):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
-            thr = self.validate(val_set, thresholds, initial_depth, max_depth)
+            thr = self.validate(val_set, thresholds, initial_depth, max_depth, self.model)
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
-            precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth)
+            precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth, self.model)
             return precision, recall, f1, fpr, thr
 
     def run_test(self, threshold, initial_depth, max_depth):
-        with Timer('training'):
-            # Train the cascades once and save them. Then the trained model is fetched from disk and used at each process.
-            # The model is not passed to each process due to pickling size limit.
-            if not MEMMManager(self.project, self.method).db_exists():
-                self.train()
+        if self.model is None:
+            self.model = self.train()
 
         with Timer('test'):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
-            return self.test(test_set, threshold, initial_depth, max_depth)
+            return self.test(test_set, threshold, initial_depth, max_depth, self.model)
 
-    @time_measure(level='debug')
     def train(self):
-        model = train_cascades(self.method, self.project, multi_processed=True)
+        model = None
+        if not self.eco or not MEMMManager(self.project, self.method).db_exists():
+            # If it is in economical mode, train the cascades once and save them. Then the trained model is fetched
+            # from disk and used at each process. The model is not passed to each process due to pickling size limit.
+            with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]'):
+                model = train_cascades(self.method, self.project, multi_processed=True, eco=self.eco)
         return model
 
     @time_measure(level='debug')
@@ -236,13 +233,11 @@ class MultiProcTester(ProjectTester):
         # Load cascade trees and graph.
         trees = self.project.load_trees()
         graph = self.project.load_or_extract_graph()
-        # all_node_ids = self.project.get_all_nodes()
-        all_node_ids = list(graph.nodes())
 
         logger.info('number of cascades : %d' % len(test_set))
 
         precisions, recalls, f1s, fprs, prp1_list, prp2_list \
-            = self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, graph, all_node_ids)
+            = self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, graph)
 
         mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
                                                                         prp2_list)
@@ -252,7 +247,7 @@ class MultiProcTester(ProjectTester):
             return mean_prec, mean_rec, mean_f1, mean_fpr
 
     def __test_multi_processed(self, test_set: list, thresholds: list, initial_depth: int, max_depth: int, trees: dict,
-                               graph: DiGraph, all_node_ids: list):
+                               graph: DiGraph):
         """
         Create a process pool to distribute the prediction.
         """
@@ -260,11 +255,12 @@ class MultiProcTester(ProjectTester):
         pool = Pool(processes=process_count)
         step = int(math.ceil(float(len(test_set)) / process_count))
         results = []
+        logger.debug('criterion = %s', self.criterion)
         for j in range(0, len(test_set), step):
             cascade_ids = test_set[j: j + step]
             res = pool.apply_async(test_cascades_multiproc,
                                    (cascade_ids, self.method, self.project, thresholds, initial_depth, max_depth,
-                                    trees, graph, all_node_ids))
+                                    self.criterion, trees, graph, self.eco, self.model))
             results.append(res)
 
         pool.close()

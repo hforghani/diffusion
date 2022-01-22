@@ -21,6 +21,7 @@ from utils.time_utils import Timer
 
 
 def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph):
+    logger.debug('criterion = %s', criterion)
     if criterion == Criterion.NODES:
         all_node_ids = list(graph.nodes())
         meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, all_node_ids,
@@ -75,7 +76,7 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
                                                     res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
-def train_cascades(method, project, multi_processed=False):
+def train_cascades(method, project, multi_processed=False, eco=False):
     model_classes = {
         Method.ASLT: AsLT,
         Method.AVG: LTAvg,
@@ -93,28 +94,28 @@ def train_cascades(method, project, multi_processed=False):
         model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
     elif method in model_classes:
         model_clazz = model_classes[method]
-        model = model_clazz(project).fit(multi_processed)
+        model = model_clazz(project).fit(multi_processed=multi_processed, eco=eco)
     else:
         raise Exception('invalid method "%s"' % method.value)
     return model
 
 
 def test_cascades_multiproc(cascade_ids: list, method: Method, project: Project, threshold: list, initial_depth: int,
-                            max_depth: int, trees: dict, graph: DiGraph, all_node_ids: list) \
+                            max_depth: int, criterion: Criterion, trees: dict, graph: DiGraph, eco: bool, model=None) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
-        # Train (or fetch trained models from db) in each process due to size limit for pickling in Python
-        # multi-processing.
-        model = train_cascades(method, project)
-        return test_cascades(cascade_ids, method, model, threshold, initial_depth, max_depth, trees, graph,
-                             all_node_ids)
+        if model is None and eco:
+            # Train (or fetch the trained models from db) in each process due to the size limit for pickling in Python
+            # multi-processing.
+            model = train_cascades(method, project)
+        return test_cascades(cascade_ids, method, model, threshold, initial_depth, max_depth, criterion, trees, graph)
     except:
         logger.error(traceback.format_exc())
         raise
 
 
 def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, initial_depth: int, max_depth: int,
-                  criterion, trees: dict, graph: DiGraph) \
+                  criterion: Criterion, trees: dict, graph: DiGraph) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
     try:
         prp1_list = {thr: [] for thr in thresholds}

@@ -4,7 +4,7 @@ import argparse
 from cascade.models import Project
 import settings
 from cascade.testers import MultiProcTester, DefaultTester
-from cascade.enum import Method
+from cascade.enum import Method, Criterion
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -14,8 +14,8 @@ from utils.time_utils import time_measure
 # pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
 
-def run_predict(method_name, project_name, validation, min_threshold, max_threshold, thresholds_count, initial_depth,
-                max_depth, multi_processed):
+def run_predict(method_name, project_name, validation, criterion, min_threshold, max_threshold, thresholds_count,
+                initial_depth, max_depth, multi_processed, eco):
     project = Project(project_name)
     method = Method(method_name)
 
@@ -38,9 +38,9 @@ def run_predict(method_name, project_name, validation, min_threshold, max_thresh
     logger.info('{0} TESTING ON THRESHOLD(S) : {1} {0}'.format('=' * 20, thresholds))
 
     if multi_processed:
-        tester = MultiProcTester(project, method)
+        tester = MultiProcTester(project, method, criterion, eco)
     else:
-        tester = DefaultTester(project, method)
+        tester = DefaultTester(project, method, criterion, eco)
 
     if validation:
         return tester.run_validation_test(thresholds, initial_depth, max_depth)
@@ -52,8 +52,9 @@ def run_predict(method_name, project_name, validation, min_threshold, max_thresh
 
 @time_measure('info')
 def handle(args):
-    res = run_predict(args.method, args.project, args.validation, args.min_threshold, args.max_threshold,
-                      args.thresholds_count, args.initial_depth, args.max_depth, args.multi_processed)
+    res = run_predict(args.method, args.project, args.validation, args.criterion, args.min_threshold,
+                      args.max_threshold,
+                      args.thresholds_count, args.initial_depth, args.max_depth, args.multi_processed, args.eco)
     prec, rec, f1, fpr = res[:4]
 
     if prec is not None:
@@ -65,6 +66,8 @@ def main():
     parser.add_argument("-p", "--project", type=str, dest="project", help="project name")
     parser.add_argument("-m", "--method", type=str, dest="method", required=True, choices=[e.value for e in Method],
                         help="the method by which we want to test")
+    parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
+                        help="the criterion on which the evaluation is done")
     parser.add_argument("-t", "--min_threshold", type=float,
                         help="minimum threshold to apply on the method")
     parser.add_argument("-T", "--max_threshold", type=float,
@@ -78,8 +81,12 @@ def main():
                         help="the maximum depth of the initial nodes")
     parser.add_argument("-d", "--max-depth", type=int, dest="max_depth",
                         help="the maximum depth of cascade prediction")
-    parser.add_argument("-u", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
-                        help="if this option is given, the task is ran on multiple processes")
+    parser.add_argument("-M", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
+                        help="If this option is given, the task is ran on multiple processes")
+    parser.add_argument("-e", "--eco", action='store_true', default=False,
+                        help="If this option is given, the prediction is done in economical mode e.t. Memory consumption "
+                             "is decreased and data is stored in DB and loaded everytime needed instead of storing in "
+                             "RAM. Otherwise, no data is stored in DB.")
 
     args = parser.parse_args()
     handle(args)
