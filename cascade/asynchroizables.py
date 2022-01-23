@@ -21,7 +21,6 @@ from utils.time_utils import Timer
 
 
 def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph):
-    logger.debug('criterion = %s', criterion)
     if criterion == Criterion.NODES:
         all_node_ids = list(graph.nodes())
         meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, all_node_ids,

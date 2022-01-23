@@ -255,7 +255,6 @@ class MultiProcTester(ProjectTester):
         pool = Pool(processes=process_count)
         step = int(math.ceil(float(len(test_set)) / process_count))
         results = []
-        logger.debug('criterion = %s', self.criterion)
         for j in range(0, len(test_set), step):
             cascade_ids = test_set[j: j + step]
             res = pool.apply_async(test_cascades_multiproc,

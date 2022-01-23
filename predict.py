@@ -1,5 +1,6 @@
 import argparse
 # from profilehooks import timecall, profile
+from numbers import Number
 
 from cascade.models import Project
 import settings
@@ -14,8 +15,9 @@ from utils.time_utils import time_measure
 # pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
 
-def run_predict(method_name, project_name, validation, criterion, min_threshold, max_threshold, thresholds_count,
-                initial_depth, max_depth, multi_processed, eco):
+def run_predict(method_name: str, project_name: str, validation: bool, criterion: Criterion, min_threshold: Number,
+                max_threshold: Number, thresholds_count: int, initial_depth: int, max_depth: int, multi_processed: bool,
+                eco: bool):
     project = Project(project_name)
     method = Method(method_name)
 
@@ -52,9 +54,9 @@ def run_predict(method_name, project_name, validation, criterion, min_threshold,
 
 @time_measure('info')
 def handle(args):
-    res = run_predict(args.method, args.project, args.validation, args.criterion, args.min_threshold,
-                      args.max_threshold,
-                      args.thresholds_count, args.initial_depth, args.max_depth, args.multi_processed, args.eco)
+    res = run_predict(args.method, args.project, args.validation, Criterion(args.criterion), args.min_threshold,
+                      args.max_threshold, args.thresholds_count, args.initial_depth, args.max_depth,
+                      args.multi_processed, args.eco)
     prec, rec, f1, fpr = res[:4]
 
     if prec is not None:
