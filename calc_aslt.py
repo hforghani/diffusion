@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import argparse
 import logging
-from cascade.models import Project
+from cascade.models import Project, ParamTypes
 from cascade.aslt import AsLT
 import settings
 from utils.time_utils import time_measure
@@ -42,8 +42,14 @@ class Command:
         # Calculate AsLT parameters.
         aslt = AsLT(project)
         train_set, _, _ = aslt.project.load_sets()
-        aslt.project.delete_param(aslt.w_param_name)
-        aslt.project.delete_param(aslt.r_param_name)
+        try:
+            aslt.project.delete_param(aslt.w_param_name, ParamTypes.SPARSE)
+        except FileNotFoundError:
+            pass
+        try:
+            aslt.project.delete_param(aslt.r_param_name, ParamTypes.ARRAY)
+        except FileNotFoundError:
+            pass
         aslt.calc_parameters(train_set, args.iterations, multi_processed=True, eco=True)
 
 

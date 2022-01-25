@@ -328,8 +328,6 @@ class LT(object):
         self.init_tree = None
         self.max_delay = 10000
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
-        self.user_ids = None
-        self.users_map = None
         self.w = None
         self.r = None
 
@@ -366,8 +364,6 @@ class LT(object):
 
         user_ids = sorted(graph.nodes())
         users_map = {user_ids[i]: i for i in range(len(user_ids))}
-        self.user_ids = user_ids
-        self.users_map = users_map
 
         # Iterate on steps. For each step try to activate other nodes.
         step = 1
@@ -379,13 +375,13 @@ class LT(object):
             # Iterate on current step nodes to check if a child will be activated.
             for node, max_predicted_thr in cur_step:
                 u = node.user_id  # sender user id
-                if u not in self.users_map:
+                if u not in users_map:
                     continue
-                u_i = self.users_map[u]
+                u_i = users_map[u]
                 w_u = self.w[u_i, :]
                 if w_u.nnz:
                     logger.debugv('weights of user %s :\n' + '\n'.join(
-                        ['{} : {}'.format(self.user_ids[w_u.indices[i]], w_u.data[i]) for i in range(w_u.nnz)]), u)
+                        ['{} : {}'.format(user_ids[w_u.indices[i]], w_u.data[i]) for i in range(w_u.nnz)]), u)
 
                 # Iterate on children of u
                 # for v_i in np.nonzero(w_u)[0]:
@@ -432,7 +428,7 @@ class LT(object):
         return trees
 
 
-class IC(object):
+class IC:
     def __init__(self, project):
         self.project = project
         self.init_tree = None
@@ -593,34 +589,19 @@ class Project(object):
             logger.debug('converting dictionaries to trees ...')
             trees = {cascades_id: CascadeTree().from_dict(tree) for cascades_id, tree in trees.items()}
         except FileNotFoundError:
-            try:
-                trees_path = os.path.join(settings.BASEPATH, 'data', 'trees.json')
-                logger.info('loading trees ...')
-                trees = json.load(open(trees_path, 'r'))
-
-                # Keep just trees of the training and test set.
-                trees = {ObjectId(key): value for key, value in trees.items()}
-                trees = {cascades_id: trees[cascades_id] for cascades_id in self.training + self.test}
-                # Save trees for the project.
-                self.save_param(trees, 'trees', ParamTypes.JSON)
-                # Convert tree dictionaries to tree objects.
-                logger.debug('converting trees to objects ...')
-                trees = {cascades_id: CascadeTree().from_dict(tree) for cascades_id, tree in trees.items()}
-                logger.debug('done')
-            except FileNotFoundError:
-                logger.info('trees not found. extracting ...')
-                trees = {}
-                i = 0
-                all_cascades = self.training + self.validation + self.test
-                count = len(all_cascades)
-                for cascade_id in all_cascades:
-                    tree = CascadeTree().extract_cascade(cascade_id, self.db)
-                    trees[cascade_id] = tree
-                    i += 1
-                    if i % 10 == 0:
-                        logger.info('%d%% done', i * 100 / count)
-                trees_dict = {str(cascade_id): tree.get_dict() for cascade_id, tree in trees.items()}
-                self.save_param(trees_dict, 'trees', ParamTypes.JSON)  # Save trees for the project.
+            logger.info('trees not found. extracting ...')
+            trees = {}
+            i = 0
+            all_cascades = self.training + self.validation + self.test
+            count = len(all_cascades)
+            for cascade_id in all_cascades:
+                tree = CascadeTree().extract_cascade(cascade_id, self.db)
+                trees[cascade_id] = tree
+                i += 1
+                if i % 10 == 0:
+                    logger.info('%d%% done', i * 100 / count)
+            trees_dict = {str(cascade_id): tree.get_dict() for cascade_id, tree in trees.items()}
+            self.save_param(trees_dict, 'trees', ParamTypes.JSON)  # Save trees for the project.
 
         self.trees = trees
         return trees
@@ -749,8 +730,8 @@ class Project(object):
                                 users[cascade_id].append(post['author_id'])
                                 times[cascade_id].append(post['datetime'])
                     i += 1
-                    if i % (post_count / 10) == 0:
-                        logger.info('%d%% posts done' % (i * 100 / post_count))
+                    if i % (post_count // 10) == 0:
+                        logger.debug('%d%% posts done' % (i * 100 / post_count))
                 break
             except CursorNotFound:
                 raise
@@ -760,13 +741,13 @@ class Project(object):
         i = 0
         for cascade in db.cascades.find({'_id': {'$in': cascade_ids}}, ['last_time', 'first_time']):
             mid = cascade['_id']
-            times[mid] = [(t - cascade['first_time']).total_seconds() / (3600.0 * 24) for t in
-                          times[mid]]  # number of days
+            times[mid] = [(t - cascade['first_time']).total_seconds() / (3600.0 * 24 * 30) for t in
+                          times[mid]]  # number of months
             max_t[mid] = (cascade['last_time'] - cascade['first_time']).total_seconds() / (
-                    3600.0 * 24)  # number of days
+                    3600.0 * 24 * 30)  # number of months
             i += 1
-            if i % (len(cascade_ids) / 10) == 0:
-                logger.info('%d%% done' % (i * 100 / len(cascade_ids)))
+            if i % (len(cascade_ids) // 10) == 0:
+                logger.debug('%d%% done' % (i * 100 / len(cascade_ids)))
 
         sequences = {}
         for m in cascade_ids:

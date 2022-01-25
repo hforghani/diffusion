@@ -690,16 +690,8 @@ class ParentSensTDMEMMModel(ReducedTDMEMMModel):
             inactive_prob = probs[0]
             active_prob = 1 - inactive_prob
             active_probs = [probs[1 + memm.orig_indexes[i]] for i in conv_active_parent_indexes]
-            # logger.debugv('probs = %s', probs)
-            # logger.debugv('conv_active_parent_indexes = %s', conv_active_parent_indexes)
-            # logger.debugv('memm.orig_indexes = %s', memm.orig_indexes)
-            # logger.debugv('active_states = %s', active_states)
-            # logger.debugv('active_probs = %s', active_probs)
-
             i = np.argmax(active_probs)
             state, prob = active_states[i], active_prob
-            # logger.debugv('state if activated = %d', state)
-            # logger.debugv('sum of activation prob = %f', prob)
             self._last_obs, self._last_prob, self._last_state = obs, prob, state
 
         if state > 0 and prob >= thr:

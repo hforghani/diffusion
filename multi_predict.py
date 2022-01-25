@@ -13,9 +13,9 @@ def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_
     results = {}
 
     if multi_processed:
-        testers = {method: MultiProcTester(project, method, criterion) for method in methods}
+        testers = {method: MultiProcTester(project, method, criterion, eco=True) for method in methods}
     else:
-        testers = {method: DefaultTester(project, method, criterion) for method in methods}
+        testers = {method: DefaultTester(project, method, criterion, eco=True) for method in methods}
 
     for initial_depth, max_depth in depth_settings:
         cur_results = {}
@@ -32,7 +32,9 @@ def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_
 @time_measure()
 def main():
     parser = argparse.ArgumentParser('Test information diffusion prediction')
-    parser.add_argument("-p", "--project", type=str, dest="project", help="project name")
+    parser.add_argument("-p", "--project", help="project name")
+    parser.add_argument("-m", "--methods", nargs="+", required=True, choices=[e.value for e in Method],
+                        help="the methods by which we want to test")
     parser.add_argument("-M", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
                         help="if this option is given, the task is ran on multiple processes")
     parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
@@ -43,14 +45,7 @@ def main():
     training, validation, test = project.load_sets()
     trees = project.load_trees()
     max_test_depth = max(trees[cid].depth for cid in test)
-    methods = [Method.LONG_PARENT_SENS_TD_MEMM,
-               Method.PARENT_SENS_TD_MEMM,
-               Method.REDUCED_TD_MEMM,
-               Method.TD_MEMM,
-               Method.REDUCED_BIN_MEMM,
-               Method.BIN_MEMM,
-               Method.ASLT,
-               Method.AVG]
+    methods = [Method(met) for met in args.methods]
 
     one_step_depths = [(i, i + 1) for i in range(max_test_depth)]
     thorough_depths = [(i, None) for i in range(max_test_depth)]

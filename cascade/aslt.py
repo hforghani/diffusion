@@ -33,14 +33,24 @@ def calc_h(sequences, graph, w, r, user_map):
                 else:
                     active_parents = sequence.get_active_parents(uid, graph)
                     if active_parents:
+                        p_count = len(active_parents)
                         act_par_indexes = [user_map[str(id)] for id in active_parents]
-                        act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
-                        user_time = np.repeat(np.matrix([sequence.user_times[uid]]), len(active_parents))
+                        act_par_times = np.array([sequence.user_times[pid] for pid in active_parents])
+                        user_time = np.ones(p_count) * sequence.user_times[uid]
                         diff = user_time - act_par_times
-                        diff[diff == 0] = 1.0 / (24 * 60)  # 1 minute
-                        w_col = w[:, uindex].todense()
-                        val = float(np.exp(-r[uindex] * diff) * w_col[act_par_indexes] * r[uindex])
-                        if np.float64(val) == 0:
+                        diff[diff == 0] = 1.0 / (30 * 24 * 60)  # 1 minute
+                        w_col = w[:, uindex].toarray()
+                        val = np.exp(-r[uindex] * diff).dot(w_col[act_par_indexes]) * r[uindex]
+
+                        if val == 0:
+                            logger.debug('act_par_indexes = %s', act_par_indexes)
+                            logger.debug('act_par_times = %s', act_par_times)
+                            logger.debug('user_time = %s', user_time)
+                            logger.debug('diff = %s', diff)
+                            logger.debug('np.exp(-r[uindex] * diff) = %s', np.exp(-r[uindex] * diff))
+                            logger.debug('w_col[act_par_indexes] = %s', w_col[act_par_indexes])
+                            logger.debug('r[uindex] = %s', r[uindex])
+                            logger.debug('val = %s', val)
                             logger.warning('\th = 0')
 
                 if val:
@@ -116,28 +126,21 @@ def calc_phi_h(sequences, graph, w, r, h, user_map):
                     continue
                 vindex = user_map[str(v)]
                 active_parents = sequence.get_active_parents(v, graph)
-                p_count = len(active_parents)
-                if p_count == 0:
+                if not active_parents:
                     continue
-
                 act_par_indexes = [user_map[str(id)] for id in active_parents]
-                if p_count == 1:
-                    val = np.ones(1)
-                else:
-                    act_par_times = np.array([sequence.user_times[pid] for pid in active_parents])
-                    diff = np.tile(act_par_times.reshape((p_count, 1)), p_count) - np.tile(
-                        act_par_times.reshape((1, p_count)),
-                        (p_count, 1))
-                    E = np.exp(-r[vindex] * diff)
-                    w_col = w[:, vindex].todense()
-                    act_par_w = w_col[act_par_indexes]
-                    val = np.multiply(act_par_w.T, 1 / act_par_w.T.dot(E))
-                    if np.isinf(np.float32(val)).any():
-                        logger.warning('\tphi_h = inf')
-                        # if (np.float32(val) == 0).any():
-                    #    logger.warning('\phi_h = 0')
+                act_par_times = np.matrix([[sequence.user_times[pid] for pid in active_parents]])
+                user_time = np.repeat(np.matrix([sequence.user_times[v]]), len(active_parents))
+                diff = user_time - act_par_times
+                diff[diff == 0] = 1.0 / (30 * 24 * 60)  # 1 minute
+                w_col = w[:, vindex].todense()
+                val = np.multiply(w_col[act_par_indexes].T, np.exp(-r[vindex] * diff)) * r[vindex] / h[cindex, vindex]
+                if np.isinf(np.float32(val)).any():
+                    logger.warning('\tphi_h = inf')
+                    # if (np.float32(val) == 0).any():
+                #    logger.warning('\phi_h = 0')
                 if val.size > 1:
-                    values.extend(val.tolist()[0] if len(val.shape) > 1 else val.tolist())
+                    values.extend(list(np.array(val).squeeze()))
                 else:
                     values.append(float(val))
                 rows.extend(act_par_indexes)
@@ -317,7 +320,7 @@ class AsLT(LT):
         except FileNotFoundError:
             pass
 
-    def fit(self, iterations=10, multi_processed=False, eco=False):
+    def fit(self, iterations=15, multi_processed=False, eco=False):
         data_loaded = False
         if eco:
             try:
@@ -352,8 +355,7 @@ class AsLT(LT):
             with Timer('iteration time'):
                 logger.info('#%d' % (i + 1))
 
-                # h = self._load_or_calc_h(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco)
-                h = None
+                h = self._load_or_calc_h(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco)
                 phi_h = self._load_or_calc_phi_h(sequences, graph, w, r, h, train_set, cascade_map, user_map,
                                                  multi_processed, eco)
                 if eco:
@@ -577,7 +579,9 @@ class AsLT(LT):
             sequences = {cascade_map[str(cid)]: data[cid] for cid in data}
             values, rows, cols = calc_h(sequences, graph, w, r, user_map)
 
+        values = np.array(values, dtype=np.float64)
         h = sparse.csc_matrix((values, [rows, cols]), shape=(c_count, u_count), dtype=np.float64)
+        logger.debug('number of zero h: %d', np.count_nonzero(h.data == 0))
         return h
 
     @time_measure()
