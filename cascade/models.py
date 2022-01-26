@@ -1,3 +1,4 @@
+import abc
 from datetime import timedelta
 import json
 import os
@@ -19,7 +20,7 @@ from utils.os_utils import mkdir_rec
 from utils.time_utils import str_to_datetime, DT_FORMAT, Timer, time_measure
 
 
-class CascadeNode(object):
+class CascadeNode:
     def __init__(self, user_id=None, datetime=None, post_id=None, parent_id=None):
         self.user_id = user_id
         self.datetime = datetime
@@ -88,7 +89,7 @@ class CascadeNode(object):
         return '\n'.join(lines)
 
 
-class CascadeTree(object):
+class CascadeTree:
     roots = []
     depth = 0
 
@@ -269,7 +270,7 @@ class CascadeTree(object):
             raise ParentDoesNotExist('parent node with user id given does not exist')
 
 
-class ActSequence(object):
+class ActSequence:
     """
     Activation Sequence: (u1, t1), (u2, t2), ..., (u_n, t_n)
     """
@@ -318,23 +319,32 @@ class ActSequence(object):
         return active_parents
 
 
-class LT(object):
+class LT(abc.ABC):
     def __init__(self, project):
-        """
-        w_param_name and r_param_name must be set in children.
-        :param project:
-        """
         self.project = project
         self.init_tree = None
         self.max_delay = 10000
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
         self.w = None
         self.r = None
+        self.w_param_name = None  # Must be implemented in subclasses.
+        self.r_param_name = None  # Must be implemented in subclasses.
 
-    def fit(self, *args, **kwargs):
-        self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
-        self.w = self.w.tocsr()
-        self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
+    def fit(self, multi_processed=False, eco=False, **kwargs):
+        data_loaded = False
+        if eco:
+            try:
+                self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE).todense()
+                self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
+                data_loaded = True
+            except FileNotFoundError:
+                pass
+
+        if not data_loaded:
+            train_set, _, _ = self.project.load_sets()
+            self.calc_parameters(train_set, multi_processed, eco, **kwargs)
+
+        return self
 
     # @profile
     def predict(self, initial_tree, graph: DiGraph, thresholds: list = None, max_step: int = None) -> dict:
@@ -347,7 +357,7 @@ class LT(object):
         :param max_step:       maximum step to which prediction is done
         :return:    dictionary of thresholds to trees
         """
-        if not hasattr(self, 'w'):
+        if self.w is None:
             raise Exception('No w parameters found. Train the model first.')
 
         # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
@@ -379,25 +389,23 @@ class LT(object):
                     continue
                 u_i = users_map[u]
                 w_u = self.w[u_i, :]
-                if w_u.nnz:
+                if w_u.any():
                     logger.debugv('weights of user %s :\n' + '\n'.join(
-                        ['{} : {}'.format(user_ids[w_u.indices[i]], w_u.data[i]) for i in range(w_u.nnz)]), u)
+                        ['{} : {}'.format(i, w_u[i]) for i in np.nonzero(w_u)[0]]), u)
 
                 # Iterate on children of u
-                # for v_i in np.nonzero(w_u)[0]:
-                for i in range(w_u.nnz):
-                    v_i = w_u.indices[i]
+                for v_i in np.nonzero(w_u)[0]:
                     v = user_ids[v_i]  # receiver (child) user id
                     if v in active_ids:
                         logger.debugv('user %s is already activated', v)
                         continue
-                    prob = self.probabilities[v] = self.probabilities.get(v, 0) + w_u.data[i]
+                    prob = self.probabilities[v] = self.probabilities.get(v, 0) + w_u[v_i]
                     logger.debugv('probability of user %s = %f', v, prob)
                     child_max_pred_thr = None
 
                     for thr in thresholds:
                         if thr <= prob and thr <= max_predicted_thr:
-                            if hasattr(self, 'r'):
+                            if self.r is not None:
                                 # Get delay parameter.
                                 delay_param = self.r[v_i]
 
@@ -420,107 +428,143 @@ class LT(object):
                         active_ids.add(v)
 
             cur_step = next_step
-            if hasattr(self, 'r'):
+            if self.r is not None:
                 cur_step = sorted(cur_step, key=lambda n: n[0].datetime)
 
             step += 1
 
         return trees
 
+    @abc.abstractmethod
+    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
+        pass
 
-class IC:
+
+class IC(abc.ABC):
     def __init__(self, project):
         self.project = project
         self.init_tree = None
-        self.p_param_name = 'p'
-        self.r_param_name = 'r'
+        self.max_delay = 10000
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
-        self.user_map = None
+        self.k = None
+        self.r = None
+        self.k_param_name = None  # Must be implemented in subclasses.
+        self.r_param_name = None  # Must be implemented in subclasses.
 
-    def fit(self):
-        pass
+    def fit(self, multi_processed=False, eco=False, **kwargs):
+        data_loaded = False
+        if eco:
+            try:
+                self.k = self.project.load_param(self.k_param_name, ParamTypes.SPARSE).todense()
+                self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
+                data_loaded = True
+            except FileNotFoundError:
+                pass
 
-    def predict(self, initial_tree, threshold=None, user_ids=None):
-        # TODO: Change threshold to thresholds as a list of thresholds.
-        if not isinstance(initial_tree, CascadeTree):
-            raise ValueError('tree must be CascadeTree')
-        tree = initial_tree.copy()
-        now = tree.max_datetime()  # Find the datetime of now.
+        if not data_loaded:
+            train_set, _, _ = self.project.load_sets()
+            self.calc_parameters(train_set, multi_processed, eco, **kwargs)
+
+        return self
+
+    def predict(self, initial_tree, graph: DiGraph, thresholds: list = None, max_step: int = None) -> dict:
+        """
+        Predict activation cascade in the future starting from initial nodes given. Return a dict containing
+        a tree for each threshold given.
+        :param initial_tree:    initial tree of activated nodes
+        :param graph:           DiGraph extracted from the training set
+        :param thresholds:       list of thresholds of activation probability
+        :param max_step:       maximum step to which prediction is done
+        :return:    dictionary of thresholds to trees
+        """
+        if self.k is None:
+            raise Exception('No k parameters found. Train the model first.')
+
+        # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
+        trees = {thr: initial_tree.copy() for thr in thresholds}
 
         # Initialize values.
-        cur_step = sorted(tree.nodes(), key=lambda n: n.datetime)  # Set tree nodes as initial step.
-        activated = tree.nodes()
-        if self.user_map is None:
-            if user_ids is None:
-                db = DBManager(self.project.db).db
-                user_ids = [u['_id'] for u in db.users.find({}, ['_id']).sort('_id')]
-            self.user_map = {user_ids[i]: i for i in range(len(user_ids))}
+        max_depth = initial_tree.depth
+        cur_step_nodes = sorted(initial_tree.nodes_at_depth(max_depth),
+                                key=lambda n: n.datetime)  # Set the nodes with maximum depth as initial step.
+        max_thr = max(thresholds)
+        cur_step = [(node, max_thr) for node in cur_step_nodes]
+        active_ids = set(initial_tree.node_ids())
+        self.probabilities = {}
 
-        # Get diffusion probabilities and delay vectors.
-        p = self.project.load_param(self.p_param_name, ParamTypes.SPARSE)
-        p = p.tocsr()
-        r = self.project.load_param(self.r_param_name, ParamTypes.SPARSE)
-        r = r.tolil()
+        user_ids = sorted(graph.nodes())
+        users_map = {user_ids[i]: i for i in range(len(user_ids))}
 
         # Iterate on steps. For each step try to activate other nodes.
-        i = 0
-        while cur_step:
-            i += 1
-            logger.debug('step %d ...' % i)
+        step = 1
+        while cur_step and (max_step is None or step <= max_step):
+            logger.debug('step %d on %d users ...', step, len(cur_step))
 
             next_step = []
 
-            for node in cur_step:
+            # Iterate on current step nodes to check if a child will be activated.
+            for node, max_predicted_thr in cur_step:
                 u = node.user_id  # sender user id
-                u_i = self.user_map[u]
-                p_u = np.squeeze(np.array(p[u_i, :].todense()))  # probabilities of the children of u
+                if u not in users_map:
+                    continue
+                u_i = users_map[u]
+                k_u = np.squeeze(self.k[u_i, :])  # probabilities of the children of u
+
+                if k_u.any():
+                    logger.debugv('probabilities of user %s :\n' + '\n'.join(
+                        ['{} : {}'.format(i, k_u[i]) for i in np.nonzero(k_u)[0]]), u)
 
                 # Iterate on children of u
-                for v_i in np.nonzero(p_u)[0]:
-                    v = user_ids[int(v_i)]  # receiver (child) user id
-                    if v in activated:
+                for v_i in np.nonzero(k_u)[0]:
+                    v = user_ids[v_i]  # receiver (child) user id
+                    if v in active_ids:
+                        logger.debugv('user %s is already activated', v)
                         continue
 
-                    # Set the threshold or sample it randomly if None.
-                    if threshold is None:
-                        thresh = random.random()
-                    else:
-                        thresh = threshold
-
-                    # Update probability of activation of the receiver.
-                    p_u_v = p_u[v_i]
+                    k_u_v = k_u[v_i]
                     if v not in self.probabilities:
-                        self.probabilities[v] = p_u_v
+                        prob = self.probabilities[v] = k_u_v
                     else:
-                        self.probabilities[v] = max(p_u_v, self.probabilities[v])
+                        prob = self.probabilities[v] = max(k_u_v, self.probabilities[v])
 
-                    if thresh <= p_u[v_i]:
-                        # Get delay parameter.
-                        delay_param = r[u_i, v_i]
-                        if delay_param == 0:
-                            continue
-                        if delay_param < 0:  # Due to some rare bugs in delays
-                            delay_param = -delay_param
+                    logger.debugv('prob of user %s to user %s = %f', u, v, prob)
+                    child_max_pred_thr = None
 
-                        # Sample delay from exponential distribution and calculate the receive time.
-                        delay = np.random.exponential(delay_param)  # in days
-                        # delay = delay_param  # in days
-                        send_dt = str_to_datetime(node.datetime)
-                        receive_dt = send_dt + timedelta(days=delay)
-                        if receive_dt < now:
-                            continue
+                    for thr in thresholds:
+                        if thr <= prob and thr <= max_predicted_thr:
+                            if self.r is not None:
+                                # Get delay parameter.
+                                delay_param = self.r[v_i]
 
-                        # Add it in the tree.
-                        send_dt = str_to_datetime(node.datetime)
-                        receive_dt = send_dt + timedelta(days=1)
-                        child = CascadeNode(v, datetime=receive_dt.strftime(DT_FORMAT))
-                        node.children.append(child)
-                        activated.append(v)
-                        next_step.append(child)
-                        logger.debug('a reshare predicted')
-            cur_step = sorted(next_step, key=lambda n: n.datetime)
+                                # Set the delay to mean of exponential distribution with parameter delay_param.
+                                delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
+                                if delay > self.max_delay:
+                                    delay = self.max_delay
+                                send_dt = str_to_datetime(node.datetime)
+                                receive_dt = (send_dt + timedelta(days=delay)).strftime(DT_FORMAT)
+                            else:
+                                receive_dt = None
 
-        return tree
+                            # Add it to the tree.
+                            child = trees[thr].add_child(u, v, act_time=receive_dt)
+                            child_max_pred_thr = thr
+                            logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
+
+                    if child_max_pred_thr is not None:
+                        next_step.append((child, child_max_pred_thr))
+                        active_ids.add(v)
+
+            cur_step = next_step
+            if self.r is not None:
+                cur_step = sorted(cur_step, key=lambda n: n[0].datetime)
+
+            step += 1
+
+        return trees
+
+    @abc.abstractmethod
+    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
+        pass
 
 
 class ParamTypes:
@@ -536,7 +580,7 @@ class GraphTypes:
     RELATIONS = 1
 
 
-class Project(object):
+class Project:
     def __init__(self, project_name, db=None):
         self.name = project_name
         self.path = os.path.join(settings.BASEPATH, 'data', project_name)

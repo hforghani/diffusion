@@ -28,17 +28,17 @@ class ProjectTester(abc.ABC):
         self.eco = eco
 
     @abc.abstractmethod
-    def run_validation_test(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int) \
+    def run_validation_test(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int, **kwargs) \
             -> Tuple[float, float, float, float, float]:
         """ Run the training, validation, and test stages for the project """
 
     @abc.abstractmethod
-    def run_test(self, threshold: numbers.Number, initial_depth: int, max_depth: int) \
+    def run_test(self, threshold: numbers.Number, initial_depth: int, max_depth: int, **kwargs) \
             -> Tuple[float, float, float, float]:
         """ Run the training, and test stages for the project """
 
     @abc.abstractmethod
-    def train(self):
+    def train(self, **kwargs):
         pass
 
     @time_measure(level='debug')
@@ -140,9 +140,9 @@ class ProjectTester(abc.ABC):
 
 
 class DefaultTester(ProjectTester):
-    def run_validation_test(self, thresholds, initial_depth, max_depth):
+    def run_validation_test(self, thresholds, initial_depth, max_depth, **kwargs):
         if self.model is None:
-            self.model = self.train()
+            self.model = self.train(**kwargs)
 
         with Timer('validation & test'):
             _, val_set, test_set = self.project.load_sets()
@@ -152,18 +152,18 @@ class DefaultTester(ProjectTester):
             precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth, model=self.model)
             return precision, recall, f1, fpr, thr
 
-    def run_test(self, threshold, initial_depth, max_depth):
+    def run_test(self, threshold, initial_depth, max_depth, **kwargs):
         if self.model is None:
-            self.model = self.train()
+            self.model = self.train(**kwargs)
 
         with Timer('test'):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
             return self.test(test_set, threshold, initial_depth, max_depth, model=self.model)
 
-    def train(self):
+    def train(self, **kwargs):
         with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]'):
-            model = train_cascades(self.method, self.project, eco=self.eco)
+            model = train_cascades(self.method, self.project, eco=self.eco, **kwargs)
         return model
 
     @time_measure(level='debug')
@@ -192,9 +192,9 @@ class DefaultTester(ProjectTester):
 
 
 class MultiProcTester(ProjectTester):
-    def run_validation_test(self, thresholds, initial_depth, max_depth):
+    def run_validation_test(self, thresholds, initial_depth, max_depth, **kwargs):
         if self.model is None:
-            self.model = self.train()
+            self.model = self.train(**kwargs)
 
         with Timer('validation & test'):
             _, val_set, test_set = self.project.load_sets()
@@ -204,22 +204,22 @@ class MultiProcTester(ProjectTester):
             precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth, self.model)
             return precision, recall, f1, fpr, thr
 
-    def run_test(self, threshold, initial_depth, max_depth):
+    def run_test(self, threshold, initial_depth, max_depth, **kwargs):
         if self.model is None:
-            self.model = self.train()
+            self.model = self.train(**kwargs)
 
         with Timer('test'):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
             return self.test(test_set, threshold, initial_depth, max_depth, self.model)
 
-    def train(self):
+    def train(self, **kwargs):
         model = None
         if not self.eco or not MEMMManager(self.project, self.method).db_exists():
             # If it is in economical mode, train the cascades once and save them. Then the trained model is fetched
             # from disk and used at each process. The model is not passed to each process due to pickling size limit.
             with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]'):
-                model = train_cascades(self.method, self.project, multi_processed=True, eco=self.eco)
+                model = train_cascades(self.method, self.project, multi_processed=True, eco=self.eco, **kwargs)
         return model
 
     @time_measure(level='debug')

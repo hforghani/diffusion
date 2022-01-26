@@ -13,7 +13,7 @@ from memm.exceptions import MemmException
 from settings import logger
 
 
-def train_memms(evidences, method, save_in_db=False, project=None):
+def train_memms(evidences, method, save_in_db=False, project=None, **kwargs):
     try:
         user_ids = list(evidences.keys())
         shuffle(user_ids)
@@ -43,7 +43,7 @@ def train_memms(evidences, method, save_in_db=False, project=None):
                 memm = TDMEMM()
 
             try:
-                memm.fit(ev, states)
+                memm.fit(ev, states, **kwargs)
                 memms[uid] = memm
             except MemmException:
                 logger.warn('evidences for user %s ignored due to insufficient data', uid)

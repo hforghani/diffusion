@@ -16,8 +16,8 @@ from utils.time_utils import time_measure
 
 
 def run_predict(method_name: str, project_name: str, validation: bool, criterion: Criterion, min_threshold: Number,
-                max_threshold: Number, thresholds_count: int, initial_depth: int, max_depth: int, multi_processed: bool,
-                eco: bool):
+                max_threshold: Number, thresholds_count: int, initial_depth: int, max_depth: int, iterations: int,
+                multi_processed: bool, eco: bool):
     project = Project(project_name)
     method = Method(method_name)
 
@@ -45,17 +45,17 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
         tester = DefaultTester(project, method, criterion, eco)
 
     if validation:
-        return tester.run_validation_test(thresholds, initial_depth, max_depth)
+        return tester.run_validation_test(thresholds, initial_depth, max_depth, iterations=iterations)
     else:
         if min_threshold is None:
             raise ValueError('must specify the threshold via -t option when --validation options is not given')
-        return tester.run_test(min_threshold, initial_depth, max_depth)
+        return tester.run_test(min_threshold, initial_depth, max_depth, iterations=iterations)
 
 
 @time_measure('info')
 def handle(args):
     res = run_predict(args.method, args.project, args.validation, Criterion(args.criterion), args.min_threshold,
-                      args.max_threshold, args.thresholds_count, args.initial_depth, args.max_depth,
+                      args.max_threshold, args.thresholds_count, args.initial_depth, args.max_depth, args.iterations,
                       args.multi_processed, args.eco)
     prec, rec, f1, fpr = res[:4]
 
@@ -89,6 +89,7 @@ def main():
                         help="If this option is given, the prediction is done in economical mode e.t. Memory consumption "
                              "is decreased and data is stored in DB and loaded everytime needed instead of storing in "
                              "RAM. Otherwise, no data is stored in DB.")
+    parser.add_argument("--iterations", type=int, help="the maximum learning iterations")
 
     args = parser.parse_args()
     handle(args)

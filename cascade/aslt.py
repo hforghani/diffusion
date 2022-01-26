@@ -43,14 +43,6 @@ def calc_h(sequences, graph, w, r, user_map):
                         val = np.exp(-r[uindex] * diff).dot(w_col[act_par_indexes]) * r[uindex]
 
                         if val == 0:
-                            logger.debug('act_par_indexes = %s', act_par_indexes)
-                            logger.debug('act_par_times = %s', act_par_times)
-                            logger.debug('user_time = %s', user_time)
-                            logger.debug('diff = %s', diff)
-                            logger.debug('np.exp(-r[uindex] * diff) = %s', np.exp(-r[uindex] * diff))
-                            logger.debug('w_col[act_par_indexes] = %s', w_col[act_par_indexes])
-                            logger.debug('r[uindex] = %s', r[uindex])
-                            logger.debug('val = %s', val)
                             logger.warning('\th = 0')
 
                 if val:
@@ -311,7 +303,6 @@ def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, c_set1
 class AsLT(LT):
     def __init__(self, project):
         self.project = project
-        self.sample_count = 2500
         self.w_param_name = 'w-aslt'
         self.r_param_name = 'r-aslt'
 
@@ -320,22 +311,10 @@ class AsLT(LT):
         except FileNotFoundError:
             pass
 
-    def fit(self, iterations=15, multi_processed=False, eco=False):
-        data_loaded = False
-        if eco:
-            try:
-                super().fit()
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-
-        if not data_loaded:
-            train_set, _, _ = self.project.load_sets()
-            self.calc_parameters(train_set, iterations, multi_processed, eco=eco)
-
-        return self
-
-    def calc_parameters(self, train_set, iterations, multi_processed, eco):
+    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
+        iterations = kwargs.get('iterations', 15)
+        if iterations is None:
+            iterations = 15
         graph, sequences = self.project.load_or_extract_graph_seq()
 
         # Create maps from users and cascades db id's to their matrix id's.
@@ -419,7 +398,7 @@ class AsLT(LT):
                     logger.info('Stop condition met: r dif + w dif < 1e-6')
                     break
 
-        self.w = w.tocsr()
+        self.w = w.todense()
         self.r = r
 
     def _load_or_calc_psi(self, sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed, eco):

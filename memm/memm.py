@@ -40,7 +40,7 @@ class MEMM(abc.ABC):
         self.Lambda = None
 
     @time_measure(level='debug')
-    def fit(self, evidence: dict, states: list):
+    def fit(self, evidence: dict, states: list, **kwargs):
         """
         Learn MEMM lambdas and transition probabilities for previous state of 0.
         :param evidence:   dictionary of sequences in the format {'dimension': int, 'sequences': list}
@@ -78,7 +78,10 @@ class MEMM(abc.ABC):
 
         # GIS, run until convergence
         epsilon = 10 ** -4
-        max_iteration = 1000
+        max_iteration = kwargs.get('iterations', 1000)
+        if max_iteration is None:
+            max_iteration = 1000
+        logger.debug('max iterations = %d', max_iteration)
         iter_count = 0
         while True:
             iter_count += 1

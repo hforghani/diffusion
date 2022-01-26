@@ -155,7 +155,7 @@ class MEMMModel(abc.ABC):
         logger.debugv('size of 10 first large evidences: %s', [sizes[uid] for uid in large_ev_user_ids[:10]])
         return large_ev_user_ids, small_ev_user_ids
 
-    def _fit_multiproc(self, evidences):
+    def _fit_multiproc(self, evidences, **kwargs):
         """
         Train the MEMMs using evidences given in multiprocessing mode.
         Side effect: Clears the evidences' dictionary.
@@ -175,7 +175,7 @@ class MEMMModel(abc.ABC):
                 evidences_i[uid] = evidences.pop(uid)  # to free RAM
 
             # Train a MEMM for each user.
-            res = pool.apply_async(train_memms, (evidences_i, self.method, False, self.project))
+            res = pool.apply_async(train_memms, (evidences_i, self.method, False, self.project), kwds=kwargs)
             results.append(res)
 
         del evidences  # to free RAM
@@ -194,7 +194,7 @@ class MEMMModel(abc.ABC):
 
         return memms
 
-    def _fit_by_evidences(self, train_set, multi_processed=False, eco=False):
+    def _fit_by_evidences(self, train_set, multi_processed=False, eco=False, **kwargs):
         evidences = self._prepare_evidences(train_set, multi_processed, eco)
         memms = {}
         logger.info('training MEMMs started')
@@ -212,7 +212,7 @@ class MEMMModel(abc.ABC):
                 multi_processed_ev[uid] = evidences.pop(uid)  # to free RAM
             del evidences
 
-            memms = self._fit_multiproc(multi_processed_ev)
+            memms = self._fit_multiproc(multi_processed_ev, **kwargs)
 
             del multi_processed_ev
             if eco:
@@ -228,7 +228,7 @@ class MEMMModel(abc.ABC):
         evidences otherwise.
         """
         logger.info('training %d MEMMs sequentially', len(single_process_ev))
-        single_proc_memms = train_memms(single_process_ev, self.method, save_in_db=True, project=self.project)
+        single_proc_memms = train_memms(single_process_ev, self.method, save_in_db=True, project=self.project, **kwargs)
         del single_process_ev
         if not eco:
             memms.update(single_proc_memms)
@@ -237,7 +237,7 @@ class MEMMModel(abc.ABC):
         return memms
 
     @time_measure(level='debug')
-    def fit(self, multi_processed=False, eco=False):
+    def fit(self, multi_processed=False, eco=False, **kwargs):
         """
         Load MEMM's from DB if exist, otherwise train a MEMM for each user in the training set.
         :return: self
@@ -249,7 +249,7 @@ class MEMMModel(abc.ABC):
         if not eco or not manager.db_exists():
             if eco and not manager.db_exists():
                 logger.info('MEMMs do not exist in db.')
-            self._memms = self._fit_by_evidences(train_set, multi_processed, eco=eco)
+            self._memms = self._fit_by_evidences(train_set, multi_processed, eco=eco, **kwargs)
 
         if eco:
             logger.info('loading MEMMs from db ...')

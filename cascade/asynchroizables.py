@@ -6,6 +6,7 @@ from networkx import DiGraph
 
 import settings
 from cascade.avg import LTAvg
+from cascade.daic import DAIC
 from cascade.enum import Method, Criterion
 from cascade.models import Project
 from cascade.aslt import AsLT
@@ -75,10 +76,11 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
                                                     res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
-def train_cascades(method, project, multi_processed=False, eco=False):
+def train_cascades(method, project, multi_processed=False, eco=False, **kwargs):
     model_classes = {
         Method.ASLT: AsLT,
         Method.AVG: LTAvg,
+        Method.DAIC: DAIC,
         Method.BIN_MEMM: BinMEMMModel,
         Method.TD_MEMM: TDMEMMModel,
         Method.REDUCED_TD_MEMM: ReducedTDMEMMModel,
@@ -93,7 +95,7 @@ def train_cascades(method, project, multi_processed=False, eco=False):
         model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
     elif method in model_classes:
         model_clazz = model_classes[method]
-        model = model_clazz(project).fit(multi_processed=multi_processed, eco=eco)
+        model = model_clazz(project).fit(multi_processed=multi_processed, eco=eco, **kwargs)
     else:
         raise Exception('invalid method "%s"' % method.value)
     return model

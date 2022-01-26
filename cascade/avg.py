@@ -17,15 +17,11 @@ class LTAvg(LT):
         except FileNotFoundError:
             pass
 
-    def fit(self, calc_weights=True, calc_delays=True, continue_calc=False, multi_processed=True):
-        try:
-            super().fit()
-        except FileNotFoundError:
-            self.calc_parameters(calc_delays, calc_weights, continue_calc)
+    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
+        calc_weights = kwargs.get('calc_weights', True)
+        calc_delays = kwargs.get('calc_delays', True)
+        continue_calc = kwargs.get('continue_calc', True)
 
-        return self
-
-    def calc_parameters(self, calc_delays, calc_weights, continue_calc):
         train_set, _, _ = self.project.load_sets()
         logger.info('querying posts of the cascades ...')
         db = DBManager(self.project.db).db
