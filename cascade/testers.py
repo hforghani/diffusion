@@ -16,7 +16,7 @@ from cascade.models import Project
 from db.managers import MEMMManager
 from cascade.enum import Method, Criterion
 from settings import logger
-from utils.time_utils import time_measure, Timer
+from utils.time_utils import time_measure, Timer, TimeUnit
 
 
 class ProjectTester(abc.ABC):
@@ -162,7 +162,7 @@ class DefaultTester(ProjectTester):
             return self.test(test_set, threshold, initial_depth, max_depth, model=self.model)
 
     def train(self, **kwargs):
-        with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]'):
+        with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.MINUTES):
             model = train_cascades(self.method, self.project, eco=self.eco, **kwargs)
         return model
 
@@ -218,7 +218,8 @@ class MultiProcTester(ProjectTester):
         if not self.eco or not MEMMManager(self.project, self.method).db_exists():
             # If it is in economical mode, train the cascades once and save them. Then the trained model is fetched
             # from disk and used at each process. The model is not passed to each process due to pickling size limit.
-            with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]'):
+            with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]',
+                       unit=TimeUnit.MINUTES):
                 model = train_cascades(self.method, self.project, multi_processed=True, eco=self.eco, **kwargs)
         return model
 

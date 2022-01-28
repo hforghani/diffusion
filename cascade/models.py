@@ -230,6 +230,14 @@ class CascadeTree:
                 break
         return cur_nodes
 
+    def depth_of(self, user_id):
+        node = self._id_to_node[user_id]
+        depth = 0
+        while node.parent_id is not None:
+            node = self._id_to_node[node.parent_id]
+            depth += 1
+        return depth
+
     def edges(self, node=None, max_depth=None):
         nodes = self.nodes(node, max_depth)
         edges_list = [(node.parent_id, node.user_id) for node in nodes if node.parent_id]
@@ -334,9 +342,9 @@ class LT(abc.ABC):
         data_loaded = False
         if eco:
             try:
-                self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE).todense()
-                self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
+                self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE).toarray()
                 data_loaded = True
+                self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
             except FileNotFoundError:
                 pass
 
@@ -455,9 +463,9 @@ class IC(abc.ABC):
         data_loaded = False
         if eco:
             try:
-                self.k = self.project.load_param(self.k_param_name, ParamTypes.SPARSE).todense()
-                self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
+                self.k = self.project.load_param(self.k_param_name, ParamTypes.SPARSE).toarray()
                 data_loaded = True
+                self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
             except FileNotFoundError:
                 pass
 
@@ -508,7 +516,7 @@ class IC(abc.ABC):
                 if u not in users_map:
                     continue
                 u_i = users_map[u]
-                k_u = np.squeeze(self.k[u_i, :])  # probabilities of the children of u
+                k_u = self.k[u_i, :]  # probabilities of the children of u
 
                 if k_u.any():
                     logger.debugv('probabilities of user %s :\n' + '\n'.join(

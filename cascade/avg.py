@@ -8,14 +8,9 @@ from cascade.models import LT, ParamTypes
 
 class LTAvg(LT):
     def __init__(self, project):
-        self.project = project
+        super(LTAvg, self).__init__(project)
         self.w_param_name = 'w-avg'
         self.r_param_name = 'r-avg'
-
-        try:
-            super(LTAvg, self).__init__(project)
-        except FileNotFoundError:
-            pass
 
     def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
         calc_weights = kwargs.get('calc_weights', True)

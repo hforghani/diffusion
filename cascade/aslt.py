@@ -302,14 +302,9 @@ def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, c_set1
 
 class AsLT(LT):
     def __init__(self, project):
-        self.project = project
+        super(AsLT, self).__init__(project)
         self.w_param_name = 'w-aslt'
         self.r_param_name = 'r-aslt'
-
-        try:
-            super(AsLT, self).__init__(project)
-        except FileNotFoundError:
-            pass
 
     def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
         iterations = kwargs.get('iterations', 15)

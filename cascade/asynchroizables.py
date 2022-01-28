@@ -6,7 +6,7 @@ from networkx import DiGraph
 
 import settings
 from cascade.avg import LTAvg
-from cascade.daic import DAIC
+from cascade.ic_models import DAIC, EMIC
 from cascade.enum import Method, Criterion
 from cascade.models import Project
 from cascade.aslt import AsLT
@@ -80,6 +80,7 @@ def train_cascades(method, project, multi_processed=False, eco=False, **kwargs):
     model_classes = {
         Method.ASLT: AsLT,
         Method.AVG: LTAvg,
+        Method.EMIC: EMIC,
         Method.DAIC: DAIC,
         Method.BIN_MEMM: BinMEMMModel,
         Method.TD_MEMM: TDMEMMModel,

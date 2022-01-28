@@ -4,6 +4,7 @@ from enum import Enum
 class Method(Enum):
     ASLT = 'aslt'
     AVG = 'avg'
+    EMIC = 'emic'
     DAIC = 'daic'
     MLN_PRAC = 'mlnprac'
     MLN_ALCH = 'mlnalch'
