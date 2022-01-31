@@ -223,7 +223,7 @@ class IC(abc.ABC):
                         if thr <= prob and thr <= max_predicted_thr:
                             if self.r is not None:
                                 # Get delay parameter.
-                                delay_param = self.r[v_i]
+                                delay_param = self.r[u_i, v_i]
 
                                 # Set the delay to mean of exponential distribution with parameter delay_param.
                                 delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days

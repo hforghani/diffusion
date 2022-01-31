@@ -38,6 +38,7 @@ class MEMMModel(abc.ABC):
         self._last_obs = None
         self._last_prob = None
         self._last_state = None
+        self.max_iterations = 500
 
     @time_measure(level='debug')
     def _prepare_evidences(self, train_set, multi_processed=False, eco=False):
@@ -154,7 +155,7 @@ class MEMMModel(abc.ABC):
         logger.debugv('size of 10 first large evidences: %s', [sizes[uid] for uid in large_ev_user_ids[:10]])
         return large_ev_user_ids, small_ev_user_ids
 
-    def _fit_multiproc(self, evidences, **kwargs):
+    def _fit_multiproc(self, evidences, iterations):
         """
         Train the MEMMs using evidences given in multiprocessing mode.
         Side effect: Clears the evidences' dictionary.
@@ -174,7 +175,7 @@ class MEMMModel(abc.ABC):
                 evidences_i[uid] = evidences.pop(uid)  # to free RAM
 
             # Train a MEMM for each user.
-            res = pool.apply_async(train_memms, (evidences_i, self.method, False, self.project), kwds=kwargs)
+            res = pool.apply_async(train_memms, (evidences_i, self.method, iterations, False, self.project))
             results.append(res)
 
         del evidences  # to free RAM
@@ -198,6 +199,11 @@ class MEMMModel(abc.ABC):
         memms = {}
         logger.info('training MEMMs started')
 
+        max_iteration = kwargs.get('iterations', self.max_iterations)
+        if max_iteration is None:
+            max_iteration = self.max_iterations
+        logger.info('max iterations = %d', max_iteration)
+
         if multi_processed:
             single_process_ev = {}  # Evidences to train sequentially in a single process.
             multi_processed_ev = {}  # Evidences to train simultaneously in multiple processes.
@@ -211,7 +217,7 @@ class MEMMModel(abc.ABC):
                 multi_processed_ev[uid] = evidences.pop(uid)  # to free RAM
             del evidences
 
-            memms = self._fit_multiproc(multi_processed_ev, **kwargs)
+            memms = self._fit_multiproc(multi_processed_ev, max_iteration)
 
             del multi_processed_ev
             if eco:
@@ -227,7 +233,8 @@ class MEMMModel(abc.ABC):
         evidences otherwise.
         """
         logger.info('training %d MEMMs sequentially', len(single_process_ev))
-        single_proc_memms = train_memms(single_process_ev, self.method, save_in_db=True, project=self.project, **kwargs)
+        single_proc_memms = train_memms(single_process_ev, self.method, max_iteration, save_in_db=True,
+                                        project=self.project)
         del single_process_ev
         if not eco:
             memms.update(single_proc_memms)

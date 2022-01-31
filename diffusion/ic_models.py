@@ -14,7 +14,7 @@ class EMIC(IC):
     def __init__(self, project):
         super(EMIC, self).__init__(project)
         self.k_param_name = 'k-emic'
-        self.max_iterations = 15
+        self.max_iterations = 20
 
     def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
         iterations = kwargs.get('iterations', self.max_iterations)
@@ -38,7 +38,7 @@ class EMIC(IC):
         for it in range(iterations):
             logger.info('#%d', it + 1)
 
-            p = self.__calc_p(k, train_set, user_ids, user_map, cascade_map, graph, sequences, trees)
+            p = self._calc_p(k, train_set, user_ids, user_map, cascade_map, graph, sequences, trees)
 
             last_k = k.copy()
             k = self._calc_k(p, k, user_ids, user_map, graph, user_times)
@@ -125,7 +125,7 @@ class EMIC(IC):
         return new_k
 
     @time_measure('debug')
-    def __calc_p(self, k, cascade_ids, user_ids, user_map, cascade_map, graph, sequences, trees):
+    def _calc_p(self, k, cascade_ids, user_ids, user_map, cascade_map, graph, sequences, trees):
         c_count = len(cascade_ids)
         u_count = len(user_ids)
         p = np.zeros((c_count, u_count))
@@ -161,7 +161,7 @@ class DAIC(EMIC):
     def __init__(self, project):
         super(DAIC, self).__init__(project)
         self.k_param_name = 'k-daic'
-        self.max_iterations = 15
+        self.max_iterations = 20
 
     def _extract_user_times(self, cascade_ids, user_ids, cascade_map, user_map, sequences, trees):
         c_count = len(cascade_ids)
@@ -202,15 +202,15 @@ class DAIC(EMIC):
                 delta = beta ** 2 - 4 * lambdaa * gamma
                 new_k[u_index, v_index] = (beta - math.sqrt(delta)) / (2 * lambdaa)
 
-                logger.debugv('positives count = %d', len(pos_indexes))
-                logger.debugv('negatives count = %d', neg_count)
-                logger.debugv('beta = %s', beta)
-                logger.debugv('pos_indexes = %s', pos_indexes)
-                # logger.debugv('p[pos_indexes, user_index] = %s', p[pos_indexes, user_index])
-                # logger.debugv('k_u_v = %f', k[u_index, v_index])
-                logger.debugv('gamma = %f', gamma)
-                logger.debugv('delta = %f', delta)
-                # logger.debugv('last k = %f, new k = %f', k[u_index, v_index], new_k[u_index, v_index])
+                # logger.debugv('v = %s', v)
+                # logger.debugv('pos_indexes = %s', pos_indexes)
+                # logger.debugv('neg_count = %s', neg_count)
+                # logger.debugv('beta = %s', beta)
+                # logger.debugv('k[u_index, v_index] = %s', k[u_index, v_index])
+                # logger.debugv('p[pos_indexes, v_index] = %s', p[pos_indexes, v_index])
+                # logger.debugv('np.sum(1 / p[pos_indexes, v_index] = %s', np.sum(1 / p[pos_indexes, v_index]))
+                # logger.debugv('gamma = %s', gamma)
+                # logger.debugv('delta = %s', delta)
 
         return new_k
 
@@ -224,7 +224,7 @@ class DAIC(EMIC):
         return pos_indexes
 
     @time_measure('debug')
-    def __calc_p(self, theta, cascade_ids, user_ids, user_map, cascade_map, graph, sequences, trees):
+    def _calc_p(self, theta, cascade_ids, user_ids, user_map, cascade_map, graph, sequences, trees):
         c_count = len(cascade_ids)
         u_count = len(user_ids)
         p = np.zeros((c_count, u_count))
@@ -240,9 +240,9 @@ class DAIC(EMIC):
                     continue
                 vindex = user_map[v]
                 prev_par_indexes = [user_map[p] for p in seq.get_active_parents(v, graph)]
+                logger.debugv('prev_par_indexes = %s', prev_par_indexes)
                 if prev_par_indexes:
                     p[cindex, vindex] = 1 - np.prod(1 - theta[prev_par_indexes, vindex])
-                    logger.debugv('prev_par_indexes = %s', prev_par_indexes)
                     # logger.debugv('theta[prev_par_indexes, vindex] = %s', theta[prev_par_indexes, vindex])
                     # logger.debugv('p[cindex, vindex] = %f', p[cindex, vindex])
 

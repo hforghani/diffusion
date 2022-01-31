@@ -98,7 +98,7 @@ class ProjectTester(abc.ABC):
             #     logger.info('prp1 avg = %.3f', np.mean(np.array(prp1s[thr])))
             #     logger.info('prp2 avg = %.3f', np.mean(np.array(prp2s[thr])))
 
-        logger.info('averages:\n' + '\n'.join(logs))
+        logger.debug('averages:\n' + '\n'.join(logs))
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
     def __save_charts(self, best_thr: float, precs: dict, recs: dict, f1s: dict, fprs: dict, thresholds: list,

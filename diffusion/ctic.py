@@ -40,14 +40,14 @@ def calc_a(sequences, graph, k, r, user_map):
                 k_col = k[parents_indexes, v_index].toarray()
                 r_col = r[parents_indexes, v_index].toarray()
                 val = np.multiply(np.multiply(k_col, r_col), np.exp(-np.multiply(r_col, diff)))
-                if (np.float32(val) == 0).any():
-                    logger.debug('cid = %s, v = %s', cid, v)
-                    logger.debug('parents = %s', parents)
-                    logger.debug('diff = %s', diff)
-                    logger.debug('k_col = %s', k_col)
-                    logger.debug('r_col = %s', r_col)
-                    logger.debug('val = %s', val)
-                    logger.warning('\ta = 0')
+                # if (np.float32(val) == 0).any():
+                # logger.debug('cid = %s, v = %s', cid, v)
+                # logger.debug('parents = %s', parents)
+                # logger.debug('diff = %s', diff)
+                # logger.debug('k_col = %s', k_col)
+                # logger.debug('r_col = %s', r_col)
+                # logger.debug('val = %s', val)
+                # logger.warning('\ta = 0')
                 if val.size > 1:
                     values.extend(np.squeeze(val).tolist())
                 else:
@@ -115,7 +115,7 @@ def calc_b(sequences, graph, k, r, user_map):
         raise
 
 
-def calc_alpha(sequences, graph, a, b, user_map):
+def calc_alpha(sequences, graph, k, r, user_map):
     try:
         u_count = len(user_map)
         c_count = len(sequences)
@@ -132,9 +132,9 @@ def calc_alpha(sequences, graph, a, b, user_map):
                     continue
                 v_index = user_map[v]
                 parents = seq.get_active_parents(v, graph)
-                if str(v) == '5d89465a86887712d4b704a9':
-                    logger.debug('cid = %s', cid)
-                    logger.debug('parents = %s', parents)
+                # if str(v) == '5d89465a86887712d4b704a9':
+                #     logger.debug('cid = %s', cid)
+                #     logger.debug('parents = %s', parents)
                 if not parents:
                     continue
 
@@ -142,18 +142,23 @@ def calc_alpha(sequences, graph, a, b, user_map):
                 if len(parents) == 1:
                     values.append(1)
                 else:
-                    a_col = a[cid][parents_indexes, v_index].toarray()
-                    b_col = b[cid][parents_indexes, v_index].toarray()
-                    val = np.divide(a_col, b_col)
+                    parents_times = np.array([seq.user_times[vid] for vid in parents])
+                    user_time = np.ones(len(parents)) * seq.user_times[v]
+                    diff = (user_time - parents_times).reshape(len(parents), 1)
+                    diff[diff == 0] = 1.0 / (30 * 24 * 60)  # 1 minute
+                    k_col = k[parents_indexes, v_index].toarray()
+                    r_col = r[parents_indexes, v_index].toarray()
+                    k_exp = np.multiply(k_col, np.exp(-np.multiply(r_col, diff)))
+                    val = np.divide(np.multiply(r_col, k_exp), k_exp + 1 - k_col)
                     val /= np.sum(val)
                     if val.size > 1:
                         values.extend(np.squeeze(val).tolist())
                     else:
                         values.append(float(val))
-                    if str(v) == '5d89465a86887712d4b704a9':
-                        logger.debug('a_col = %s', a_col)
-                        logger.debug('b_col = %s', b_col)
-                        logger.debug('val = %s', val)
+                    # if str(v) == '5d89465a86887712d4b704a9':
+                    #     logger.debug('a_col = %s', a_col)
+                    #     logger.debug('b_col = %s', b_col)
+                    #     logger.debug('val = %s', val)
 
                 rows.extend(parents_indexes)
                 cols.extend([v_index] * len(parents_indexes))
@@ -170,7 +175,7 @@ def calc_alpha(sequences, graph, a, b, user_map):
         raise
 
 
-def calc_beta(sequences, graph, k, r, b, user_map):
+def calc_beta(sequences, graph, k, r, user_map):
     try:
         u_count = len(user_map)
         c_count = len(sequences)
@@ -195,8 +200,9 @@ def calc_beta(sequences, graph, k, r, b, user_map):
                 diff = (user_time - parents_times).reshape(len(parents), 1)
                 diff[diff == 0] = 1.0 / (30 * 24 * 60)  # 1 minute
                 k_col = k[parents_indexes, v_index].toarray()
-                b_col = b[cid][parents_indexes, v_index].toarray()
-                val = np.divide(b_col - 1 + k_col, b_col)
+                r_col = r[parents_indexes, v_index].toarray()
+                k_exp = np.multiply(k_col, np.exp(-np.multiply(r_col, diff)))
+                val = np.divide(k_exp, k_exp + 1 - k_col)
                 if val.size > 1:
                     values.extend(np.squeeze(val).tolist())
                 else:
@@ -216,7 +222,7 @@ def calc_beta(sequences, graph, k, r, b, user_map):
         raise
 
 
-def calc_r(edges, alpha, beta, user_map, sequences, edge_pos_indexes):
+def calc_r(edges, alpha, beta, user_map, sequences, edge_pos_cascades):
     try:
         edges_count = len(edges)
         values = []
@@ -228,27 +234,27 @@ def calc_r(edges, alpha, beta, user_map, sequences, edge_pos_indexes):
 
             u_index = user_map[u]
             v_index = user_map[v]
-            pos_indexes = edge_pos_indexes[(u, v)]
-            if pos_indexes:
-                alphas = np.array([alpha[cid][u_index, v_index] for cid in pos_indexes])
-                betas = np.array([beta[cid][u_index, v_index] for cid in pos_indexes])
-                u_times = np.array([sequences[cid].user_times[u] for cid in pos_indexes])
-                v_times = np.array([sequences[cid].user_times[v] for cid in pos_indexes])
+            pos_cascades = edge_pos_cascades[(u, v)]
+            if pos_cascades:
+                alphas = np.array([alpha[cid][u_index, v_index] for cid in pos_cascades])
+                betas = np.array([beta[cid][u_index, v_index] for cid in pos_cascades])
+                u_times = np.array([sequences[cid].user_times[u] for cid in pos_cascades])
+                v_times = np.array([sequences[cid].user_times[v] for cid in pos_cascades])
                 diff = v_times - u_times
                 diff[diff == 0] = 1.0 / (30 * 24 * 60)  # 1 minute
                 numerator = float(np.sum(alphas))
                 denominator = float(np.sum(np.multiply(alphas + np.multiply(1 - alphas, betas), diff)))
-                if str(v) == '5d89465a86887712d4b704a9':
-                    logger.debug('u,v = %s', (u, v))
-                    logger.debug('pos_indexes = %s', pos_indexes)
-                    logger.debug('diff = %s', diff)
-                    logger.debug('alphas = %s', alphas)
-                    logger.debug('betas = %s', betas)
-                    logger.debug('numerator = %s', numerator)
-                    logger.debug('denominator = %s', denominator)
+                # if str(v) == '5d89465a86887712d4b704a9':
+                #     logger.debug('u,v = %s', (u, v))
+                #     logger.debug('pos_cascades = %s', pos_cascades)
+                #     logger.debug('diff = %s', diff)
+                #     logger.debug('alphas = %s', alphas)
+                #     logger.debug('betas = %s', betas)
+                #     logger.debug('numerator = %s', numerator)
+                #     logger.debug('denominator = %s', denominator)
                 val = numerator / denominator
-                if str(v) == '5d89465a86887712d4b704a9':
-                    logger.debug('val = %s', val)
+                # if str(v) == '5d89465a86887712d4b704a9':
+                #     logger.debug('val = %s', val)
 
                 values.append(val)
                 rows.append(u_index)
@@ -264,7 +270,7 @@ def calc_r(edges, alpha, beta, user_map, sequences, edge_pos_indexes):
         raise
 
 
-def calc_k(edges, alpha, beta, user_map, edge_pos_indexes, edge_neg_counts):
+def calc_k(edges, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts):
     try:
         edges_count = len(edges)
         values = []
@@ -276,18 +282,18 @@ def calc_k(edges, alpha, beta, user_map, edge_pos_indexes, edge_neg_counts):
 
             u_index = user_map[u]
             v_index = user_map[v]
-            pos_indexes = edge_pos_indexes[(u, v)]
+            pos_cascades = edge_pos_cascades[(u, v)]
 
-            if pos_indexes:
+            if pos_cascades:
                 neg_count = edge_neg_counts[(u, v)]
-                alphas = np.array([alpha[cid][u_index, v_index] for cid in pos_indexes])
-                betas = np.array([beta[cid][u_index, v_index] for cid in pos_indexes])
-                val = np.sum(alphas + np.multiply(1 - alphas, betas)) / (len(pos_indexes) + neg_count)
-                if str(v) == '5d89a9e886887712d4d9e2e4':
-                    logger.debug('neg_count = %s', neg_count)
-                    logger.debug('alphas = %s', alphas)
-                    logger.debug('betas = %s', betas)
-                    logger.debug('val = %s', val)
+                alphas = np.array([alpha[cid][u_index, v_index] for cid in pos_cascades])
+                betas = np.array([beta[cid][u_index, v_index] for cid in pos_cascades])
+                val = np.sum(alphas + np.multiply(1 - alphas, betas)) / (len(pos_cascades) + neg_count)
+                # if str(v) == '5d89a9e886887712d4d9e2e4':
+                #     logger.debug('neg_count = %s', neg_count)
+                #     logger.debug('alphas = %s', alphas)
+                #     logger.debug('betas = %s', betas)
+                #     logger.debug('val = %s', val)
                 values.append(float(val))
                 rows.append(u_index)
                 cols.append(v_index)
@@ -323,10 +329,9 @@ class CTIC(IC):
         logger.info('user space size = %d', len(user_map))
 
         logger.info('extracting positive and negative examples ...')
-        edge_pos_indexes, edge_neg_counts = self.__get_pos_neg_examples(sequences, graph)
+        edge_pos_cascades, edge_neg_counts = self.__get_pos_neg_examples(sequences, graph)
 
         # Set initial values of k and r.
-        # k, r = self.__initialize(user_ids, user_map, graph, eco)
         k, r = self.__set_initial_values(graph, user_ids, user_map)
 
         # Run EM algorithm.
@@ -335,39 +340,21 @@ class CTIC(IC):
             with Timer('iteration time'):
                 logger.info('#%d' % (i + 1))
 
-                # a = self.__load_or_calc_a(sequences, graph, k, r, train_set, user_map, multi_processed, eco)
-                logger.info('calculating a ...')
-                a = self.__calc_a_mp(sequences, graph, k, r, train_set, user_map, multi_processed)
-                # b = self.__load_or_calc_b(sequences, graph, k, r, train_set, user_map, multi_processed, eco)
-                logger.info('calculating b ...')
-                b = self.__calc_b_mp(sequences, graph, k, r, train_set, user_map, multi_processed)
-                # alpha = self.__load_or_calc_alpha(sequences, graph, a, b, train_set, user_map, multi_processed, eco)
                 logger.info('calculating alpha ...')
-                alpha = self.__calc_alpha_mp(sequences, graph, a, b, train_set, user_map, multi_processed)
-                del a
-                # beta = self.__load_or_calc_beta(sequences, graph, k, r, b, train_set, user_map, multi_processed, eco)
+                alpha = self.__calc_alpha_mp(sequences, graph, k, r, train_set, user_map, multi_processed)
                 logger.info('calculating beta ...')
-                beta = self.__calc_beta_mp(sequences, graph, k, r, b, train_set, user_map, multi_processed)
-                del b
-
+                beta = self.__calc_beta_mp(sequences, graph, k, r, train_set, user_map, multi_processed)
                 logger.info('estimating r ...')
                 last_r = r
-                r = self.__calc_r_mp(sequences, graph, alpha, beta, user_map, edge_pos_indexes, multi_processed)
-
+                r = self.__calc_r_mp(sequences, graph, alpha, beta, user_map, edge_pos_cascades, multi_processed)
                 logger.info('estimating k ...')
                 last_k = k
-                k = self.__calc_k_mp(graph, alpha, beta, user_map, edge_pos_indexes, edge_neg_counts, multi_processed)
+                k = self.__calc_k_mp(graph, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts, multi_processed)
 
                 if eco:
                     # Save r and k.
                     self.project.save_param(r, self.r_param_name, ParamTypes.SPARSE)
                     self.project.save_param(k, self.k_param_name, ParamTypes.SPARSE)
-
-                    # # Delete all except k and r.
-                    # self.project.delete_param('a', ParamTypes.SPARSE_LIST)
-                    # self.project.delete_param('b', ParamTypes.SPARSE_LIST)
-                    # self.project.delete_param('alpha', ParamTypes.SPARSE_LIST)
-                    # self.project.delete_param('beta', ParamTypes.SPARSE_LIST)
 
                 # Calculate and report delta r and delta k.
                 r_dif = r - last_r
@@ -385,24 +372,6 @@ class CTIC(IC):
 
         self.k = k.toarray()
         self.r = r.toarray()
-
-    def __initialize(self, user_ids, user_map, graph, eco):
-        data_loaded = False
-        if eco:
-            try:
-                k = self.project.load_param(self.k_param_name, ParamTypes.SPARSE)
-                r = self.project.load_param(self.r_param_name, ParamTypes.SPARSE)
-                logger.info('k and r loaded')
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.info('initializing parameters ...')
-            k, r = self.__set_initial_values(graph, user_ids, user_map)
-            if eco:
-                self.project.save_param(k, self.k_param_name, ParamTypes.SPARSE)
-                self.project.save_param(r, self.r_param_name, ParamTypes.SPARSE)
-        return k, r
 
     @time_measure('debug')
     def __set_initial_values(self, graph, user_ids, user_map):
@@ -428,70 +397,6 @@ class CTIC(IC):
         k = sparse.csc_matrix((k_values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
         r = sparse.csc_matrix((r_values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
         return k, r
-
-    def __load_or_calc_a(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed, eco):
-        data_loaded = False
-        if eco:
-            try:
-                a = self.project.load_param('a', ParamTypes.SPARSE_LIST)
-                logger.info('a loaded')
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.info('calculating a ...')
-            a = self.__calc_a_mp(sequences, graph, k, r, cascade_ids, user_map, multi_processed)
-            if eco:
-                self.project.save_param(a, 'a', ParamTypes.SPARSE_LIST)
-        return a
-
-    def __load_or_calc_b(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed, eco):
-        data_loaded = False
-        if eco:
-            try:
-                b = self.project.load_param('b', ParamTypes.SPARSE_LIST)
-                logger.info('b loaded')
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.info('calculating b ...')
-            b = self.__calc_b_mp(sequences, graph, k, r, cascade_ids, user_map, multi_processed)
-            if eco:
-                self.project.save_param(b, 'b', ParamTypes.SPARSE_LIST)
-        return b
-
-    def __load_or_calc_alpha(self, sequences, graph, a, b, cascade_ids, user_map, multi_processed, eco):
-        data_loaded = False
-        if eco:
-            try:
-                alpha = self.project.load_param('alpha', ParamTypes.SPARSE_LIST)
-                logger.info('alpha loaded')
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.info('calculating alpha ...')
-            alpha = self.__calc_alpha_mp(sequences, graph, a, b, cascade_ids, user_map, multi_processed)
-            if eco:
-                self.project.save_param(alpha, 'alpha', ParamTypes.SPARSE_LIST)
-        return alpha
-
-    def __load_or_calc_beta(self, sequences, graph, k, r, b, cascade_ids, user_map, multi_processed, eco):
-        data_loaded = False
-        if eco:
-            try:
-                beta = self.project.load_param('beta', ParamTypes.SPARSE_LIST)
-                logger.info('beta loaded')
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.info('calculating beta ...')
-            beta = self.__calc_beta_mp(sequences, graph, k, r, b, cascade_ids, user_map, multi_processed)
-            if eco:
-                self.project.save_param(beta, 'beta', ParamTypes.SPARSE_LIST)
-        return beta
 
     @time_measure('debug')
     def __calc_a_mp(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed):
@@ -550,7 +455,7 @@ class CTIC(IC):
         return b
 
     @time_measure('debug')
-    def __calc_alpha_mp(self, sequences, graph, a, b, cascade_ids, user_map, multi_processed):
+    def __calc_alpha_mp(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed):
         c_count = len(cascade_ids)
 
         if multi_processed:
@@ -561,7 +466,7 @@ class CTIC(IC):
             for j in range(0, c_count, step):
                 subset = cascade_ids[j: j + step]
                 sequences_j = {cid: sequences[cid] for cid in subset}
-                res = pool.apply_async(calc_alpha, (sequences_j, graph, a, b, user_map))
+                res = pool.apply_async(calc_alpha, (sequences_j, graph, k, r, user_map))
                 results.append(res)
 
             pool.close()
@@ -573,12 +478,12 @@ class CTIC(IC):
                 a_subset = results[i].get()
                 b.update(a_subset)
         else:
-            b = calc_alpha(sequences, graph, a, b, user_map)
+            b = calc_alpha(sequences, graph, k, r, user_map)
 
         return b
 
     @time_measure('debug')
-    def __calc_beta_mp(self, sequences, graph, k, r, b, cascade_ids, user_map, multi_processed):
+    def __calc_beta_mp(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed):
         c_count = len(cascade_ids)
 
         if multi_processed:
@@ -589,7 +494,7 @@ class CTIC(IC):
             for j in range(0, c_count, step):
                 subset = cascade_ids[j: j + step]
                 sequences_j = {cid: sequences[cid] for cid in subset}
-                res = pool.apply_async(calc_beta, (sequences_j, graph, k, r, b, user_map))
+                res = pool.apply_async(calc_beta, (sequences_j, graph, k, r, user_map))
                 results.append(res)
 
             pool.close()
@@ -601,12 +506,12 @@ class CTIC(IC):
                 a_subset = results[i].get()
                 b.update(a_subset)
         else:
-            b = calc_beta(sequences, graph, k, r, b, user_map)
+            b = calc_beta(sequences, graph, k, r, user_map)
 
         return b
 
     @time_measure('debug')
-    def __calc_r_mp(self, sequences, graph, alpha, beta, user_map, edge_pos_indexes, multi_processed):
+    def __calc_r_mp(self, sequences, graph, alpha, beta, user_map, edge_pos_cascades, multi_processed):
         edges = list(graph.edges())
         e_count = len(edges)
         u_count = len(user_map)
@@ -618,7 +523,7 @@ class CTIC(IC):
             results = []
             for j in range(0, e_count, step):
                 edges_j = edges[j: j + step]
-                res = pool.apply_async(calc_r, (edges_j, alpha, beta, user_map, sequences, edge_pos_indexes))
+                res = pool.apply_async(calc_r, (edges_j, alpha, beta, user_map, sequences, edge_pos_cascades))
                 results.append(res)
 
             pool.close()
@@ -634,13 +539,13 @@ class CTIC(IC):
                 rows.extend(row_subset)
                 cols.extend(col_subset)
         else:
-            values, rows, cols = calc_r(edges, alpha, beta, user_map, sequences, edge_pos_indexes)
+            values, rows, cols = calc_r(edges, alpha, beta, user_map, sequences, edge_pos_cascades)
 
         r = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float64)
         return r
 
     @time_measure('debug')
-    def __calc_k_mp(self, graph, alpha, beta, user_map, edge_pos_indexes, edge_neg_counts, multi_processed):
+    def __calc_k_mp(self, graph, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts, multi_processed):
         edges = list(graph.edges())
         e_count = len(edges)
         u_count = len(user_map)
@@ -652,7 +557,7 @@ class CTIC(IC):
             results = []
             for j in range(0, e_count, step):
                 edges_j = edges[j: j + step]
-                res = pool.apply_async(calc_k, (edges_j, alpha, beta, user_map, edge_pos_indexes, edge_neg_counts))
+                res = pool.apply_async(calc_k, (edges_j, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts))
                 results.append(res)
 
             pool.close()
@@ -668,16 +573,23 @@ class CTIC(IC):
                 rows.extend(row_subset)
                 cols.extend(col_subset)
         else:
-            values, rows, cols = calc_k(edges, alpha, beta, user_map, edge_pos_indexes, edge_neg_counts)
+            values, rows, cols = calc_k(edges, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts)
 
         k = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float64)
         return k
 
     def __get_pos_neg_examples(self, sequences, graph):
-        edge_pos_indexes = {(u, v): [cid for cid, seq in sequences.items() if
-                                     v in seq.user_times and u in seq.user_times and seq.user_times[u] <=
-                                     seq.user_times[v]] for (u, v) in graph.edges()}
+        """
+        :param sequences:
+        :param graph:
+        :return: tuple of (edge_pos_cascades, edge_neg_counts)
+                edge_pos_cascades : dictionary of edge (u,v) to the cascade ids of positive examples of the edge.
+                edge_neg_counts : dictionary of edge (u,v) to the number of negative examples of the edge.
+        """
+        edge_pos_cascades = {(u, v): [cid for cid, seq in sequences.items() if
+                                      v in seq.user_times and u in seq.user_times and seq.user_times[u] <=
+                                      seq.user_times[v]] for (u, v) in graph.edges()}
         edge_neg_counts = {
             (u, v): sum(1 for cid, seq in sequences.items() if v not in seq.user_times and u in seq.user_times) for
             (u, v) in graph.edges()}
-        return edge_pos_indexes, edge_neg_counts
+        return edge_pos_cascades, edge_neg_counts
