@@ -5,7 +5,7 @@ from numbers import Number
 from cascade.models import Project
 import settings
 from cascade.testers import MultiProcTester, DefaultTester
-from cascade.enum import Method, Criterion
+from diffusion.enum import Method, Criterion
 from settings import logger
 from utils.time_utils import time_measure
 

@@ -12,7 +12,6 @@ import psutil
 import pymongo
 from bson import ObjectId
 from networkx import DiGraph
-from pymongo.errors import PyMongoError
 from pympler.asizeof import asizeof
 
 import settings
@@ -23,7 +22,7 @@ from memm.asyncronizables import train_memms, extract_bin_memm_evidences, extrac
 from db.exceptions import DataDoesNotExist
 from db.managers import MEMMManager, EvidenceManager
 from db.reconnection import reconnect
-from cascade.enum import Method
+from diffusion.enum import Method
 from memm.memm import MEMM
 from settings import logger
 from utils.text_utils import columnize

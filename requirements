@@ -5,12 +5,11 @@ cython
 scipy
 scikit-learn
 psutil
-cvxopt
 ad3
 pystruct
 beautifulsoup4
-nltk
 pygtrie
 anytree
 bson
 matplotlib
+pymongo

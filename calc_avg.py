@@ -5,7 +5,7 @@ import traceback
 import time
 
 import settings
-from cascade.avg import LTAvg
+from diffusion.avg import LTAvg
 from cascade.models import Project
 
 logging.basicConfig(format=settings.LOG_FORMAT)

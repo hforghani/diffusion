@@ -5,7 +5,7 @@ import numpy as np
 
 from db.exceptions import DataDoesNotExist
 from memm.memm import BinMEMM, TDMEMM, ParentTDMEMM, LongParentTDMEMM
-from cascade.enum import Method
+from diffusion.enum import Method
 from settings import logger, MONGO_URL
 
 

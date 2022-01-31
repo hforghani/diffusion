@@ -3,7 +3,7 @@ from enum import Enum
 
 class Method(Enum):
     ASLT = 'aslt'
-    AVG = 'avg'
+    CTIC = 'ctic'
     EMIC = 'emic'
     DAIC = 'daic'
     MLN_PRAC = 'mlnprac'
@@ -14,6 +14,7 @@ class Method(Enum):
     REDUCED_TD_MEMM = 'rtdmemm'
     PARENT_SENS_TD_MEMM = 'prtdmemm'
     LONG_PARENT_SENS_TD_MEMM = 'lprtdmemm'
+    AVG = 'avg'
 
 
 class Criterion(Enum):

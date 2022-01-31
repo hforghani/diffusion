@@ -5,7 +5,7 @@ import numpy as np
 
 from db.managers import EvidenceManager, MEMMManager
 from cascade.models import Project
-from cascade.enum import Method
+from diffusion.enum import Method
 from memm.memm import array_to_str, ParentTDMEMM
 
 

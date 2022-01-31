@@ -1,15 +1,15 @@
-import pprint
 import traceback
 from typing import Tuple
 
 from networkx import DiGraph
 
 import settings
-from cascade.avg import LTAvg
-from cascade.ic_models import DAIC, EMIC
-from cascade.enum import Method, Criterion
+from diffusion.avg import LTAvg
+from diffusion.ctic import CTIC
+from diffusion.ic_models import DAIC, EMIC
+from diffusion.enum import Method, Criterion
 from cascade.models import Project
-from cascade.aslt import AsLT
+from diffusion.aslt import AsLT
 
 from cascade.validation import Validation
 from log_levels import DEBUG_LEVELV_NUM
@@ -79,6 +79,7 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
 def train_cascades(method, project, multi_processed=False, eco=False, **kwargs):
     model_classes = {
         Method.ASLT: AsLT,
+        Method.CTIC: CTIC,
         Method.AVG: LTAvg,
         Method.EMIC: EMIC,
         Method.DAIC: DAIC,

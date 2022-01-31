@@ -1,6 +1,6 @@
 import argparse
 
-from cascade.enum import Method, Criterion
+from diffusion.enum import Method, Criterion
 from cascade.models import Project
 from cascade.testers import DefaultTester, MultiProcTester
 from settings import logger

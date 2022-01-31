@@ -1,8 +1,5 @@
-import abc
-from datetime import timedelta
 import json
 import os
-import random
 from functools import reduce
 
 from anytree import Node, RenderTree
@@ -12,7 +9,6 @@ import numpy as np
 from pymongo.errors import CursorNotFound
 
 import settings
-from cascade.exceptions import ParentDoesNotExist
 from db.managers import DBManager
 from settings import logger
 from utils.numpy_utils import load_sparse, save_sparse, save_sparse_list, load_sparse_list
@@ -100,72 +96,6 @@ class CascadeTree:
             self.roots = roots
             self.depth = self.__calc_depth()
             self._id_to_node = {node.user_id: node for node in self.nodes()}
-
-    @classmethod
-    def extract_cascade(cls, cascade_id, db_name):
-        with Timer('TREE: fetching posts', level='debug'):
-            # Fetch posts related to the cascade and reshares.
-            if isinstance(cascade_id, str):
-                cascade_id = ObjectId(cascade_id)
-            db = DBManager(db_name).db
-            post_ids = db.postcascades.distinct('post_id', {'cascade_id': cascade_id})
-            posts = db.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
-
-            user_ids = list(set([p['author_id'] for p in posts]))
-            reshares = db.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
-                .sort('datetime')
-
-        with Timer('TREE: creating nodes', level='debug'):
-            # Create nodes for the users.
-            nodes = {}
-            visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
-            for user_id in user_ids:
-                nodes[user_id] = CascadeNode(user_id)
-
-        with Timer('TREE: creating diffusion edges', level='debug'):
-            """
-            Create diffusion edge if a user reshares to another for the first time. Note that reshares are 
-            sorted by time.
-            """
-            logger.debug('TREE: reshares count = %d' % reshares.count())
-            roots = []
-            for reshare in reshares:
-                child_id = reshare['user_id']
-                parent_id = reshare['ref_user_id']
-                if child_id == parent_id:
-                    continue  # Continue if the reshare is between same users.
-                parent = nodes[parent_id]
-
-                if not visited[parent_id]:  # It is a root
-                    parent.post_id = reshare['reshared_post_id']
-                    parent.datetime = reshare['ref_datetime'].strftime(DT_FORMAT) if reshare['ref_datetime'] else None
-                    visited[parent_id] = True
-                    roots.append(parent)
-
-                if not visited[child_id]:  # Any other node
-                    child = nodes[child_id]
-                    parent.children.append(child)
-                    child.parent_id = parent_id
-                    child.post_id = reshare['post_id']
-                    child.datetime = reshare['datetime'].strftime(DT_FORMAT)
-                    visited[child_id] = True
-
-        with Timer('TREE: Adding single nodes', level='debug'):
-            # Add users with no diffusion edges as single nodes.
-            first_posts = {}
-            posts.rewind()
-
-            for post in posts:
-                if post['author_id'] not in first_posts:
-                    first_posts[post['author_id']] = post
-            for uid, node in nodes.items():
-                if not visited[uid]:
-                    post = first_posts[uid]
-                    node.datetime = post['datetime'].strftime(DT_FORMAT) if post['datetime'] else None
-                    node.post_id = post['_id']
-                    roots.append(node)
-
-        return cls(roots)
 
     def get_dict(self):
         return [node.get_dict() for node in self.roots]
@@ -275,7 +205,7 @@ class CascadeTree:
             self._id_to_node[child_id] = child
             return child
         else:
-            raise ParentDoesNotExist('parent node with user id given does not exist')
+            raise ValueError('parent node with user id given does not exist')
 
 
 class ActSequence:
@@ -305,6 +235,9 @@ class ActSequence:
 
     def users_before_user(self, user_id):
         index = self.users.index(user_id)
+        u_time = self.times[index]
+        while self.times[index + 1] == u_time:
+            index += 1
         return self.users[:index]
 
     def get_rond_set(self, graph):
@@ -321,258 +254,16 @@ class ActSequence:
         rond_set = self.get_rond_set(graph)
         parents = set(graph.predecessors(uid)) if uid in graph else set()
         if uid in rond_set:
-            active_parents = parents & set(self.users)
+            active_parents = filter(lambda pid: pid in self.user_times, parents)
         else:
-            active_parents = parents & set(self.users_before_user(uid))
-        return active_parents
+            u_time = self.user_times[uid]
+            active_parents = filter(lambda pid: pid in self.user_times and self.user_times[pid] <= u_time, parents)
+        # if str(uid) == '5d89465a86887712d4b704a9':
+        #     logger.debug('parents = %s', parents)
+        #     logger.debug('uid in rond_set = %s', uid in rond_set)
+        #     logger.debug('active_parents = %s', list(active_parents))
 
-
-class LT(abc.ABC):
-    def __init__(self, project):
-        self.project = project
-        self.init_tree = None
-        self.max_delay = 10000
-        self.probabilities = {}  # dictionary of node id's to probabilities of activation
-        self.w = None
-        self.r = None
-        self.w_param_name = None  # Must be implemented in subclasses.
-        self.r_param_name = None  # Must be implemented in subclasses.
-
-    def fit(self, multi_processed=False, eco=False, **kwargs):
-        data_loaded = False
-        if eco:
-            try:
-                self.w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE).toarray()
-                data_loaded = True
-                self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
-            except FileNotFoundError:
-                pass
-
-        if not data_loaded:
-            train_set, _, _ = self.project.load_sets()
-            self.calc_parameters(train_set, multi_processed, eco, **kwargs)
-
-        return self
-
-    # @profile
-    def predict(self, initial_tree, graph: DiGraph, thresholds: list = None, max_step: int = None) -> dict:
-        """
-        Predict activation cascade in the future starting from initial nodes given. Return a dict containing
-        a tree for each threshold given.
-        :param initial_tree:    initial tree of activated nodes
-        :param graph:           DiGraph extracted from the training set
-        :param thresholds:       list of thresholds of activation probability
-        :param max_step:       maximum step to which prediction is done
-        :return:    dictionary of thresholds to trees
-        """
-        if self.w is None:
-            raise Exception('No w parameters found. Train the model first.')
-
-        # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
-        trees = {thr: initial_tree.copy() for thr in thresholds}
-
-        # Initialize values.
-        max_depth = initial_tree.depth
-        cur_step_nodes = sorted(initial_tree.nodes_at_depth(max_depth),
-                                key=lambda n: n.datetime)  # Set the nodes with maximum depth as initial step.
-        max_thr = max(thresholds)
-        cur_step = [(node, max_thr) for node in cur_step_nodes]
-        active_ids = set(initial_tree.node_ids())
-        self.probabilities = {}
-
-        user_ids = sorted(graph.nodes())
-        users_map = {user_ids[i]: i for i in range(len(user_ids))}
-
-        # Iterate on steps. For each step try to activate other nodes.
-        step = 1
-        while cur_step and (max_step is None or step <= max_step):
-            logger.debug('step %d on %d users ...', step, len(cur_step))
-
-            next_step = []
-
-            # Iterate on current step nodes to check if a child will be activated.
-            for node, max_predicted_thr in cur_step:
-                u = node.user_id  # sender user id
-                if u not in users_map:
-                    continue
-                u_i = users_map[u]
-                w_u = self.w[u_i, :]
-                if w_u.any():
-                    logger.debugv('weights of user %s :\n' + '\n'.join(
-                        ['{} : {}'.format(i, w_u[i]) for i in np.nonzero(w_u)[0]]), u)
-
-                # Iterate on children of u
-                for v_i in np.nonzero(w_u)[0]:
-                    v = user_ids[v_i]  # receiver (child) user id
-                    if v in active_ids:
-                        logger.debugv('user %s is already activated', v)
-                        continue
-                    prob = self.probabilities[v] = self.probabilities.get(v, 0) + w_u[v_i]
-                    logger.debugv('probability of user %s = %f', v, prob)
-                    child_max_pred_thr = None
-
-                    for thr in thresholds:
-                        if thr <= prob and thr <= max_predicted_thr:
-                            if self.r is not None:
-                                # Get delay parameter.
-                                delay_param = self.r[v_i]
-
-                                # Set the delay to mean of exponential distribution with parameter delay_param.
-                                delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
-                                if delay > self.max_delay:
-                                    delay = self.max_delay
-                                send_dt = str_to_datetime(node.datetime)
-                                receive_dt = (send_dt + timedelta(days=delay)).strftime(DT_FORMAT)
-                            else:
-                                receive_dt = None
-
-                            # Add it to the tree.
-                            child = trees[thr].add_child(u, v, act_time=receive_dt)
-                            child_max_pred_thr = thr
-                            logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
-
-                    if child_max_pred_thr is not None:
-                        next_step.append((child, child_max_pred_thr))
-                        active_ids.add(v)
-
-            cur_step = next_step
-            if self.r is not None:
-                cur_step = sorted(cur_step, key=lambda n: n[0].datetime)
-
-            step += 1
-
-        return trees
-
-    @abc.abstractmethod
-    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
-        pass
-
-
-class IC(abc.ABC):
-    def __init__(self, project):
-        self.project = project
-        self.init_tree = None
-        self.max_delay = 10000
-        self.probabilities = {}  # dictionary of node id's to probabilities of activation
-        self.k = None
-        self.r = None
-        self.k_param_name = None  # Must be implemented in subclasses.
-        self.r_param_name = None  # Must be implemented in subclasses.
-
-    def fit(self, multi_processed=False, eco=False, **kwargs):
-        data_loaded = False
-        if eco:
-            try:
-                self.k = self.project.load_param(self.k_param_name, ParamTypes.SPARSE).toarray()
-                data_loaded = True
-                self.r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)  # optional
-            except FileNotFoundError:
-                pass
-
-        if not data_loaded:
-            train_set, _, _ = self.project.load_sets()
-            self.calc_parameters(train_set, multi_processed, eco, **kwargs)
-
-        return self
-
-    def predict(self, initial_tree, graph: DiGraph, thresholds: list = None, max_step: int = None) -> dict:
-        """
-        Predict activation cascade in the future starting from initial nodes given. Return a dict containing
-        a tree for each threshold given.
-        :param initial_tree:    initial tree of activated nodes
-        :param graph:           DiGraph extracted from the training set
-        :param thresholds:       list of thresholds of activation probability
-        :param max_step:       maximum step to which prediction is done
-        :return:    dictionary of thresholds to trees
-        """
-        if self.k is None:
-            raise Exception('No k parameters found. Train the model first.')
-
-        # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
-        trees = {thr: initial_tree.copy() for thr in thresholds}
-
-        # Initialize values.
-        max_depth = initial_tree.depth
-        cur_step_nodes = sorted(initial_tree.nodes_at_depth(max_depth),
-                                key=lambda n: n.datetime)  # Set the nodes with maximum depth as initial step.
-        max_thr = max(thresholds)
-        cur_step = [(node, max_thr) for node in cur_step_nodes]
-        active_ids = set(initial_tree.node_ids())
-        self.probabilities = {}
-
-        user_ids = sorted(graph.nodes())
-        users_map = {user_ids[i]: i for i in range(len(user_ids))}
-
-        # Iterate on steps. For each step try to activate other nodes.
-        step = 1
-        while cur_step and (max_step is None or step <= max_step):
-            logger.debug('step %d on %d users ...', step, len(cur_step))
-
-            next_step = []
-
-            # Iterate on current step nodes to check if a child will be activated.
-            for node, max_predicted_thr in cur_step:
-                u = node.user_id  # sender user id
-                if u not in users_map:
-                    continue
-                u_i = users_map[u]
-                k_u = self.k[u_i, :]  # probabilities of the children of u
-
-                if k_u.any():
-                    logger.debugv('probabilities of user %s :\n' + '\n'.join(
-                        ['{} : {}'.format(i, k_u[i]) for i in np.nonzero(k_u)[0]]), u)
-
-                # Iterate on children of u
-                for v_i in np.nonzero(k_u)[0]:
-                    v = user_ids[v_i]  # receiver (child) user id
-                    if v in active_ids:
-                        logger.debugv('user %s is already activated', v)
-                        continue
-
-                    k_u_v = k_u[v_i]
-                    if v not in self.probabilities:
-                        prob = self.probabilities[v] = k_u_v
-                    else:
-                        prob = self.probabilities[v] = max(k_u_v, self.probabilities[v])
-
-                    logger.debugv('prob of user %s to user %s = %f', u, v, prob)
-                    child_max_pred_thr = None
-
-                    for thr in thresholds:
-                        if thr <= prob and thr <= max_predicted_thr:
-                            if self.r is not None:
-                                # Get delay parameter.
-                                delay_param = self.r[v_i]
-
-                                # Set the delay to mean of exponential distribution with parameter delay_param.
-                                delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
-                                if delay > self.max_delay:
-                                    delay = self.max_delay
-                                send_dt = str_to_datetime(node.datetime)
-                                receive_dt = (send_dt + timedelta(days=delay)).strftime(DT_FORMAT)
-                            else:
-                                receive_dt = None
-
-                            # Add it to the tree.
-                            child = trees[thr].add_child(u, v, act_time=receive_dt)
-                            child_max_pred_thr = thr
-                            logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
-
-                    if child_max_pred_thr is not None:
-                        next_step.append((child, child_max_pred_thr))
-                        active_ids.add(v)
-
-            cur_step = next_step
-            if self.r is not None:
-                cur_step = sorted(cur_step, key=lambda n: n[0].datetime)
-
-            step += 1
-
-        return trees
-
-    @abc.abstractmethod
-    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
-        pass
+        return list(active_parents)
 
 
 class ParamTypes:
@@ -596,7 +287,7 @@ class Project:
             os.mkdir(self.path)  # Create the project path if it does not exist.
         try:
             self.db = self.load_param('db', ParamTypes.JSON)['db']
-        except:
+        except FileNotFoundError:
             if not db:
                 raise ValueError('db is required if the db.json does not exist')
             self.save_param({'db': db}, 'db', ParamTypes.JSON)
@@ -633,6 +324,9 @@ class Project:
         Load trees of cascades in training and test sets.
         :return:
         """
+        if self.trees is not None:
+            return self.trees
+
         # Load trees from the json file.
         try:
             trees = self.load_param('trees', ParamTypes.JSON)
@@ -647,7 +341,7 @@ class Project:
             all_cascades = self.training + self.validation + self.test
             count = len(all_cascades)
             for cascade_id in all_cascades:
-                tree = CascadeTree().extract_cascade(cascade_id, self.db)
+                tree = self.__extract_cascade(cascade_id)
                 trees[cascade_id] = tree
                 i += 1
                 if i % 10 == 0:
@@ -657,6 +351,71 @@ class Project:
 
         self.trees = trees
         return trees
+
+    def __extract_cascade(self, cascade_id):
+        with Timer('TREE: fetching posts', level='debug'):
+            # Fetch posts related to the cascade and reshares.
+            if isinstance(cascade_id, str):
+                cascade_id = ObjectId(cascade_id)
+            db = DBManager(self.db).db
+            post_ids = db.postcascades.distinct('post_id', {'cascade_id': cascade_id})
+            posts = db.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
+
+            user_ids = list(set([p['author_id'] for p in posts]))
+            reshares = db.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
+                .sort('datetime')
+
+        with Timer('TREE: creating nodes', level='debug'):
+            # Create nodes for the users.
+            nodes = {}
+            visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
+            for user_id in user_ids:
+                nodes[user_id] = CascadeNode(user_id)
+
+        with Timer('TREE: creating diffusion edges', level='debug'):
+            """
+            Create diffusion edge if a user reshares to another for the first time. Note that reshares are 
+            sorted by time.
+            """
+            logger.debug('TREE: reshares count = %d' % reshares.count())
+            roots = []
+            for reshare in reshares:
+                child_id = reshare['user_id']
+                parent_id = reshare['ref_user_id']
+                if child_id == parent_id:
+                    continue  # Continue if the reshare is between same users.
+                parent = nodes[parent_id]
+
+                if not visited[parent_id]:  # It is a root
+                    parent.post_id = reshare['reshared_post_id']
+                    parent.datetime = reshare['ref_datetime'].strftime(DT_FORMAT) if reshare['ref_datetime'] else None
+                    visited[parent_id] = True
+                    roots.append(parent)
+
+                if not visited[child_id]:  # Any other node
+                    child = nodes[child_id]
+                    parent.children.append(child)
+                    child.parent_id = parent_id
+                    child.post_id = reshare['post_id']
+                    child.datetime = reshare['datetime'].strftime(DT_FORMAT)
+                    visited[child_id] = True
+
+        with Timer('TREE: Adding single nodes', level='debug'):
+            # Add users with no diffusion edges as single nodes.
+            first_posts = {}
+            posts.rewind()
+
+            for post in posts:
+                if post['author_id'] not in first_posts:
+                    first_posts[post['author_id']] = post
+            for uid, node in nodes.items():
+                if not visited[uid]:
+                    post = first_posts[uid]
+                    node.datetime = post['datetime'].strftime(DT_FORMAT) if post['datetime'] else None
+                    node.post_id = post['_id']
+                    roots.append(node)
+
+        return CascadeTree(roots)
 
     @time_measure(level='debug')
     def load_or_extract_graph(self, graph_type=GraphTypes.RESHARES):
@@ -671,7 +430,7 @@ class Project:
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
             graph = relabel_nodes(graph, {n: ObjectId(n) for n in graph.nodes()})
 
-        except:  # If graph data does not exist.
+        except FileNotFoundError:  # If graph data does not exist.
             post_ids = self.__get_cascades_post_ids(train_set)
             if graph_type == GraphTypes.RESHARES:
                 graph = self.__extract_reshare_graph(post_ids, train_set, graph_fname)
@@ -720,7 +479,7 @@ class Project:
             graph = self.load_param(graph_fname, ParamTypes.GRAPH)
             graph = relabel_nodes(graph, {n: ObjectId(n) for n in graph.nodes()})
 
-        except:  # If graph does not exist.
+        except FileNotFoundError:  # If graph does not exist.
             post_ids = self.__get_cascades_post_ids(train_set)
             if graph_type == GraphTypes.RESHARES:
                 graph = self.__extract_reshare_graph(post_ids, train_set, graph_fname)
@@ -735,7 +494,7 @@ class Project:
                 times = [item[1] for item in seq_copy[m]['cascade']]
                 sequences[ObjectId(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
 
-        except:  # If sequence data does not exist.
+        except FileNotFoundError:  # If sequence data does not exist.
             if post_ids is None:
                 post_ids = self.__get_cascades_post_ids(train_set)
             sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
@@ -768,25 +527,19 @@ class Project:
         db = DBManager(self.db).db
 
         # Iterate on posts to extract activation sequences.
+        posts = self.__get_posts_author_datetime(posts_ids, db)
         i = 0
-        while True:
-            posts = self._get_posts_author_datetime(posts_ids, db)
-
-            try:
-                for post in posts:
-                    if post['datetime'] is not None:
-                        for pc in db.postcascades.find({'post_id': post['_id'], 'cascade_id': {'$in': cascade_ids}},
-                                                       {'_id': 0, 'cascade_id': 1}):
-                            cascade_id = pc['cascade_id']
-                            if post['author_id'] not in users[cascade_id]:
-                                users[cascade_id].append(post['author_id'])
-                                times[cascade_id].append(post['datetime'])
-                    i += 1
-                    if i % (post_count // 10) == 0:
-                        logger.debug('%d%% posts done' % (i * 100 / post_count))
-                break
-            except CursorNotFound:
-                raise
+        for post in posts:
+            if post['datetime'] is not None:
+                for pc in db.postcascades.find({'post_id': post['_id'], 'cascade_id': {'$in': cascade_ids}},
+                                               {'_id': 0, 'cascade_id': 1}):
+                    cascade_id = pc['cascade_id']
+                    if post['author_id'] not in users[cascade_id]:
+                        users[cascade_id].append(post['author_id'])
+                        times[cascade_id].append(post['datetime'])
+            i += 1
+            if i % (post_count // 10) == 0:
+                logger.debug('%d%% posts done' % (i * 100 / post_count))
 
         logger.info('setting relative times and max times ...')
         max_t = {}
@@ -818,7 +571,7 @@ class Project:
 
         return sequences
 
-    def _get_posts_author_datetime(self, post_ids, db):
+    def __get_posts_author_datetime(self, post_ids, db):
         max_count = 400000
         if len(post_ids) < max_count:
             logger.debug('fetching authors and datetimes of post ids ...')

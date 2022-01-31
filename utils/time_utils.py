@@ -6,7 +6,8 @@ from enum import Enum
 
 import pytz
 
-from settings import logger, DEBUG_LEVELV_NUM
+from log_levels import DEBUG_LEVELV_NUM
+from settings import logger
 
 DT_FORMAT = '%Y-%m-%d %H:%M:%S'
 

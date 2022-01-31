@@ -3,7 +3,8 @@ from scipy import sparse
 
 from db.managers import DBManager
 from settings import logger
-from cascade.models import LT, ParamTypes
+from cascade.models import ParamTypes
+from diffusion.models import LT
 
 
 class LTAvg(LT):

@@ -9,7 +9,8 @@ from scipy import sparse
 from sklearn.preprocessing import normalize
 
 import settings
-from cascade.models import LT, ParamTypes
+from cascade.models import ParamTypes
+from diffusion.models import LT
 from settings import logger
 from utils.time_utils import Timer, time_measure
 
@@ -305,11 +306,12 @@ class AsLT(LT):
         super(AsLT, self).__init__(project)
         self.w_param_name = 'w-aslt'
         self.r_param_name = 'r-aslt'
+        self.max_iterations = 20
 
     def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
-        iterations = kwargs.get('iterations', 15)
+        iterations = kwargs.get('iterations', self.max_iterations)
         if iterations is None:
-            iterations = 15
+            iterations = self.max_iterations
         graph, sequences = self.project.load_or_extract_graph_seq()
 
         # Create maps from users and cascades db id's to their matrix id's.
@@ -321,7 +323,7 @@ class AsLT(LT):
         logger.info('user space size = %d', len(user_map))
 
         # Set initial values of w and r.
-        w, r = self._initialize(user_ids, user_map, graph, eco)
+        w, r = self.__initialize(user_ids, user_map, graph, eco)
 
         # Run EM algorithm.
         logger.info('running algorithm ...')
@@ -330,20 +332,21 @@ class AsLT(LT):
                 logger.info('#%d' % (i + 1))
 
                 h = self._load_or_calc_h(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco)
-                phi_h = self._load_or_calc_phi_h(sequences, graph, w, r, h, train_set, cascade_map, user_map,
-                                                 multi_processed, eco)
+                phi_h = self.__load_or_calc_phi_h(sequences, graph, w, r, h, train_set, cascade_map, user_map,
+                                                  multi_processed, eco)
                 if eco:
                     del phi_h, h
 
-                g = self._load_or_calc_g(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco)
-                phi_g = self._load_or_calc_phi_g(sequences, graph, w, g, train_set, cascade_map, user_map,
-                                                 multi_processed, eco)
+                g = self.__load_or_calc_g(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed,
+                                          eco)
+                phi_g = self.__load_or_calc_phi_g(sequences, graph, w, g, train_set, cascade_map, user_map,
+                                                  multi_processed, eco)
 
                 if eco:
                     del phi_g
 
-                psi = self._load_or_calc_psi(sequences, graph, w, r, g, train_set, cascade_map, user_map,
-                                             multi_processed, eco)
+                psi = self.__load_or_calc_psi(sequences, graph, w, r, g, train_set, cascade_map, user_map,
+                                              multi_processed, eco)
 
                 del g
                 if eco:
@@ -353,8 +356,8 @@ class AsLT(LT):
                 logger.info('estimating r ...')
                 last_r = r
                 r_multi_processed = multi_processed and len(user_ids) < 2 * 10 ** 7
-                r = self._calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, cascade_map, user_map,
-                                    r_multi_processed)
+                r = self.__calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, cascade_map, user_map,
+                                     r_multi_processed)
 
                 if eco:
                     phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
@@ -362,7 +365,7 @@ class AsLT(LT):
 
                 logger.info('estimating w ...')
                 last_w = w
-                w = self._calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, cascade_map)
+                w = self.__calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, cascade_map)
 
                 del phi_h
                 del phi_g
@@ -393,10 +396,10 @@ class AsLT(LT):
                     logger.info('Stop condition met: r dif + w dif < 1e-6')
                     break
 
-        self.w = w.todense()
+        self.w = w.toarray()
         self.r = r
 
-    def _load_or_calc_psi(self, sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed, eco):
+    def __load_or_calc_psi(self, sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed, eco):
         data_loaded = False
         if eco:
             try:
@@ -407,12 +410,12 @@ class AsLT(LT):
                 pass
         if not data_loaded:
             logger.info('calculating psi ...')
-            psi = self._calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed)
+            psi = self.__calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
         return psi
 
-    def _load_or_calc_phi_g(self, sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed, eco):
+    def __load_or_calc_phi_g(self, sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed, eco):
         data_loaded = False
         if eco:
             try:
@@ -422,12 +425,12 @@ class AsLT(LT):
                 pass
         if not data_loaded:
             logger.info('calculating phi_g ...')
-            phi_g = self._calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed)
+            phi_g = self.__calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
         return phi_g
 
-    def _load_or_calc_phi_h(self, sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed, eco):
+    def __load_or_calc_phi_h(self, sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed, eco):
         data_loaded = False
         if eco:
             try:
@@ -437,12 +440,12 @@ class AsLT(LT):
                 pass
         if not data_loaded:
             logger.info('calculating phi_h ...')
-            phi_h = self._calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed)
+            phi_h = self.__calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
         return phi_h
 
-    def _load_or_calc_g(self, sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco):
+    def __load_or_calc_g(self, sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco):
         data_loaded = False
         if eco:
             try:
@@ -453,7 +456,7 @@ class AsLT(LT):
                 pass
         if not data_loaded:
             logger.info('calculating g ...')
-            g = self._calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
+            g = self.__calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(g, 'g', ParamTypes.SPARSE)
         return g
@@ -469,12 +472,12 @@ class AsLT(LT):
                 pass
         if not data_loaded:
             logger.info('calculating h ...')
-            h = self._calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
+            h = self.__calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(h, 'h', ParamTypes.SPARSE)
         return h
 
-    def _initialize(self, user_ids, user_map, graph, eco):
+    def __initialize(self, user_ids, user_map, graph, eco):
         data_loaded = False
         if eco:
             try:
@@ -486,14 +489,14 @@ class AsLT(LT):
                 pass
         if not data_loaded:
             logger.info('initializing parameters ...')
-            w, r = self._set_initial_values(graph, user_ids, user_map)
+            w, r = self.__set_initial_values(graph, user_ids, user_map)
             if eco:
                 self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
                 self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
         return w, r
 
     @time_measure('debug')
-    def _set_initial_values(self, graph, user_ids, user_map):
+    def __set_initial_values(self, graph, user_ids, user_map):
         u_count = len(user_ids)
         nodes = graph.nodes()
         values = []
@@ -514,15 +517,15 @@ class AsLT(LT):
                 rows.append(v_i)
                 cols.append(v_i)
             i += 1
-            if i % (u_count / 10) == 0:
-                logger.info('%d%% done' % (i * 100 / u_count))
+            if i % (u_count // 10) == 0:
+                logger.info('%d%% done' % (i * 100 // u_count))
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
-        r = np.ones(u_count, np.float32)
+        r = np.ones(u_count, np.float32) / 30  # approximately 1 day
         return w, r
 
     @time_measure()
-    def _calc_h_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map, multi_processed):
+    def __calc_h_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map, multi_processed):
         u_count = len(user_map)
         c_count = len(cascade_ids)
 
@@ -559,7 +562,7 @@ class AsLT(LT):
         return h
 
     @time_measure()
-    def _calc_g_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map, multi_processed):
+    def __calc_g_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map, multi_processed):
         u_count = len(user_map)
         c_count = len(cascade_ids)
 
@@ -594,7 +597,7 @@ class AsLT(LT):
         return g
 
     @time_measure()
-    def _calc_phi_h_mp(self, data, graph, w, r, h, cascade_ids, cascade_map, user_map, multi_processed):
+    def __calc_phi_h_mp(self, data, graph, w, r, h, cascade_ids, cascade_map, user_map, multi_processed):
         c_count = len(cascade_ids)
 
         if multi_processed:
@@ -626,7 +629,7 @@ class AsLT(LT):
         return phi_h
 
     @time_measure()
-    def _calc_phi_g_mp(self, data, graph, w, g, cascade_ids, cascade_map, user_map, multi_processed):
+    def __calc_phi_g_mp(self, data, graph, w, g, cascade_ids, cascade_map, user_map, multi_processed):
         c_count = len(cascade_ids)
 
         if multi_processed:
@@ -659,7 +662,7 @@ class AsLT(LT):
         return phi_g
 
     @time_measure()
-    def _calc_psi_mp(self, data, graph, w, r, g, cascade_ids, cascade_map, user_map, multi_processed):
+    def __calc_psi_mp(self, data, graph, w, r, g, cascade_ids, cascade_map, user_map, multi_processed):
         c_count = len(cascade_ids)
 
         if multi_processed:
@@ -692,7 +695,7 @@ class AsLT(LT):
         return psi
 
     @time_measure()
-    def _calc_r_mp(self, data, graph, phi_h, psi, user_ids, cascade_ids, cascade_map, user_map, multi_processed):
+    def __calc_r_mp(self, data, graph, phi_h, psi, user_ids, cascade_ids, cascade_map, user_map, multi_processed):
         u_count = len(user_ids)
         c_count = len(cascade_ids)
 
@@ -746,7 +749,7 @@ class AsLT(LT):
         return r
 
     @time_measure()
-    def _calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, cascade_ids, cascade_map):
+    def __calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, cascade_ids, cascade_map):
         u_count = len(user_ids)
 
         logger.info('\textracting sigma domains ...')

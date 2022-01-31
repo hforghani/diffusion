@@ -1,13 +1,11 @@
 import math
-import pprint
 from functools import reduce
 
 import numpy as np
 from scipy import sparse
 
-import settings
-from cascade.models import IC, ParamTypes
-from log_levels import DEBUG_LEVELV_NUM
+from cascade.models import ParamTypes
+from diffusion.models import IC
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -77,6 +75,16 @@ class EMIC(IC):
 
         return user_times
 
+    def _get_neg_count(self, sender_index, recv_index, user_times):
+        neg_count = np.count_nonzero(~np.isnan(user_times[:, sender_index]) & (
+                np.isnan(user_times[:, recv_index]) | (user_times[:, sender_index] != user_times[:, recv_index] - 1)))
+        return neg_count
+
+    def _get_pos_indexes(self, sender_index, recv_index, user_times):
+        pos_indexes = np.nonzero(~np.isnan(user_times[:, sender_index]) & ~np.isnan(user_times[:, recv_index]) & (
+                user_times[:, sender_index] == user_times[:, recv_index] - 1))[0]
+        return pos_indexes
+
     def __initialize(self, graph, user_ids, user_map):
         # Initialize probabilities.
         u_count = len(user_ids)
@@ -99,13 +107,11 @@ class EMIC(IC):
             for v in graph.successors(u):
                 logger.debugv('calculating k: to user %s ...', v)
                 v_index = user_map[v]
-                pos_indexes = np.nonzero(~np.isnan(user_times[:, u_index]) & ~np.isnan(user_times[:, v_index]) & (
-                        user_times[:, u_index] == user_times[:, v_index] - 1))[0]
+                pos_indexes = self._get_pos_indexes(u_index, v_index, user_times)
                 if pos_indexes.size == 0:
                     new_k[u_index, v_index] = 0
                 else:
-                    neg_count = np.count_nonzero(~np.isnan(user_times[:, u_index]) & (
-                            np.isnan(user_times[:, v_index]) | (user_times[:, u_index] != user_times[:, v_index] - 1)))
+                    neg_count = self._get_neg_count(u_index, v_index, user_times)
                     new_k[u_index, v_index] = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index]) / (
                             len(pos_indexes) + neg_count)
                     logger.debugv('negatives count = %d', neg_count)
@@ -189,9 +195,8 @@ class DAIC(EMIC):
             for v in graph.successors(u):
                 logger.debugv('calculating k: to user %s ...', v)
                 v_index = user_map[v]
-                pos_indexes = np.nonzero(~np.isnan(user_times[:, u_index]) & ~np.isnan(user_times[:, v_index]) & (
-                        user_times[:, u_index] < user_times[:, v_index]))[0]
-                neg_count = np.count_nonzero(~np.isnan(user_times[:, u_index]) & np.isnan(user_times[:, v_index]))
+                pos_indexes = self._get_pos_indexes(u_index, v_index, user_times)
+                neg_count = self._get_neg_count(u_index, v_index, user_times)
                 beta = pos_indexes.size + neg_count + lambdaa
                 gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index])
                 delta = beta ** 2 - 4 * lambdaa * gamma
@@ -208,6 +213,15 @@ class DAIC(EMIC):
                 # logger.debugv('last k = %f, new k = %f', k[u_index, v_index], new_k[u_index, v_index])
 
         return new_k
+
+    def _get_neg_count(self, sender_index, recv_index, user_times):
+        neg_count = np.count_nonzero(~np.isnan(user_times[:, sender_index]) & np.isnan(user_times[:, recv_index]))
+        return neg_count
+
+    def _get_pos_indexes(self, sender_index, recv_index, user_times):
+        pos_indexes = np.nonzero(~np.isnan(user_times[:, sender_index]) & ~np.isnan(user_times[:, recv_index]) & (
+                user_times[:, sender_index] <= user_times[:, recv_index]))[0]
+        return pos_indexes
 
     @time_measure('debug')
     def __calc_p(self, theta, cascade_ids, user_ids, user_map, cascade_map, graph, sequences, trees):

@@ -2,7 +2,7 @@
 import argparse
 import logging
 from cascade.models import Project, ParamTypes
-from cascade.aslt import AsLT
+from diffusion.aslt import AsLT
 import settings
 from utils.time_utils import time_measure
 

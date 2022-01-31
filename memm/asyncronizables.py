@@ -7,7 +7,7 @@ from bson import ObjectId
 from networkx import DiGraph
 
 from db.managers import MEMMManager
-from cascade.enum import Method
+from diffusion.enum import Method
 from memm.memm import BinMEMM, TDMEMM, ParentTDMEMM, LongParentTDMEMM
 from memm.exceptions import MemmException
 from settings import logger
