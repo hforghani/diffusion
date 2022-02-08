@@ -161,7 +161,7 @@ class DefaultTester(ProjectTester):
             return self.test(test_set, threshold, initial_depth, max_depth, model=self.model)
 
     def train(self, **kwargs):
-        with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.MINUTES):
+        with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
             model = train_cascades(self.method, self.project, eco=self.eco, **kwargs)
         return model
 
@@ -218,7 +218,7 @@ class MultiProcTester(ProjectTester):
             # If it is in economical mode, train the cascades once and save them. Then the trained model is fetched
             # from disk and used at each process. The model is not passed to each process due to pickling size limit.
             with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]',
-                       unit=TimeUnit.MINUTES):
+                       unit=TimeUnit.SECONDS):
                 model = train_cascades(self.method, self.project, multi_processed=True, eco=self.eco, **kwargs)
         return model
 

@@ -13,7 +13,7 @@ from utils.time_utils import time_measure
 class EMIC(IC):
     def __init__(self, project):
         super(EMIC, self).__init__(project)
-        self.k_param_name = 'k-emic'
+        # Do not override k_param_name for EMIC since the precision of parameters will be low when saved.
         self.max_iterations = 20
 
     def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
@@ -43,14 +43,10 @@ class EMIC(IC):
             last_k = k.copy()
             k = self._calc_k(p, k, user_ids, user_map, graph, user_times)
 
-            k_dif = k - last_k
+            k_dif = (k - last_k).astype(np.float32)
             k_dif = np.sqrt(np.multiply(k_dif, k_dif).sum())
             del last_k
             logger.info('k dif = %f', k_dif)
-
-            if eco:
-                self.project.save_param(sparse.csr_matrix(k), self.k_param_name, ParamTypes.SPARSE)
-                logger.debug('k parameters saved')
 
         self.k = k
 
@@ -100,27 +96,24 @@ class EMIC(IC):
         u_count = len(user_ids)
         new_k = np.zeros((u_count, u_count))
 
-        for u in user_ids:
-            logger.debugv('calculating k: from user %s ...', u)
+        for (u, v) in graph.edges():
+            logger.debugv('calculating k: from user %s to %s ...', u, v)
             u_index = user_map[u]
+            v_index = user_map[v]
+            pos_indexes = self._get_pos_indexes(u_index, v_index, user_times)
+            if pos_indexes.size == 0:
+                new_k[u_index, v_index] = 0
+            else:
+                neg_count = self._get_neg_count(u_index, v_index, user_times)
+                new_k[u_index, v_index] = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index]) / (
+                        len(pos_indexes) + neg_count)
+                logger.debugv('negatives count = %d', neg_count)
 
-            for v in graph.successors(u):
-                logger.debugv('calculating k: to user %s ...', v)
-                v_index = user_map[v]
-                pos_indexes = self._get_pos_indexes(u_index, v_index, user_times)
-                if pos_indexes.size == 0:
-                    new_k[u_index, v_index] = 0
-                else:
-                    neg_count = self._get_neg_count(u_index, v_index, user_times)
-                    new_k[u_index, v_index] = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index]) / (
-                            len(pos_indexes) + neg_count)
-                    logger.debugv('negatives count = %d', neg_count)
-
-                logger.debugv('positives count = %d', len(pos_indexes))
-                logger.debugv('pos_indexes = %s', pos_indexes)
-                # logger.debugv('p[pos_indexes, user_index] = %s', p[pos_indexes, v_index])
-                logger.debugv('k_u_v = %f', k[u_index, v_index])
-                # logger.debugv('last k = %f, new k = %f', k[u_index, v_index], new_k[u_index, v_index])
+            logger.debugv('positives count = %d', len(pos_indexes))
+            logger.debugv('pos_indexes = %s', pos_indexes)
+            # logger.debugv('p[pos_indexes, user_index] = %s', p[pos_indexes, v_index])
+            logger.debugv('k_u_v = %f', k[u_index, v_index])
+            # logger.debugv('last k = %f, new k = %f', k[u_index, v_index], new_k[u_index, v_index])
 
         return new_k
 
@@ -160,7 +153,7 @@ class EMIC(IC):
 class DAIC(EMIC):
     def __init__(self, project):
         super(DAIC, self).__init__(project)
-        self.k_param_name = 'k-daic'
+        # Do not override k_param_name for DAIC since the precision of parameters will be low when saved.
         self.max_iterations = 20
 
     def _extract_user_times(self, cascade_ids, user_ids, cascade_map, user_map, sequences, trees):
@@ -188,29 +181,26 @@ class DAIC(EMIC):
         new_k = np.zeros((u_count, u_count))
         lambdaa = 10
 
-        for u in user_ids:
-            logger.debugv('calculating k: from user %s ...', u)
+        for (u, v) in graph.edges():
+            logger.debugv('calculating k: from user %s to %s ...', u, v)
             u_index = user_map[u]
+            v_index = user_map[v]
+            pos_indexes = self._get_pos_indexes(u_index, v_index, user_times)
+            neg_count = self._get_neg_count(u_index, v_index, user_times)
+            beta = pos_indexes.size + neg_count + lambdaa
+            gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index])
+            delta = beta ** 2 - 4 * lambdaa * gamma
+            new_k[u_index, v_index] = (beta - math.sqrt(delta)) / (2 * lambdaa)
 
-            for v in graph.successors(u):
-                logger.debugv('calculating k: to user %s ...', v)
-                v_index = user_map[v]
-                pos_indexes = self._get_pos_indexes(u_index, v_index, user_times)
-                neg_count = self._get_neg_count(u_index, v_index, user_times)
-                beta = pos_indexes.size + neg_count + lambdaa
-                gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index])
-                delta = beta ** 2 - 4 * lambdaa * gamma
-                new_k[u_index, v_index] = (beta - math.sqrt(delta)) / (2 * lambdaa)
-
-                # logger.debugv('v = %s', v)
-                # logger.debugv('pos_indexes = %s', pos_indexes)
-                # logger.debugv('neg_count = %s', neg_count)
-                # logger.debugv('beta = %s', beta)
-                # logger.debugv('k[u_index, v_index] = %s', k[u_index, v_index])
-                # logger.debugv('p[pos_indexes, v_index] = %s', p[pos_indexes, v_index])
-                # logger.debugv('np.sum(1 / p[pos_indexes, v_index] = %s', np.sum(1 / p[pos_indexes, v_index]))
-                # logger.debugv('gamma = %s', gamma)
-                # logger.debugv('delta = %s', delta)
+            # logger.debugv('v = %s', v)
+            # logger.debugv('pos_indexes = %s', pos_indexes)
+            # logger.debugv('neg_count = %s', neg_count)
+            # logger.debugv('beta = %s', beta)
+            # logger.debugv('k[u_index, v_index] = %s', k[u_index, v_index])
+            # logger.debugv('p[pos_indexes, v_index] = %s', p[pos_indexes, v_index])
+            # logger.debugv('np.sum(1 / p[pos_indexes, v_index] = %s', np.sum(1 / p[pos_indexes, v_index]))
+            # logger.debugv('gamma = %s', gamma)
+            # logger.debugv('delta = %s', delta)
 
         return new_k
 

@@ -689,9 +689,11 @@ class Project:
             write_adjlist(param, path)
         else:
             raise Exception('invalid type "%s"' % type)
+        logger.debug('parameters saved in path %s', path)
 
     def load_param(self, name, type):
         path = os.path.join(self.path, '%s.%s' % (name, self.SUFFIXES[type]))
+        logger.debug('loading parameters in path %s ...', path)
         if type == ParamTypes.JSON:
             return json.load(open(path))
         elif type == ParamTypes.ARRAY:

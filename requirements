@@ -13,3 +13,5 @@ anytree
 bson
 matplotlib
 pymongo
+anytree
+pympler

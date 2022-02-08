@@ -12,7 +12,7 @@ class LT(abc.ABC):
     def __init__(self, project):
         self.project = project
         self.init_tree = None
-        self.max_delay = 10000
+        self.max_delay = 24
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
         self.w = None
         self.r = None
@@ -99,11 +99,11 @@ class LT(abc.ABC):
                                 delay_param = self.r[v_i]
 
                                 # Set the delay to mean of exponential distribution with parameter delay_param.
-                                delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
+                                delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in months
                                 if delay > self.max_delay:
                                     delay = self.max_delay
                                 send_dt = str_to_datetime(node.datetime)
-                                receive_dt = (send_dt + timedelta(days=delay)).strftime(DT_FORMAT)
+                                receive_dt = (send_dt + timedelta(days=30 * delay)).strftime(DT_FORMAT)
                             else:
                                 receive_dt = None
 
@@ -133,7 +133,7 @@ class IC(abc.ABC):
     def __init__(self, project):
         self.project = project
         self.init_tree = None
-        self.max_delay = 10000
+        self.max_delay = 24
         self.probabilities = {}  # dictionary of node id's to probabilities of activation
         self.k = None
         self.r = None
@@ -146,7 +146,8 @@ class IC(abc.ABC):
             try:
                 self.k = self.project.load_param(self.k_param_name, ParamTypes.SPARSE).toarray()
                 data_loaded = True
-                self.r = self.project.load_param(self.r_param_name, ParamTypes.SPARSE)  # optional
+                if self.r_param_name is not None:
+                    self.r = self.project.load_param(self.r_param_name, ParamTypes.SPARSE).toarray()  # optional
             except FileNotFoundError:
                 pass
 
@@ -226,11 +227,11 @@ class IC(abc.ABC):
                                 delay_param = self.r[u_i, v_i]
 
                                 # Set the delay to mean of exponential distribution with parameter delay_param.
-                                delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in days
+                                delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in months
                                 if delay > self.max_delay:
                                     delay = self.max_delay
                                 send_dt = str_to_datetime(node.datetime)
-                                receive_dt = (send_dt + timedelta(days=delay)).strftime(DT_FORMAT)
+                                receive_dt = (send_dt + timedelta(days=30 * delay)).strftime(DT_FORMAT)
                             else:
                                 receive_dt = None
 

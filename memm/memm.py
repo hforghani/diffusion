@@ -38,7 +38,6 @@ class MEMM(abc.ABC):
     def __init__(self):
         self.orig_indexes = []
         self.Lambda = None
-        self.max_iterations = 1000
 
     @time_measure(level='debug')
     def fit(self, evidence: dict, states: list, iterations: int):

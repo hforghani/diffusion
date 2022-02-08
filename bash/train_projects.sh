@@ -1,6 +1,6 @@
 #!/bin/bash
 
-project_num=100
+project_num=150
 db="weibo"
 methods="tdmemm aslt"
 
