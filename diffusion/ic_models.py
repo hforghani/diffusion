@@ -4,7 +4,6 @@ from functools import reduce
 import numpy as np
 from scipy import sparse
 
-from cascade.models import ParamTypes
 from diffusion.models import IC
 from settings import logger
 from utils.time_utils import time_measure
@@ -43,12 +42,11 @@ class EMIC(IC):
             last_k = k.copy()
             k = self._calc_k(p, k, user_ids, user_map, graph, user_times)
 
-            k_dif = (k - last_k).astype(np.float32)
-            k_dif = np.sqrt(np.multiply(k_dif, k_dif).sum())
+            k_dif = np.sqrt((k - last_k).power(2).sum())
             del last_k
             logger.info('k dif = %f', k_dif)
 
-        self.k = k
+        self.k = k.tocsr()
 
     def _extract_user_times(self, cascade_ids, user_ids, cascade_map, user_map, sequences, trees):
         c_count = len(cascade_ids)
@@ -84,7 +82,7 @@ class EMIC(IC):
     def __initialize(self, graph, user_ids, user_map):
         # Initialize probabilities.
         u_count = len(user_ids)
-        k = np.zeros((u_count, u_count))
+        k = sparse.lil_matrix((u_count, u_count))
         for i in range(u_count):
             child_indexes = [user_map[uid] for uid in graph.successors(user_ids[i])]
             if child_indexes:
@@ -94,7 +92,7 @@ class EMIC(IC):
     @time_measure('debug')
     def _calc_k(self, p, k, user_ids, user_map, graph, user_times):
         u_count = len(user_ids)
-        new_k = np.zeros((u_count, u_count))
+        new_k = sparse.lil_matrix((u_count, u_count))
 
         for (u, v) in graph.edges():
             logger.debugv('calculating k: from user %s to %s ...', u, v)
@@ -105,7 +103,7 @@ class EMIC(IC):
                 new_k[u_index, v_index] = 0
             else:
                 neg_count = self._get_neg_count(u_index, v_index, user_times)
-                new_k[u_index, v_index] = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index]) / (
+                new_k[u_index, v_index] = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index].toarray()) / (
                         len(pos_indexes) + neg_count)
                 logger.debugv('negatives count = %d', neg_count)
 
@@ -121,7 +119,8 @@ class EMIC(IC):
     def _calc_p(self, k, cascade_ids, user_ids, user_map, cascade_map, graph, sequences, trees):
         c_count = len(cascade_ids)
         u_count = len(user_ids)
-        p = np.zeros((c_count, u_count))
+        # p = np.zeros((c_count, u_count))
+        p = sparse.lil_matrix((c_count, u_count))
 
         for cid in cascade_ids:
             logger.debug('calculating p: cascade %s ...', cid)
@@ -142,7 +141,7 @@ class EMIC(IC):
                     # logger.debugv('previous step users =\n%s', pprint.pformat(prev_step))
                     prev_par_indexes = [user_map[u] for u in parents & prev_step]
                     if prev_par_indexes:
-                        p[cindex, vindex] = 1 - np.prod(1 - k[prev_par_indexes, vindex])
+                        p[cindex, vindex] = 1 - np.prod(1 - k[prev_par_indexes, vindex].toarray())
                         logger.debugv('prev_par_indexes = %s', prev_par_indexes)
                         # logger.debugv('k[prev_par_indexes, vindex] = %s', k[prev_par_indexes, vindex])
                         # logger.debugv('p[cindex, vindex] = %f', p[cindex, vindex])
@@ -178,7 +177,7 @@ class DAIC(EMIC):
     @time_measure('debug')
     def _calc_k(self, p, k, user_ids, user_map, graph, user_times):
         u_count = len(user_ids)
-        new_k = np.zeros((u_count, u_count))
+        new_k = sparse.lil_matrix((u_count, u_count))
         lambdaa = 10
 
         for (u, v) in graph.edges():
@@ -188,9 +187,10 @@ class DAIC(EMIC):
             pos_indexes = self._get_pos_indexes(u_index, v_index, user_times)
             neg_count = self._get_neg_count(u_index, v_index, user_times)
             beta = pos_indexes.size + neg_count + lambdaa
-            gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index])
+            gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index].toarray())
             delta = beta ** 2 - 4 * lambdaa * gamma
-            new_k[u_index, v_index] = (beta - math.sqrt(delta)) / (2 * lambdaa)
+            val = (beta - math.sqrt(delta)) / (2 * lambdaa)
+            new_k[u_index, v_index] = val
 
             # logger.debugv('v = %s', v)
             # logger.debugv('pos_indexes = %s', pos_indexes)
@@ -214,10 +214,10 @@ class DAIC(EMIC):
         return pos_indexes
 
     @time_measure('debug')
-    def _calc_p(self, theta, cascade_ids, user_ids, user_map, cascade_map, graph, sequences, trees):
+    def _calc_p(self, k, cascade_ids, user_ids, user_map, cascade_map, graph, sequences, trees):
         c_count = len(cascade_ids)
         u_count = len(user_ids)
-        p = np.zeros((c_count, u_count))
+        p = sparse.lil_matrix((c_count, u_count))
 
         for cid in cascade_ids:
             logger.debug('calculating p: cascade %s ...', cid)
@@ -232,8 +232,10 @@ class DAIC(EMIC):
                 prev_par_indexes = [user_map[p] for p in seq.get_active_parents(v, graph)]
                 logger.debugv('prev_par_indexes = %s', prev_par_indexes)
                 if prev_par_indexes:
-                    p[cindex, vindex] = 1 - np.prod(1 - theta[prev_par_indexes, vindex])
-                    # logger.debugv('theta[prev_par_indexes, vindex] = %s', theta[prev_par_indexes, vindex])
+                    val = 1 - np.prod(1 - k[prev_par_indexes, vindex].toarray())
+                    p[cindex, vindex] = val
+                    # logger.debugv('k[prev_par_indexes, vindex] = %s', k[prev_par_indexes, vindex])
                     # logger.debugv('p[cindex, vindex] = %f', p[cindex, vindex])
 
+        # p = sparse.csc_matrix((values, [rows, cols]), shape=(c_count, u_count), dtype=np.float64).tolil()
         return p

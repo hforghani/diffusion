@@ -4,7 +4,7 @@ import logging
 import traceback
 from bson import ObjectId
 
-from cascade.models import Project, CascadeTree
+from cascade.models import Project, ParamTypes
 import settings
 from utils.time_utils import time_measure
 
@@ -17,10 +17,8 @@ class Command:
     help = 'Display cascade tree of a cascade from a project'
 
     def add_arguments(self, parser):
-        parser.add_argument('cascade_id', type=str, help='cascade id')
-        group = parser.add_mutually_exclusive_group()
-        group.add_argument('-p', '--project', type=str, help='project name')
-        group.add_argument('-d', '--db', type=str, help='db name')
+        parser.add_argument('-c', '--cascade', required=True, help='cascade id')
+        parser.add_argument('-p', '--project', required=True, help='project name')
 
     def __init__(self):
         super(Command, self).__init__()
@@ -28,13 +26,13 @@ class Command:
     @time_measure()
     def handle(self, args):
         try:
-            cascade_id = args.cascade_id
-            if args.project:
-                project = Project(args.project)
+            cascade_id = args.cascade
+            project = Project(args.project)
+            if project.has_param('trees', ParamTypes.JSON):
                 trees = project.load_trees()
                 tree = trees[ObjectId(cascade_id)]
             else:
-                tree = CascadeTree.extract_cascade(cascade_id, args.db)
+                tree = project.extract_cascade(cascade_id)
 
             logger.info('\n' + tree.render(digest=True))
         except:

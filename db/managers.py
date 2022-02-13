@@ -11,8 +11,8 @@ from settings import logger, MONGO_URL
 
 class DBManager:
     def __init__(self, db_name):
-        mongo_client = pymongo.MongoClient(MONGO_URL)
-        self.db = mongo_client[db_name]
+        self.client = pymongo.MongoClient(MONGO_URL)
+        self.db = self.client[db_name]
 
 
 class EvidenceManager:

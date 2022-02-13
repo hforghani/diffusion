@@ -144,10 +144,10 @@ class IC(abc.ABC):
         data_loaded = False
         if eco:
             try:
-                self.k = self.project.load_param(self.k_param_name, ParamTypes.SPARSE).toarray()
+                self.k = self.project.load_param(self.k_param_name, ParamTypes.SPARSE).tocsr()
                 data_loaded = True
                 if self.r_param_name is not None:
-                    self.r = self.project.load_param(self.r_param_name, ParamTypes.SPARSE).toarray()  # optional
+                    self.r = self.project.load_param(self.r_param_name, ParamTypes.SPARSE).tocsr()  # optional
             except FileNotFoundError:
                 pass
 
@@ -198,7 +198,7 @@ class IC(abc.ABC):
                 if u not in users_map:
                     continue
                 u_i = users_map[u]
-                k_u = self.k[u_i, :]  # probabilities of the children of u
+                k_u = np.squeeze(self.k[u_i, :].toarray())  # probabilities of the children of u
 
                 if k_u.any():
                     logger.debugv('probabilities of user %s :\n' + '\n'.join(

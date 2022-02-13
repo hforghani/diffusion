@@ -341,7 +341,7 @@ class Project:
             all_cascades = self.training + self.validation + self.test
             count = len(all_cascades)
             for cascade_id in all_cascades:
-                tree = self.__extract_cascade(cascade_id)
+                tree = self.extract_cascade(cascade_id)
                 trees[cascade_id] = tree
                 i += 1
                 if i % 10 == 0:
@@ -352,7 +352,7 @@ class Project:
         self.trees = trees
         return trees
 
-    def __extract_cascade(self, cascade_id):
+    def extract_cascade(self, cascade_id):
         with Timer('TREE: fetching posts', level='debug'):
             # Fetch posts related to the cascade and reshares.
             if isinstance(cascade_id, str):
@@ -708,6 +708,10 @@ class Project:
             return graph
         else:
             raise Exception('invalid type "%s"' % type)
+
+    def has_param(self, name, type):
+        path = os.path.join(self.path, '%s.%s' % (name, self.SUFFIXES[type]))
+        return os.path.exists(path)
 
     def delete_param(self, name, type):
         path = os.path.join(self.path, '%s.%s' % (name, self.SUFFIXES[type]))

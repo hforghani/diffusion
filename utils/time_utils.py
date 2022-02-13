@@ -18,15 +18,15 @@ class TimeUnit(Enum):
     HOURS = 2
 
 
-def localize(dt):
-    return pytz.timezone('Asia/Tehran').localize(dt)
+def localize(dt, zone='Asia/Tehran'):
+    return pytz.timezone(zone).localize(dt)
 
 
-def str_to_datetime(datetime_str, dt_format=None):
+def str_to_datetime(datetime_str, dt_format=None, zone='Asia/Tehran'):
     if not dt_format:
         dt_format = DT_FORMAT
     dt = datetime.strptime(datetime_str, dt_format)
-    return localize(dt)
+    return localize(dt, zone)
 
 
 levels = {'debugv': DEBUG_LEVELV_NUM,
