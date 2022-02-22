@@ -33,14 +33,19 @@ def get_users(cascade_id: str, db_name) -> Set[str]:
 def calc_jaccards(index_pairs, users, cascade_ids):
     logger.debug('calculating %d jaccard coefficients', len(index_pairs))
     logger.debug('len(users) = %d', len(users))
-    jaccards = {
-        (i, j): len(users[cascade_ids[i]] & users[cascade_ids[j]]) / len(users[cascade_ids[i]] | users[cascade_ids[j]])
-        for i, j in index_pairs}
+    jaccards = {}
+    for i, j in index_pairs:
+        inter = len(users[cascade_ids[i]] & users[cascade_ids[j]])
+        if inter == 0:
+            val = 0
+        else:
+            val = inter / len(users[cascade_ids[i]] | users[cascade_ids[j]])
+        jaccards[(i, j)] = val
     logger.debug('done')
     return jaccards
 
 
-def get_jaccard_mat(cascades: List[str], users: Dict[str, set]):
+def get_jaccard_mat_mp(cascades: List[str], users: Dict[str, set]):
     count = len(cascades)
     results = []
     process_count = settings.PROCESS_COUNT
@@ -74,6 +79,24 @@ def get_jaccard_mat(cascades: List[str], users: Dict[str, set]):
         jaccard_values = res.get()
         for i, j in jaccard_values:
             mat[i, j] = jaccard_values[(i, j)]
+
+    mat += mat.transpose() + np.eye(count)
+    return mat
+
+
+def get_jaccard_mat(cascades: List[str], users: Dict[str, set]):
+    logger.info('calculating jaccard coefficients ...')
+    count = len(cascades)
+    mat = np.zeros((count, count), dtype=np.float32)
+
+    pairs_count = count * (count - 1) / 2
+    counter = 0
+    for i in range(count - 1):
+        for j in range(i + 1, count):
+            mat[i, j] = len(users[cascades[i]] & users[cascades[j]]) / len(users[cascades[i]] | users[cascades[j]])
+            counter += 1
+            if counter % 1000 == 0:
+                logger.debug('%d%% done', counter / pairs_count * 100)
 
     mat += mat.transpose() + np.eye(count)
     return mat
@@ -205,8 +228,12 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
         users = load_or_extract_users(cascades, db_name)
 
         # Calculate the Jaccard matrix.
-        logger.info('creating the similarity matrix ...')
-        mat = get_jaccard_mat(cascades, users)
+        try:
+            logger.info('creating the similarity matrix using multiple processes ...')
+            mat = get_jaccard_mat_mp(cascades, users)
+        except MemoryError:
+            logger.info('creating the similarity matrix using single process ...')
+            mat = get_jaccard_mat(cascades, users)
 
         # Normalize the matrix.
         mat = np.reshape(mat - np.eye(len(cascades)), (1, mat.size))

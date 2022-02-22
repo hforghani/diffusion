@@ -102,11 +102,11 @@ class CascadeTree:
             self.depth = 0
             self._id_to_node = {}
 
-    def get_dict(self):
+    def to_json(self):
         return [node.to_json() for node in self.roots]
 
     @classmethod
-    def from_dict(cls, tree_dict):
+    def from_json(cls, tree_dict):
         roots = []
         for node in tree_dict:
             roots.append(CascadeNode().from_json(node))
@@ -345,7 +345,7 @@ class Project:
             trees = {ObjectId(key): value for key, value in trees.items()}
             # Convert tree dictionaries to tree objects.
             logger.debug('converting dictionaries to trees ...')
-            trees = {cascades_id: CascadeTree().from_dict(tree) for cascades_id, tree in trees.items()}
+            trees = {cascades_id: CascadeTree().from_json(tree) for cascades_id, tree in trees.items()}
         except FileNotFoundError:
             logger.info('trees not found. extracting ...')
             trees = {}

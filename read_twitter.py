@@ -139,7 +139,7 @@ def load_cascades_data():
     user_ids_path = os.path.join(data_dir, 'cascade_user_ids.json')
     tweet_to_cascade_path = os.path.join(data_dir, 'tweet_to_cascade.json')
     with open(cascades_path) as f:
-        cascades = [CascadeTree().from_dict(tree) for tree in json.load(f)]
+        cascades = [CascadeTree().from_json(tree) for tree in json.load(f)]
     with open(user_ids_path) as f:
         cascade_user_ids = [{ObjectId(uid) for uid in user_ids} for user_ids in json.load(f)]
     with open(tweet_to_cascade_path) as f:

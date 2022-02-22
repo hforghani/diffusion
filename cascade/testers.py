@@ -28,15 +28,30 @@ class ProjectTester(abc.ABC):
         self.criterion = criterion
         self.eco = eco
 
-    @abc.abstractmethod
     def run_validation_test(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int, **kwargs) \
             -> Tuple[float, float, float, float, float]:
         """ Run the training, validation, and test stages for the project """
+        if self.model is None:
+            self.model = self.train(**kwargs)
 
-    @abc.abstractmethod
+        with Timer('validation & test'):
+            _, val_set, test_set = self.project.load_sets()
+            logger.info('{0} VALIDATION {0}'.format('=' * 20))
+            thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=self.model)
+            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
+            precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth, model=self.model)
+            return precision, recall, f1, fpr, thr
+
     def run_test(self, threshold: numbers.Number, initial_depth: int, max_depth: int, **kwargs) \
             -> Tuple[float, float, float, float]:
         """ Run the training, and test stages for the project """
+        if self.model is None:
+            self.model = self.train(**kwargs)
+
+        with Timer('test'):
+            _, val_set, test_set = self.project.load_sets()
+            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
+            return self.test(test_set, threshold, initial_depth, max_depth, model=self.model)
 
     @abc.abstractmethod
     def train(self, **kwargs):
@@ -62,9 +77,8 @@ class ProjectTester(abc.ABC):
         self.__save_charts(best_thr, precs, recs, f1s, fprs, thresholds, initial_depth, max_depth)
         return best_thr
 
-    @abc.abstractmethod
     def test(self, test_set: list, thr: Union[list, numbers.Number], initial_depth: int = 0, max_depth: int = None,
-             model=None):
+             model=None) -> tuple:
         """
         Test on test set by the threshold(s) given.
         :param test_set: list of cascade ids to test
@@ -77,6 +91,35 @@ class ProjectTester(abc.ABC):
         :return: if the threshold is a number, returns tuple of precision, recall, f1, FPR. If a list of thresholds
             is given, it returns tuple of list of precisions, list of recalls, etc. related to the thresholds.
         """
+        if isinstance(thr, numbers.Number):
+            thresholds = [thr]
+        else:
+            thresholds = thr
+
+        # Load cascade trees and graph.
+        trees = self.project.load_trees()
+        graph = self.project.load_or_extract_graph()
+
+        logger.info('number of cascades : %d' % len(test_set))
+
+        precisions, recalls, f1s, fprs, prp1_list, prp2_list = self._do_test(test_set, thresholds, graph, trees,
+                                                                             initial_depth, max_depth, model)
+
+        if isinstance(thr, numbers.Number):  # It is in test stage
+            self._log_cascades_results(test_set, precisions[thr], recalls[thr], f1s[thr])
+
+        mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
+                                                                        prp2_list)
+        if isinstance(thr, numbers.Number):  # It is in test stage
+            return mean_prec[thr], mean_rec[thr], mean_f1[thr], mean_fpr[thr]
+        else:  # It is in validation stage
+            return mean_prec, mean_rec, mean_f1, mean_fpr
+
+    @abc.abstractmethod
+    def _do_test(self, test_set: list, thresholds: list, graph: DiGraph, trees: dict, initial_depth: int = 0,
+                 max_depth: int = None, model=None, ) \
+            -> Tuple[dict, dict, dict, dict, dict, dict]:
+        pass
 
     def _get_mean_results(self, precisions: dict, recalls: dict, f1s: dict, fprs: dict, prp1s: dict,
                           prp2s: dict) -> Tuple[dict, dict, dict, dict]:
@@ -113,7 +156,7 @@ class ProjectTester(abc.ABC):
         for i in range(len(test_set)):
             logs.append(f'{str(test_set[i]):<30}{precisions[i]:<10.3f}{recalls[i]:<10.3f}{f1s[i]:<10.3f}')
 
-        logger.debug('\n'.join(logs))
+        logger.info('\n'.join(logs))
 
     def __save_charts(self, best_thr: float, precs: dict, recs: dict, f1s: dict, fprs: dict, thresholds: list,
                       initial_depth: int, max_depth: int):
@@ -153,82 +196,19 @@ class ProjectTester(abc.ABC):
 
 
 class DefaultTester(ProjectTester):
-    def run_validation_test(self, thresholds, initial_depth, max_depth, **kwargs):
-        if self.model is None:
-            self.model = self.train(**kwargs)
-
-        with Timer('validation & test'):
-            _, val_set, test_set = self.project.load_sets()
-            logger.info('{0} VALIDATION {0}'.format('=' * 20))
-            thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=self.model)
-            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
-            precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth, model=self.model)
-            return precision, recall, f1, fpr, thr
-
-    def run_test(self, threshold, initial_depth, max_depth, **kwargs):
-        if self.model is None:
-            self.model = self.train(**kwargs)
-
-        with Timer('test'):
-            _, val_set, test_set = self.project.load_sets()
-            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
-            return self.test(test_set, threshold, initial_depth, max_depth, model=self.model)
+    def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
+        return test_cascades(test_set, self.method, model, thresholds, initial_depth, max_depth, self.criterion, trees,
+                             graph)
 
     def train(self, **kwargs):
         with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
             model = train_cascades(self.method, self.project, eco=self.eco, **kwargs)
         return model
 
-    @time_measure(level='debug')
-    def test(self, test_set: list, thr: Union[list, numbers.Number], initial_depth: int = 0, max_depth: int = None,
-             model=None):
-        if isinstance(thr, numbers.Number):
-            thresholds = [thr]
-        else:
-            thresholds = thr
-
-        # Load training and test sets and cascade trees.
-        trees = self.project.load_trees()
-        graph = self.project.load_or_extract_graph()
-
-        logger.info('number of cascades : %d' % len(test_set))
-
-        precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_cascades(test_set, self.method, model, thresholds,
-                                                                             initial_depth, max_depth, self.criterion,
-                                                                             trees, graph)
-
-        if isinstance(thr, numbers.Number) and LOG_LEVEL <= logging.DEBUG:  # It is in test stage
-            self._log_cascades_results(test_set, precisions[thr], recalls[thr], f1s[thr])
-
-        mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
-                                                                        prp2_list)
-        if isinstance(thr, numbers.Number):  # It is in test stage
-            return mean_prec[thr], mean_rec[thr], mean_f1[thr], mean_fpr[thr]
-        else:  # It is in validation stage
-            return mean_prec, mean_rec, mean_f1, mean_fpr
-
 
 class MultiProcTester(ProjectTester):
-    def run_validation_test(self, thresholds, initial_depth, max_depth, **kwargs):
-        if self.model is None:
-            self.model = self.train(**kwargs)
-
-        with Timer('validation & test'):
-            _, val_set, test_set = self.project.load_sets()
-            logger.info('{0} VALIDATION {0}'.format('=' * 20))
-            thr = self.validate(val_set, thresholds, initial_depth, max_depth, self.model)
-            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
-            precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth, self.model)
-            return precision, recall, f1, fpr, thr
-
-    def run_test(self, threshold, initial_depth, max_depth, **kwargs):
-        if self.model is None:
-            self.model = self.train(**kwargs)
-
-        with Timer('test'):
-            _, val_set, test_set = self.project.load_sets()
-            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
-            return self.test(test_set, threshold, initial_depth, max_depth, self.model)
+    def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
+        return self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, graph)
 
     def train(self, **kwargs):
         model = None
@@ -239,33 +219,6 @@ class MultiProcTester(ProjectTester):
                        unit=TimeUnit.SECONDS):
                 model = train_cascades(self.method, self.project, multi_processed=True, eco=self.eco, **kwargs)
         return model
-
-    @time_measure(level='debug')
-    def test(self, test_set: list, thr: Union[list, numbers.Number], initial_depth: int = 0, max_depth: int = None,
-             model=None):
-        if isinstance(thr, numbers.Number):
-            thresholds = [thr]
-        else:
-            thresholds = thr
-
-        # Load cascade trees and graph.
-        trees = self.project.load_trees()
-        graph = self.project.load_or_extract_graph()
-
-        logger.info('number of cascades : %d' % len(test_set))
-
-        precisions, recalls, f1s, fprs, prp1_list, prp2_list \
-            = self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, graph)
-
-        if isinstance(thr, numbers.Number) and LOG_LEVEL <= logging.DEBUG:  # It is in test stage
-            self._log_cascades_results(test_set, precisions[thr], recalls[thr], f1s[thr])
-
-        mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
-                                                                        prp2_list)
-        if isinstance(thr, numbers.Number):
-            return mean_prec[thr], mean_rec[thr], mean_f1[thr], mean_fpr[thr]
-        else:
-            return mean_prec, mean_rec, mean_f1, mean_fpr
 
     def __test_multi_processed(self, test_set: list, thresholds: list, initial_depth: int, max_depth: int, trees: dict,
                                graph: DiGraph):
