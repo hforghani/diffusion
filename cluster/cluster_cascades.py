@@ -7,17 +7,19 @@ import argparse
 import json
 import os
 from bson import ObjectId
-from sklearn.cluster import SpectralClustering
+from sklearn.cluster import SpectralClustering, DBSCAN
 from sklearn.preprocessing import normalize
 import numpy as np
 from matplotlib import pyplot as plt
 import random
 
+from sknetwork.hierarchy import Paris
+
 sys.path.append('.')
 
 import settings
 from db.managers import DBManager
-from settings import logger, BASEPATH
+from settings import logger, BASE_PATH
 from cascade.models import Project
 from utils.time_utils import Timer
 
@@ -84,16 +86,48 @@ def heat_map(mat, file_name):
     plt.imsave(file_name, mat)
 
 
-def cluster_mat(mat, clust_num):
-    clustering = SpectralClustering(n_clusters=clust_num,
-                                    assign_labels="discretize",
-                                    random_state=0).fit(mat)
-    # clustering = DBSCAN(eps=0.001, min_samples=5, metric='precomputed', n_jobs=-1).fit(mat)
-    return clustering.labels_
+def hierarchical(mat, clust_num):
+    paris = Paris()
+    dendrogram = paris.fit_transform(mat)
+    clusters = {i: [i] for i in range(mat.shape[0])}
+    new_clust_index = len(clusters)
+
+    for i, j, dist, size in dendrogram:
+        if len(clusters) <= clust_num:
+            break
+        i, j = int(i), int(j)
+        clusters[new_clust_index] = clusters[i] + clusters[j]
+        new_clust_index += 1
+        del clusters[i]
+        del clusters[j]
+
+    keys = list(clusters.keys())
+    key_map = {keys[i]: i for i in range(len(keys))}
+    clusters = {key_map[key]: value for key, value in clusters.items()}
+    labels = np.zeros(mat.shape[0], dtype=int)
+    for label, indexes in clusters.items():
+        labels[indexes] = label
+
+    logger.debug('labels = %s', labels)
+
+    return labels
+
+
+def cluster_mat(mat, clust_num, method):
+    if method == 'spectral':
+        clustering = SpectralClustering(n_clusters=clust_num,
+                                        assign_labels="discretize",
+                                        random_state=0).fit(mat)
+        return clustering.labels_
+    elif method == 'dbscan':
+        clustering = DBSCAN(eps=0.001, min_samples=5, metric='precomputed', n_jobs=-1).fit(mat)
+        return clustering.labels_
+    elif method == 'hierarchy':
+        return hierarchical(mat, clust_num)
 
 
 def load_or_extract_users(cas_ids: List[str], db_name: str) -> Dict[str, set]:
-    fname = os.path.join(BASEPATH, 'data', f'{db_name}_users.json')
+    fname = os.path.join(BASE_PATH, 'data', f'{db_name}_users.json')
     try:
         with open(fname) as f:
             logger.info('loading users lists ...')
@@ -104,16 +138,19 @@ def load_or_extract_users(cas_ids: List[str], db_name: str) -> Dict[str, set]:
     res_users = {}
     i = 1
     changed = False
+    logger.info('querying users of %d cascades', len(cas_ids))
     for cas_id in cas_ids:
         if cas_id not in users:
-            logger.info('querying users of cascade {}'.format(i))
-            users_set = get_users(cas_id)
+            logger.debug('querying users of cascade {}'.format(i))
+            users_set = get_users(cas_id, db_name)
             users[cas_id] = list(users_set)
             res_users[cas_id] = users_set
             changed = True
         else:
             res_users[cas_id] = set(users[cas_id])
         i += 1
+        if i % 1000 == 0:
+            logger.info('%d cascades done', i)
 
     if changed:
         logger.info('saving users lists ...')
@@ -136,7 +173,7 @@ def calc_error(mat, clusters):
 
 
 def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_name):
-    base_file_name = os.path.join(BASEPATH, 'data', 'clusters',
+    base_file_name = os.path.join(BASE_PATH, 'data', 'clusters',
                                   f'{db_name}-{min_size}to{max_size}-{depth}')
     mat_file_name = base_file_name + '-mat.npy'
     cascades_file_name = base_file_name + '-cascades.json'
@@ -149,6 +186,7 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
 
     else:
         # Extract the cascades.
+        logger.info('loading cascades ...')
         db = DBManager(db_name).db
         query = {}
         if min_size is not None:
@@ -182,7 +220,7 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
-    labels = cluster_mat(mat, clust_num)
+    labels = cluster_mat(mat, clust_num, method)
 
     # Create the ordered indexes of cascades.
     ordered_ind = np.array([], dtype=np.int64)
@@ -238,15 +276,16 @@ def main():
     parser.add_argument('-d', '--db', required=True, help='db name')
     parser.add_argument('-c', '--clusters', type=int, default=5, help='number of clusters')
     parser.add_argument('-m', '--min', type=int, help='minimum cascade size')
-    parser.add_argument('-x', '--max', type=int, help='minimum cascade size')
-    parser.add_argument('-e', '--depth', type=int, help='minimum depth')
+    parser.add_argument('-M', '--max', type=int, help='maximum cascade size')
+    parser.add_argument('--method', choices=['spectral', 'dbscan', 'hierarchy'], help='clustering method')
+    parser.add_argument('-D', '--depth', type=int, help='minimum depth')
     parser.add_argument('-i', '--create_by_index', type=int,
                         help='Create a project using cascade ids in cluster index given')
-    parser.add_argument('-p', '--project', help='the project name to create if --create is given')
+    parser.add_argument('-p', '--project', help='the project name to create if --create_by_index is given')
 
     args = parser.parse_args()
-    method = 'spectral'
-    file_name = os.path.join(BASEPATH, 'data', 'clusters',
+    method = args.method
+    file_name = os.path.join(BASE_PATH, 'data', 'clusters',
                              f'{args.db}-{args.min}to{args.max}-{args.depth}-{method}-{args.clusters}')
     clusters_file_name = file_name + '.json'
 
@@ -256,7 +295,7 @@ def main():
     else:
         clusters = save_clusters(args.clusters, args.db, args.min, args.max, args.depth, method, file_name)
 
-    if args.create_by_index:
+    if args.create_by_index is not None:
         if args.project is None:
             parser.error('--project is required when --create_by_index is given')
         try:

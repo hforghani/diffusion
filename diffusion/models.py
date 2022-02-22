@@ -108,7 +108,7 @@ class LT(abc.ABC):
                                 receive_dt = None
 
                             # Add it to the tree.
-                            child = trees[thr].add_child(u, v, act_time=receive_dt)
+                            child = trees[thr].add_node(v, act_time=receive_dt, parent_id=u)
                             child_max_pred_thr = thr
                             logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
 
@@ -236,7 +236,7 @@ class IC(abc.ABC):
                                 receive_dt = None
 
                             # Add it to the tree.
-                            child = trees[thr].add_child(u, v, act_time=receive_dt)
+                            child = trees[thr].add_node(v, act_time=receive_dt, parent_id=u)
                             child_max_pred_thr = thr
                             logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
 

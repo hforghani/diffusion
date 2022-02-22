@@ -232,10 +232,12 @@ class MEMMModel(abc.ABC):
         Train big evidences sequentially in a single process if multi_processed is True and all
         evidences otherwise.
         """
-        logger.info('training %d MEMMs sequentially', len(single_process_ev))
+        logger.info('training %d MEMMs sequentially ...', len(single_process_ev))
         single_proc_memms = train_memms(single_process_ev, self.method, max_iteration, save_in_db=True,
                                         project=self.project)
         del single_process_ev
+        logger.debug('eco = %s', eco)
+        logger.debug('single_proc_memms = %s', single_proc_memms)
         if not eco:
             memms.update(single_proc_memms)
 
@@ -360,7 +362,7 @@ class MEMMModel(abc.ABC):
 
                                             if prob >= thr:
                                                 if trees[thr].get_node(node_id):
-                                                    trees[thr].add_child(node_id, child_id)
+                                                    trees[thr].add_node(child_id, parent_id=node_id)
                                                     child_thresholds.add(thr)
                                                     logger.debugv('a reshare predicted %f >= %f', prob, thr)
                                                 else:
@@ -566,7 +568,7 @@ class ReducedMEMMModel(MEMMModel, ABC):
                                               thr)
                                 node_id = self._predict_by_obs(obs, thr, memm, trees[thr], parents, conv_indexes)
                                 if node_id:
-                                    trees[thr].add_child(node_id, child_id)
+                                    trees[thr].add_node(child_id, parent_id=node_id)
                                     child_thresholds.add(thr)
 
                         # Set the maximum threshold in which each node is activated.

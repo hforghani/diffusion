@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime
 from functools import reduce
 
 from anytree import Node, RenderTree
@@ -32,8 +33,8 @@ class CascadeNode:
         Get dictionary of the object.
         """
         return {'user_id': str(self.user_id),
-                'datetime': self.datetime,
-                'post_id': str(self.post_id),
+                'datetime': self.datetime.strftime(DT_FORMAT),
+                'post_id': str(self.post_id) if self.post_id is not None else None,
                 'parent_id': str(self.parent_id) if self.parent_id is not None else None,
                 'children': [node.get_dict() for node in self.children]}
 
@@ -45,8 +46,8 @@ class CascadeNode:
         users_map: dictionary of mapping from user id's to users.
         """
         self.user_id = ObjectId(node_dict['user_id'])
-        self.datetime = node_dict['datetime']
-        self.post_id = ObjectId(node_dict['post_id'])
+        self.datetime = datetime.strptime(node_dict['datetime'], DT_FORMAT)
+        self.post_id = ObjectId(node_dict['post_id']) if node_dict['post_id'] is not None else None
         self.parent_id = ObjectId(node_dict['parent_id']) if node_dict['parent_id'] is not None else None
         self.children = [CascadeNode().from_dict(node) for node in node_dict['children']]
         return self
@@ -96,6 +97,10 @@ class CascadeTree:
             self.roots = roots
             self.depth = self.__calc_depth()
             self._id_to_node = {node.user_id: node for node in self.nodes()}
+        else:
+            self.roots = []
+            self.depth = 0
+            self._id_to_node = {}
 
     def get_dict(self):
         return [node.get_dict() for node in self.roots]
@@ -189,23 +194,30 @@ class CascadeTree:
     def get_node(self, user_id: ObjectId) -> CascadeNode:
         return self._id_to_node.get(user_id, None)
 
-    def add_child(self, parent_id: ObjectId, child_id: ObjectId, act_time: str = None) -> CascadeNode:
+    def add_node(self, node_id: ObjectId, act_time: str = None, parent_id: ObjectId = None) -> CascadeNode:
         """
-        Add the child node under the parent node for the user ids and the activation time given and return the created
-        child node.
+        Add the child node to the tree. If the parent is given add it into its children.
+        :param node_id: user id
         :param parent_id: parent user id
-        :param child_id: child user id
         :param act_time: child activation time as string
         :return: the child node
         """
-        parent = self.get_node(parent_id)
-        if parent:
-            child = CascadeNode(child_id, parent_id=parent_id, datetime=act_time)
-            parent.children.append(child)
-            self._id_to_node[child_id] = child
-            return child
+        if node_id == parent_id:
+            raise ValueError('node id and parent id must not be equal')
+        if parent_id is None:
+            node = CascadeNode(node_id, datetime=act_time)
+            self.roots.append(node)
         else:
-            raise ValueError('parent node with user id given does not exist')
+            parent = self.get_node(parent_id)
+            if parent:
+                node = CascadeNode(node_id, parent_id=parent_id, datetime=act_time)
+                parent.children.append(node)
+                if self.depth_of(parent_id) == self.depth:
+                    self.depth += 1
+            else:
+                raise ValueError('parent node with user id given does not exist')
+        self._id_to_node[node_id] = node
+        return node
 
 
 class ActSequence:
@@ -282,7 +294,7 @@ class GraphTypes:
 class Project:
     def __init__(self, project_name, db=None):
         self.name = project_name
-        self.path = os.path.join(settings.BASEPATH, 'data', project_name)
+        self.path = os.path.join(settings.BASE_PATH, 'data', project_name)
         if not os.path.exists(self.path):
             os.mkdir(self.path)  # Create the project path if it does not exist.
         try:
@@ -346,11 +358,14 @@ class Project:
                 i += 1
                 if i % 10 == 0:
                     logger.info('%d%% done', i * 100 / count)
-            trees_dict = {str(cascade_id): tree.get_dict() for cascade_id, tree in trees.items()}
-            self.save_param(trees_dict, 'trees', ParamTypes.JSON)  # Save trees for the project.
+            self.save_trees(trees)
 
         self.trees = trees
         return trees
+
+    def save_trees(self, trees):
+        trees_dict = {str(cascade_id): tree.get_dict() for cascade_id, tree in trees.items()}
+        self.save_param(trees_dict, 'trees', ParamTypes.JSON)  # Save trees for the project.
 
     def extract_cascade(self, cascade_id):
         with Timer('TREE: fetching posts', level='debug'):
@@ -388,7 +403,7 @@ class Project:
 
                 if not visited[parent_id]:  # It is a root
                     parent.post_id = reshare['reshared_post_id']
-                    parent.datetime = reshare['ref_datetime'].strftime(DT_FORMAT) if reshare['ref_datetime'] else None
+                    parent.datetime = reshare['ref_datetime']
                     visited[parent_id] = True
                     roots.append(parent)
 
@@ -397,7 +412,7 @@ class Project:
                     parent.children.append(child)
                     child.parent_id = parent_id
                     child.post_id = reshare['post_id']
-                    child.datetime = reshare['datetime'].strftime(DT_FORMAT)
+                    child.datetime = reshare['datetime']
                     visited[child_id] = True
 
         with Timer('TREE: Adding single nodes', level='debug'):
@@ -411,7 +426,7 @@ class Project:
             for uid, node in nodes.items():
                 if not visited[uid]:
                     post = first_posts[uid]
-                    node.datetime = post['datetime'].strftime(DT_FORMAT) if post['datetime'] else None
+                    node.datetime = post['datetime']
                     node.post_id = post['_id']
                     roots.append(node)
 
@@ -458,7 +473,7 @@ class Project:
 
         except Exception as e:  # If graph data does not exist.
             post_ids = self.__get_cascades_post_ids(train_set)
-            sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
+            sequences = self.__extract_act_seq(post_ids, train_set)
 
         return sequences
 
@@ -497,7 +512,7 @@ class Project:
         except FileNotFoundError:  # If sequence data does not exist.
             if post_ids is None:
                 post_ids = self.__get_cascades_post_ids(train_set)
-            sequences = self.__extract_act_seq(post_ids, train_set, seq_fname)
+            sequences = self.__extract_act_seq(post_ids, train_set)
 
         return graph, sequences
 
@@ -511,7 +526,7 @@ class Project:
         return post_ids
 
     @time_measure(level='info')
-    def __extract_act_seq(self, posts_ids, cascade_ids, seq_fname):
+    def __extract_act_seq(self, posts_ids, cascade_ids):
         """
         Extract list of activation sequences from given cascade id's.
         :param posts_ids:   list of posts id's
@@ -560,6 +575,11 @@ class Project:
                 sequences[m] = ActSequence(users[m], times[m], max_t[m])
 
         logger.info('saving act. sequences ...')
+        self.save_act_sequences(sequences)
+
+        return sequences
+
+    def save_act_sequences(self, sequences):
         seq_copy = {}
         for m in sequences:
             seq_copy[str(m)] = {
@@ -567,9 +587,7 @@ class Project:
                             range(len(sequences[m].users))],
                 'max_t': sequences[m].max_t
             }
-        self.save_param(seq_copy, seq_fname, ParamTypes.JSON)
-
-        return sequences
+        self.save_param(seq_copy, 'sequences', ParamTypes.JSON)
 
     def __get_posts_author_datetime(self, post_ids, db):
         max_count = 400000

@@ -110,7 +110,7 @@ def test_cascades_multiproc(cascade_ids: list, method: Method, project: Project,
         if model is None and eco:
             # Train (or fetch the trained models from db) in each process due to the size limit for pickling in Python
             # multi-processing.
-            model = train_cascades(method, project)
+            model = train_cascades(method, project, eco=True)
         return test_cascades(cascade_ids, method, model, threshold, initial_depth, max_depth, criterion, trees, graph)
     except:
         logger.error(traceback.format_exc())

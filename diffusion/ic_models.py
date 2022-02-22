@@ -14,6 +14,7 @@ class EMIC(IC):
         super(EMIC, self).__init__(project)
         # Do not override k_param_name for EMIC since the precision of parameters will be low when saved.
         self.max_iterations = 20
+        self.stop_criterion = 1e-6
 
     def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
         iterations = kwargs.get('iterations', self.max_iterations)
@@ -30,7 +31,11 @@ class EMIC(IC):
         logger.info('train set size = %d', len(train_set))
         logger.info('user space size = %d', len(user_map))
 
+        logger.info('extracting positive indexes and negative counts ...')
         user_times = self._extract_user_times(train_set, user_ids, cascade_map, user_map, sequences, trees)
+        edge_indexes = [(user_map[u], user_map[v]) for (u, v) in graph.edges()]
+        pos_indexes = {(ui, vi): self._get_pos_indexes(ui, vi, user_times) for (ui, vi) in edge_indexes}
+        neg_counts = {(ui, vi): self._get_neg_count(ui, vi, user_times) for (ui, vi) in edge_indexes}
 
         k = self.__initialize(graph, user_ids, user_map)
 
@@ -40,19 +45,22 @@ class EMIC(IC):
             p = self._calc_p(k, train_set, user_ids, user_map, cascade_map, graph, sequences, trees)
 
             last_k = k.copy()
-            k = self._calc_k(p, k, user_ids, user_map, graph, user_times)
+            k = self._calc_k(p, k, user_ids, user_map, graph, pos_indexes, neg_counts)
 
             k_dif = np.sqrt((k - last_k).power(2).sum())
             del last_k
             logger.info('k dif = %f', k_dif)
+            if k_dif < self.stop_criterion:
+                break
 
         self.k = k.tocsr()
 
     def _extract_user_times(self, cascade_ids, user_ids, cascade_map, user_map, sequences, trees):
         c_count = len(cascade_ids)
         u_count = len(user_ids)
-        user_times = np.zeros((c_count, u_count))
-        user_times[:] = np.nan
+        values = []
+        rows = []
+        cols = []
 
         for cid in cascade_ids:
             c_index = cascade_map[cid]
@@ -62,21 +70,39 @@ class EMIC(IC):
 
             while cur_nodes:
                 u_indexes = [user_map[node.user_id] for node in cur_nodes if node.user_id in user_map]
-                user_times[c_index, u_indexes] = depth
+                values.extend([depth] * len(u_indexes))
+                rows.extend([c_index] * len(u_indexes))
+                cols.extend(u_indexes)
                 depth += 1
                 # Set the next nodes as the children of the current nodes
                 cur_nodes = reduce(lambda x, y: x + y, [node.children for node in cur_nodes], [])
 
+        user_times = sparse.csc_matrix((values, (rows, cols)), shape=(c_count, u_count))
         return user_times
 
     def _get_neg_count(self, sender_index, recv_index, user_times):
-        neg_count = np.count_nonzero(~np.isnan(user_times[:, sender_index]) & (
-                np.isnan(user_times[:, recv_index]) | (user_times[:, sender_index] != user_times[:, recv_index] - 1)))
+        s_times = user_times[:, sender_index]
+        r_times = user_times[:, recv_index]
+        s_indices = s_times.indices
+        r_indices = r_times.indices
+        common_indices = list(set(s_indices) & set(r_indices))
+        neg_count = s_times.nnz - np.count_nonzero(r_times[common_indices].data == s_times[common_indices].data + 1)
+        # logger.debug('sender times: %s', list(zip(s_indices, s_times.data)))
+        # logger.debug('receiver times: %s', list(zip(r_indices, r_times.data)))
+        # logger.debug('neg_count = %d - %d = %d', s_times.nnz,
+        #              np.count_nonzero(r_times[common_indices].data == s_times[common_indices].data + 1), neg_count)
         return neg_count
 
     def _get_pos_indexes(self, sender_index, recv_index, user_times):
-        pos_indexes = np.nonzero(~np.isnan(user_times[:, sender_index]) & ~np.isnan(user_times[:, recv_index]) & (
-                user_times[:, sender_index] == user_times[:, recv_index] - 1))[0]
+        s_times = user_times[:, sender_index]
+        r_times = user_times[:, recv_index]
+        s_indices = s_times.indices
+        r_indices = r_times.indices
+        common_indices = np.array(sorted(set(s_indices) & set(r_indices)))
+        pos_indexes = common_indices[r_times[common_indices].data == s_times[common_indices].data + 1]
+        # logger.debug('sender times: %s', list(zip(s_indices, s_times.data)))
+        # logger.debug('receiver times: %s', list(zip(r_indices, r_times.data)))
+        # logger.debug('pos_indexes = %s', pos_indexes)
         return pos_indexes
 
     def __initialize(self, graph, user_ids, user_map):
@@ -90,28 +116,34 @@ class EMIC(IC):
         return k
 
     @time_measure('debug')
-    def _calc_k(self, p, k, user_ids, user_map, graph, user_times):
+    def _calc_k(self, p, k, user_ids, user_map, graph, pos_indexes, neg_counts):
         u_count = len(user_ids)
         new_k = sparse.lil_matrix((u_count, u_count))
+        i = 0
+        logger.debug('calculating k: iterating on %d edges', graph.number_of_edges())
 
         for (u, v) in graph.edges():
             logger.debugv('calculating k: from user %s to %s ...', u, v)
             u_index = user_map[u]
             v_index = user_map[v]
-            pos_indexes = self._get_pos_indexes(u_index, v_index, user_times)
-            if pos_indexes.size == 0:
+            pos_indexes_u_v = pos_indexes[(u_index, v_index)]
+            if pos_indexes_u_v.size == 0:
                 new_k[u_index, v_index] = 0
             else:
-                neg_count = self._get_neg_count(u_index, v_index, user_times)
-                new_k[u_index, v_index] = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index].toarray()) / (
-                        len(pos_indexes) + neg_count)
+                neg_count = neg_counts[(u_index, v_index)]
+                new_k[u_index, v_index] = k[u_index, v_index] * np.sum(1 / p[pos_indexes_u_v, v_index].toarray()) / (
+                        pos_indexes_u_v.size + neg_count)
                 logger.debugv('negatives count = %d', neg_count)
 
-            logger.debugv('positives count = %d', len(pos_indexes))
-            logger.debugv('pos_indexes = %s', pos_indexes)
+            logger.debugv('positives count = %d', len(pos_indexes_u_v.size))
+            logger.debugv('pos_indexes = %s', pos_indexes_u_v)
             # logger.debugv('p[pos_indexes, user_index] = %s', p[pos_indexes, v_index])
             logger.debugv('k_u_v = %f', k[u_index, v_index])
             # logger.debugv('last k = %f, new k = %f', k[u_index, v_index], new_k[u_index, v_index])
+
+            i += 1
+            if i % 1000 == 0:
+                logger.debug('calculating k: %d edges done', i)
 
         return new_k
 
@@ -119,11 +151,11 @@ class EMIC(IC):
     def _calc_p(self, k, cascade_ids, user_ids, user_map, cascade_map, graph, sequences, trees):
         c_count = len(cascade_ids)
         u_count = len(user_ids)
-        # p = np.zeros((c_count, u_count))
         p = sparse.lil_matrix((c_count, u_count))
+        i = 0
 
         for cid in cascade_ids:
-            logger.debug('calculating p: cascade %s ...', cid)
+            logger.debugv('calculating p: cascade %s ...', cid)
             cindex = cascade_map[cid]
             tree = trees[cid]
 
@@ -145,6 +177,9 @@ class EMIC(IC):
                         logger.debugv('prev_par_indexes = %s', prev_par_indexes)
                         # logger.debugv('k[prev_par_indexes, vindex] = %s', k[prev_par_indexes, vindex])
                         # logger.debugv('p[cindex, vindex] = %f', p[cindex, vindex])
+            i += 1
+            if i % 100 == 0:
+                logger.debug('calculating p: %d cascades done', i)
 
         return p
 
@@ -153,14 +188,14 @@ class DAIC(EMIC):
     def __init__(self, project):
         super(DAIC, self).__init__(project)
         # Do not override k_param_name for DAIC since the precision of parameters will be low when saved.
-        self.max_iterations = 20
 
     def _extract_user_times(self, cascade_ids, user_ids, cascade_map, user_map, sequences, trees):
         c_count = len(cascade_ids)
         u_count = len(user_ids)
         users_set = set(user_ids)
-        user_times = np.zeros((c_count, u_count))
-        user_times[:] = np.nan
+        values = []
+        rows = []
+        cols = []
 
         for cid in cascade_ids:
             c_index = cascade_map[cid]
@@ -170,47 +205,71 @@ class DAIC(EMIC):
                 uid = seq.users[i]
                 if uid in users_set:
                     u_index = user_map[uid]
-                    user_times[c_index, u_index] = seq.times[i]
+                    values.append(seq.times[i])
+                    rows.append(c_index)
+                    cols.append(u_index)
 
+        user_times = sparse.csc_matrix((values, (rows, cols)), shape=(c_count, u_count))
         return user_times
 
     @time_measure('debug')
-    def _calc_k(self, p, k, user_ids, user_map, graph, user_times):
+    def _calc_k(self, p, k, user_ids, user_map, graph, pos_indexes, neg_counts):
         u_count = len(user_ids)
         new_k = sparse.lil_matrix((u_count, u_count))
         lambdaa = 10
+        i = 0
+        logger.debug('calculating k: iterating on %d edges', graph.number_of_edges())
 
         for (u, v) in graph.edges():
             logger.debugv('calculating k: from user %s to %s ...', u, v)
             u_index = user_map[u]
             v_index = user_map[v]
-            pos_indexes = self._get_pos_indexes(u_index, v_index, user_times)
-            neg_count = self._get_neg_count(u_index, v_index, user_times)
-            beta = pos_indexes.size + neg_count + lambdaa
-            gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes, v_index].toarray())
+            pos_indexes_u_v = pos_indexes[(u_index, v_index)]
+            neg_count = neg_counts[(u_index, v_index)]
+            beta = pos_indexes_u_v.size + neg_count + lambdaa
+            if np.any(p[pos_indexes_u_v, v_index].toarray() == 0):
+                logger.debug('u_index = %s', u_index)
+                logger.debug('v_index = %s', v_index)
+                logger.debug('pos_indexes_u_v = %s', pos_indexes_u_v)
+                logger.debug('p of pos indexes = %s', p[pos_indexes_u_v, v_index].toarray())
+            gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes_u_v, v_index].toarray())
             delta = beta ** 2 - 4 * lambdaa * gamma
             val = (beta - math.sqrt(delta)) / (2 * lambdaa)
             new_k[u_index, v_index] = val
 
             # logger.debugv('v = %s', v)
-            # logger.debugv('pos_indexes = %s', pos_indexes)
+            # logger.debugv('pos_indexes_u_v = %s', pos_indexes_u_v)
             # logger.debugv('neg_count = %s', neg_count)
             # logger.debugv('beta = %s', beta)
             # logger.debugv('k[u_index, v_index] = %s', k[u_index, v_index])
-            # logger.debugv('p[pos_indexes, v_index] = %s', p[pos_indexes, v_index])
-            # logger.debugv('np.sum(1 / p[pos_indexes, v_index] = %s', np.sum(1 / p[pos_indexes, v_index]))
+            # logger.debugv('p[pos_indexes_u_v, v_index] = %s', p[pos_indexes_u_v, v_index])
+            # logger.debugv('np.sum(1 / p[pos_indexes_u_v, v_index] = %s', np.sum(1 / p[pos_indexes_u_v, v_index]))
             # logger.debugv('gamma = %s', gamma)
             # logger.debugv('delta = %s', delta)
+            i += 1
+            if i % 1000 == 0:
+                logger.debug('calculating k: %d edges done', i)
 
         return new_k
 
     def _get_neg_count(self, sender_index, recv_index, user_times):
-        neg_count = np.count_nonzero(~np.isnan(user_times[:, sender_index]) & np.isnan(user_times[:, recv_index]))
+        neg_count = len(set(user_times[:, sender_index].indices) - set(user_times[:, recv_index].indices))
+        # logger.debug('sender indices: %s', user_times[:, sender_index].indices)
+        # logger.debug('receiver indices: %s', user_times[:, recv_index].indices)
+        # logger.debug('neg_count = %s', neg_count)
         return neg_count
 
     def _get_pos_indexes(self, sender_index, recv_index, user_times):
-        pos_indexes = np.nonzero(~np.isnan(user_times[:, sender_index]) & ~np.isnan(user_times[:, recv_index]) & (
-                user_times[:, sender_index] <= user_times[:, recv_index]))[0]
+        s_times = user_times[:, sender_index]
+        r_times = user_times[:, recv_index]
+        s_indices = s_times.indices
+        r_indices = r_times.indices
+        common_indices = np.array(sorted(set(s_indices) & set(r_indices)))
+        pos_indexes = common_indices[s_times[common_indices].data <= r_times[common_indices].data]
+        # logger.debug('sender times: %s', list(zip(s_indices, s_times.data)))
+        # logger.debug('receiver times: %s', list(zip(r_indices, r_times.data)))
+        # logger.debug('common_indices = %s', common_indices)
+        # logger.debug('pos_indexes = %s', pos_indexes)
         return pos_indexes
 
     @time_measure('debug')
@@ -218,9 +277,10 @@ class DAIC(EMIC):
         c_count = len(cascade_ids)
         u_count = len(user_ids)
         p = sparse.lil_matrix((c_count, u_count))
+        i = 0
 
         for cid in cascade_ids:
-            logger.debug('calculating p: cascade %s ...', cid)
+            logger.debugv('calculating p: cascade %s ...', cid)
             cindex = cascade_map[cid]
             seq = sequences[cid]
 
@@ -237,5 +297,8 @@ class DAIC(EMIC):
                     # logger.debugv('k[prev_par_indexes, vindex] = %s', k[prev_par_indexes, vindex])
                     # logger.debugv('p[cindex, vindex] = %f', p[cindex, vindex])
 
-        # p = sparse.csc_matrix((values, [rows, cols]), shape=(c_count, u_count), dtype=np.float64).tolil()
+            i += 1
+            if i % 100 == 0:
+                logger.debug('calculating p: %d cascades done', i)
+
         return p

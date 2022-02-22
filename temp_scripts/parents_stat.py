@@ -8,7 +8,7 @@ import sys
 
 sys.path.append('.')
 
-from local_settings import BASE_PATH
+from settings import BASE_PATH
 
 db_name = 'weibo'
 range_max = None

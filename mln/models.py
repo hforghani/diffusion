@@ -42,7 +42,7 @@ class MLN(object):
         else:
             self.edges[cascade_id] = []
 
-            data_path = os.path.join(settings.BASEPATH, 'data', self.project.name)
+            data_path = os.path.join(settings.BASE_PATH, 'data', self.project.name)
             if self.format == FileCreator.FORMAT_PRACMLN:
                 results_file_path = os.path.join(data_path, 'results-pracmln',
                                                  '%s-m%d-gibbs.results' % (self.project.name, cascade_id))
@@ -106,7 +106,7 @@ class MLN(object):
         else:
             self.nodes[cascade_id] = []
 
-            data_path = os.path.join(settings.BASEPATH, 'data', self.project.name)
+            data_path = os.path.join(settings.BASE_PATH, 'data', self.project.name)
             if self.format == FileCreator.FORMAT_PRACMLN:
                 results_file_path = os.path.join(data_path, 'results-pracmln',
                                                  '%s-m%d-isActivated-gibbs.results' % (

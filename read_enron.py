@@ -7,7 +7,11 @@ from datetime import timedelta
 from email.message import Message
 from email.parser import Parser
 
+from networkx import DiGraph
+
+import sampledata
 import settings
+from cascade.models import Project, ActSequence, CascadeTree, CascadeNode, ParamTypes
 from db.managers import DBManager
 from settings import logger
 from utils.time_utils import time_measure, str_to_datetime
@@ -69,7 +73,10 @@ class Email:
         message = Parser().parsestr(data)
 
         self.from_addr = message['from']
-        self.to_addr = message['to'].replace("\n", "").replace("\t", "").replace(" ", "").split(",")
+        if message['to'] is None:
+            self.to_addr = []
+        else:
+            self.to_addr = message['to'].replace("\n", "").replace("\t", "").replace(" ", "").split(",")
         self.date = str_to_datetime(message['date'][:-12], '%a, %d %b %Y %H:%M:%S', 'US/Pacific')
         self.subject = message['subject']
         self.path = path
@@ -92,7 +99,7 @@ class Thread:
 
 def save_file_names(threads, save_path):
     logger.info('saving threads ...')
-    file_names = [[email.path for email in thread.emails] for thread in threads]
+    file_names = [[email.dataset_path for email in thread.emails] for thread in threads]
     with open(save_path, 'w') as f:
         json.dump(file_names, f, indent=2)
 
@@ -162,20 +169,21 @@ def save_cascades(threads, db_name):
     users_map = {}  # dictionary from email addresses (usernames) to their _id
     all_post_cascades = []
     all_reshares = []
+    act_sequences = {}
+    trees = {}
+
     i = 0
     logger.info('processing %d threads ...', len(threads))
 
+    # Iterate on threads.
     for thread in threads:
-        res = db.cascades.insert_one({'size': len(thread.users)})
-        cascade_id = res.inserted_id
-
         users = [{'username': user} for user in thread.users]
         db.users.insert_many(users)
         users_map.update({user['username']: user['_id'] for user in users})
-
         posts_map = {}  # dictionary from email addresses to their first posts in this thread.
         reshare_pairs = []  # list of the pairs (post1, post2) where post2 is a reshare of post1
 
+        # Iterate on the emails of this thread in the order of their dates.
         for email in sorted(thread.emails, key=lambda m: m.date):
             if email.from_addr in posts_map:
                 from_post = posts_map[email.from_addr]
@@ -186,10 +194,10 @@ def save_cascades(threads, db_name):
                 posts_map[email.from_addr] = from_post
 
             if email.to_addr:
-                for to_email in email.to_addr:
-                    if to_email not in posts_map:
-                        to_post = {'author_id': users_map[to_email], 'datetime': None}
-                        posts_map[to_email] = to_post
+                for to_addr in email.to_addr:
+                    if to_addr not in posts_map:
+                        to_post = {'author_id': users_map[to_addr], 'datetime': None}
+                        posts_map[to_addr] = to_post
                         reshare_pairs.append((from_post, to_post))
 
         # Set the datetime of the posts without datetime.
@@ -198,16 +206,17 @@ def save_cascades(threads, db_name):
                 # The destination time is set 1 day after the source time if there is no datetime.
                 dest_post['datetime'] = source_post['datetime'] + timedelta(days=1)
 
-        # Insert posts, post_cascades, and reshares into db.
+        # Insert the posts into db.
         posts = list(posts_map.values())
         db.posts.insert_many(posts)
         logger.debug('%d posts inserted', len(posts))
-        post_cascades = [{'post_id': post['_id'],
-                          'cascade_id': cascade_id,
-                          'author_id': post['author_id'],
-                          'datetime': post['datetime']} for post in posts]
-        all_post_cascades.extend(post_cascades)
 
+        # Extract the activation sequence of the thread.
+        times = [post['datetime'] for post in posts]
+        first_time, last_time = min(times), max(times)
+        act_seq = extract_act_sequence(posts, first_time, last_time)
+
+        # Add the thread reshares to the list of all reshares.
         reshares = [{
             'reshared_post_id': pair[0]['_id'],
             'post_id': pair[1]['_id'],
@@ -218,10 +227,39 @@ def save_cascades(threads, db_name):
         } for pair in reshare_pairs]
         all_reshares.extend(reshares)
 
+        # Extract the cascade tree of the thread.
+        tree = extract_tree(reshares)
+
+        # Insert the cascade into db and add the activation sequence and the tree to the related dictionaries.
+        res = db.cascades.insert_one({
+            'size': len(thread.users),
+            'count': len(posts_map),
+            'depth': tree.depth,
+            'first_time': first_time,
+            'last_time': last_time
+        })
+        cascade_id = res.inserted_id
+        act_sequences[cascade_id] = act_seq
+        trees[cascade_id] = tree
+
+        # Add the thread post_cascades to the list of all post_cascades.
+        post_cascades = [{'post_id': post['_id'],
+                          'cascade_id': cascade_id,
+                          'author_id': post['author_id'],
+                          'datetime': post['datetime']} for post in posts]
+        all_post_cascades.extend(post_cascades)
+
         i += 1
         if i % 1000 == 0:
             logger.info('%d threads done', i)
 
+    # Extract the graph
+    graph = extract_graph(all_reshares)
+
+    # Create a project containing all cascades.
+    create_project(act_sequences, graph, trees, db_name)
+
+    # Insert post_cascades and reshares into db.
     logger.info('inserting %d post_cascades', len(all_post_cascades))
     db.postcascades.insert_many(all_post_cascades)
     logger.info('done. inserting %d reshares', len(all_reshares))
@@ -229,15 +267,71 @@ def save_cascades(threads, db_name):
     logger.info('done')
 
 
+def create_project(act_sequences, graph, trees, db_name):
+    """
+    Create a project containing all cascades (with random training, validation, and test sets). Then save the graph,
+    trees, and activation sequences data in the project data directory.
+    :param act_sequences:
+    :param graph:
+    :param trees:
+    :param db_name:
+    :return:
+    """
+    logger.info('creating project "enron-all" ...')
+    project_name = 'enron-all'
+    sampledata.Command().sample_data(db_name, project_name)
+    project = Project(project_name)
+    project.save_param(graph, 'graph', ParamTypes.GRAPH)
+    project.save_trees(trees)
+    project.save_act_sequences(act_sequences)
+
+
+def extract_graph(all_reshares):
+    edges = {(reshare['ref_user_id'], reshare['user_id']) for reshare in all_reshares}
+    graph = DiGraph()
+    graph.add_edges_from(edges)
+    return graph
+
+
+def extract_act_sequence(posts, first_time, last_time):
+    sorted_posts = sorted(posts, key=lambda p: p['datetime'])
+    users = [post['author_id'] for post in sorted_posts]
+    times = [(post['datetime'] - first_time).total_seconds() / (3600.0 * 24 * 30) for post in
+             sorted_posts]  # number of months
+    rel_last_time = (last_time - first_time).total_seconds() / (3600.0 * 24 * 30)  # number of months
+    return ActSequence(users, times, rel_last_time)
+
+
+def extract_tree(reshares):
+    roots = []
+    nodes = {}
+
+    for reshare in sorted(reshares, key=lambda resh: resh['datetime']):
+        if reshare['ref_user_id'] not in nodes:
+            node = CascadeNode(reshare['ref_user_id'], reshare['ref_datetime'], reshare['reshared_post_id'])
+            nodes[node.user_id] = node
+            roots.append(node)
+        else:
+            node = nodes[reshare['ref_user_id']]
+
+        if reshare['user_id'] not in nodes:
+            child_node = CascadeNode(reshare['user_id'], reshare['datetime'], reshare['post_id'],
+                                     reshare['ref_user_id'])
+            nodes[child_node.user_id] = child_node
+            node.children.append(child_node)
+
+    return CascadeTree(roots)
+
+
 @time_measure()
 def main(args):
-    threads = extract_threads(args.path)
+    # threads = extract_threads(args.path)
 
-    save_path = os.path.join(settings.BASEPATH, 'data', 'enron_threads.json')
-    save_file_names(threads, save_path)
-    pprint.pprint({i: threads[i].subjects for i in range(len(threads))})
+    save_path = os.path.join(settings.BASE_PATH, 'data', 'enron_threads.json')
+    # save_file_names(threads, save_path)
+    # pprint.pprint({i: threads[i].subjects for i in range(len(threads))})
 
-    # threads = load_threads(save_path)
+    threads = load_threads(save_path)
 
     save_cascades(threads, args.db)
 

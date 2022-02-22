@@ -1,4 +1,5 @@
 import abc
+import logging
 import math
 import numbers
 import os
@@ -14,6 +15,7 @@ from cascade.asynchroizables import train_cascades, test_cascades, test_cascades
 from cascade.models import Project
 from db.managers import MEMMManager
 from diffusion.enum import Method, Criterion
+from local_settings import LOG_LEVEL
 from settings import logger
 from utils.time_utils import time_measure, Timer, TimeUnit
 
@@ -87,7 +89,10 @@ class ProjectTester(abc.ABC):
         mean_rec = {}
         mean_fpr = {}
         mean_f1 = {}
-        logs = [f'{"threshold":<10}{"precision":<10}{"recall":<10}{"f1":<10}']
+        logs = [
+            'averages:',
+            f'{"threshold":<10}{"precision":<10}{"recall":<10}{"f1":<10}'
+        ]
         for thr in precisions:
             mean_prec[thr] = np.array([precisions[thr]]).mean()
             mean_rec[thr] = np.array(recalls[thr]).mean()
@@ -98,8 +103,17 @@ class ProjectTester(abc.ABC):
             #     logger.info('prp1 avg = %.3f', np.mean(np.array(prp1s[thr])))
             #     logger.info('prp2 avg = %.3f', np.mean(np.array(prp2s[thr])))
 
-        logger.debug('averages:\n' + '\n'.join(logs))
+        logger.debug('\n'.join(logs))
         return mean_prec, mean_rec, mean_f1, mean_fpr
+
+    def _log_cascades_results(self, test_set: list, precisions: list, recalls: list, f1s: list):
+        logs = ['results on test set:',
+                f'{"cascade id":<30}{"precision":<10}{"recall":<10}{"f1":<10}'
+                ]
+        for i in range(len(test_set)):
+            logs.append(f'{str(test_set[i]):<30}{precisions[i]:<10.3f}{recalls[i]:<10.3f}{f1s[i]:<10.3f}')
+
+        logger.debug('\n'.join(logs))
 
     def __save_charts(self, best_thr: float, precs: dict, recs: dict, f1s: dict, fprs: dict, thresholds: list,
                       initial_depth: int, max_depth: int):
@@ -129,7 +143,7 @@ class ProjectTester(abc.ABC):
         pyplot.scatter([fprs[best_thr]], [recs[best_thr]], c='r', marker='o')
         pyplot.title('ROC curve')
         pyplot.axis([0, 1, 0, 1])
-        results_path = os.path.join(settings.BASEPATH, 'results')
+        results_path = os.path.join(settings.BASE_PATH, 'results')
         if not os.path.exists(results_path):
             os.mkdir(results_path)
         filename = os.path.join(results_path,
@@ -182,11 +196,15 @@ class DefaultTester(ProjectTester):
         precisions, recalls, f1s, fprs, prp1_list, prp2_list = test_cascades(test_set, self.method, model, thresholds,
                                                                              initial_depth, max_depth, self.criterion,
                                                                              trees, graph)
+
+        if isinstance(thr, numbers.Number) and LOG_LEVEL <= logging.DEBUG:  # It is in test stage
+            self._log_cascades_results(test_set, precisions[thr], recalls[thr], f1s[thr])
+
         mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
                                                                         prp2_list)
-        if isinstance(thr, numbers.Number):
+        if isinstance(thr, numbers.Number):  # It is in test stage
             return mean_prec[thr], mean_rec[thr], mean_f1[thr], mean_fpr[thr]
-        else:
+        else:  # It is in validation stage
             return mean_prec, mean_rec, mean_f1, mean_fpr
 
 
@@ -238,6 +256,9 @@ class MultiProcTester(ProjectTester):
 
         precisions, recalls, f1s, fprs, prp1_list, prp2_list \
             = self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, graph)
+
+        if isinstance(thr, numbers.Number) and LOG_LEVEL <= logging.DEBUG:  # It is in test stage
+            self._log_cascades_results(test_set, precisions[thr], recalls[thr], f1s[thr])
 
         mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
                                                                         prp2_list)
