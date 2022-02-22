@@ -28,7 +28,7 @@ class CascadeNode:
     def __repr__(self):
         return f'CascadeNode({self.user_id})'
 
-    def get_dict(self):
+    def to_json(self):
         """
         Get dictionary of the object.
         """
@@ -36,9 +36,9 @@ class CascadeNode:
                 'datetime': self.datetime.strftime(DT_FORMAT),
                 'post_id': str(self.post_id) if self.post_id is not None else None,
                 'parent_id': str(self.parent_id) if self.parent_id is not None else None,
-                'children': [node.get_dict() for node in self.children]}
+                'children': [node.to_json() for node in self.children]}
 
-    def from_dict(self, node_dict):
+    def from_json(self, node_dict):
         """
         Set attributes from dictionary.
         node_dict: dictionary of node,
@@ -49,7 +49,7 @@ class CascadeNode:
         self.datetime = datetime.strptime(node_dict['datetime'], DT_FORMAT)
         self.post_id = ObjectId(node_dict['post_id']) if node_dict['post_id'] is not None else None
         self.parent_id = ObjectId(node_dict['parent_id']) if node_dict['parent_id'] is not None else None
-        self.children = [CascadeNode().from_dict(node) for node in node_dict['children']]
+        self.children = [CascadeNode().from_json(node) for node in node_dict['children']]
         return self
 
     def copy(self, max_depth=None):
@@ -103,13 +103,13 @@ class CascadeTree:
             self._id_to_node = {}
 
     def get_dict(self):
-        return [node.get_dict() for node in self.roots]
+        return [node.to_json() for node in self.roots]
 
     @classmethod
     def from_dict(cls, tree_dict):
         roots = []
         for node in tree_dict:
-            roots.append(CascadeNode().from_dict(node))
+            roots.append(CascadeNode().from_json(node))
         return cls(roots)
 
     def max_datetime(self, node=None):
@@ -364,7 +364,7 @@ class Project:
         return trees
 
     def save_trees(self, trees):
-        trees_dict = {str(cascade_id): tree.get_dict() for cascade_id, tree in trees.items()}
+        trees_dict = {str(cascade_id): tree.to_json() for cascade_id, tree in trees.items()}
         self.save_param(trees_dict, 'trees', ParamTypes.JSON)  # Save trees for the project.
 
     def extract_cascade(self, cascade_id):

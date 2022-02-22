@@ -236,8 +236,6 @@ class MEMMModel(abc.ABC):
         single_proc_memms = train_memms(single_process_ev, self.method, max_iteration, save_in_db=True,
                                         project=self.project)
         del single_process_ev
-        logger.debug('eco = %s', eco)
-        logger.debug('single_proc_memms = %s', single_proc_memms)
         if not eco:
             memms.update(single_proc_memms)
 

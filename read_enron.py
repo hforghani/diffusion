@@ -99,7 +99,7 @@ class Thread:
 
 def save_file_names(threads, save_path):
     logger.info('saving threads ...')
-    file_names = [[email.dataset_path for email in thread.emails] for thread in threads]
+    file_names = [[email.path for email in thread.emails] for thread in threads]
     with open(save_path, 'w') as f:
         json.dump(file_names, f, indent=2)
 
@@ -325,13 +325,13 @@ def extract_tree(reshares):
 
 @time_measure()
 def main(args):
-    # threads = extract_threads(args.path)
+    threads = extract_threads(args.path)
 
     save_path = os.path.join(settings.BASE_PATH, 'data', 'enron_threads.json')
-    # save_file_names(threads, save_path)
-    # pprint.pprint({i: threads[i].subjects for i in range(len(threads))})
+    save_file_names(threads, save_path)
+    pprint.pprint({i: threads[i].subjects for i in range(len(threads))})
 
-    threads = load_threads(save_path)
+    # threads = load_threads(save_path)
 
     save_cascades(threads, args.db)
 

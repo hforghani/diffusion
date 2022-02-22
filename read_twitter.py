@@ -124,7 +124,7 @@ def save_cascades_data(cascades, cascade_user_ids, tweet_to_cascade):
     user_ids_path = os.path.join(data_dir, 'cascade_user_ids.json')
     tweet_to_cascade_path = os.path.join(data_dir, 'tweet_to_cascade.json')
     with open(cascades_path, 'w') as f:
-        json.dump([tree.get_dict() for tree in cascades], f, indent=1)
+        json.dump([tree.to_json() for tree in cascades], f, indent=1)
     with open(user_ids_path, 'w') as f:
         json.dump([[str(uid) for uid in user_ids] for user_ids in cascade_user_ids], f, indent=1)
     with open(tweet_to_cascade_path, 'w') as f:
