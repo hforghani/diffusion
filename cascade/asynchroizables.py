@@ -4,19 +4,9 @@ from typing import Tuple
 from networkx import DiGraph
 
 import settings
-from diffusion.avg import LTAvg
-from diffusion.ctic import CTIC
-from diffusion.ic_models import DAIC, EMIC
-from diffusion.enum import Method, Criterion
-from cascade.models import Project
-from diffusion.aslt import AsLT
-
 from cascade.validation import Validation
+from diffusion.enum import Method, Criterion
 from log_levels import DEBUG_LEVELV_NUM
-from memm.models import BinMEMMModel, TDMEMMModel, ReducedTDMEMMModel, ReducedBinMEMMModel, \
-    ParentSensTDMEMMModel, LongParentSensTDMEMMModel, ReducedFullTDMEMM
-from mln.file_generators import FileCreator
-from mln.models import MLN
 from settings import logger
 from utils.time_utils import Timer
 
@@ -76,48 +66,6 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
                                                     res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
-def train_cascades(method, project, multi_processed=False, eco=False, **kwargs):
-    model_classes = {
-        Method.ASLT: AsLT,
-        Method.CTIC: CTIC,
-        Method.AVG: LTAvg,
-        Method.EMIC: EMIC,
-        Method.DAIC: DAIC,
-        Method.BIN_MEMM: BinMEMMModel,
-        Method.TD_MEMM: TDMEMMModel,
-        Method.REDUCED_TD_MEMM: ReducedTDMEMMModel,
-        Method.REDUCED_BIN_MEMM: ReducedBinMEMMModel,
-        Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
-        Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
-        Method.REDUCED_FULL_TD_MEMM: ReducedFullTDMEMM,
-    }
-    # Create and train the model if needed.
-    if method == Method.MLN_PRAC:
-        model = MLN(project, method='edge', format=FileCreator.FORMAT_PRACMLN)
-    elif method == Method.MLN_ALCH:
-        model = MLN(project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
-    elif method in model_classes:
-        model_clazz = model_classes[method]
-        model = model_clazz(project).fit(multi_processed=multi_processed, eco=eco, **kwargs)
-    else:
-        raise Exception('invalid method "%s"' % method.value)
-    return model
-
-
-def test_cascades_multiproc(cascade_ids: list, method: Method, project: Project, threshold: list, initial_depth: int,
-                            max_depth: int, criterion: Criterion, trees: dict, graph: DiGraph, eco: bool, model=None) \
-        -> Tuple[dict, dict, dict, dict, dict, dict]:
-    try:
-        if model is None and eco:
-            # Train (or fetch the trained models from db) in each process due to the size limit for pickling in Python
-            # multi-processing.
-            model = train_cascades(method, project, eco=True)
-        return test_cascades(cascade_ids, method, model, threshold, initial_depth, max_depth, criterion, trees, graph)
-    except:
-        logger.error(traceback.format_exc())
-        raise
-
-
 def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, initial_depth: int, max_depth: int,
                   criterion: Criterion, trees: dict, graph: DiGraph) \
         -> Tuple[dict, dict, dict, dict, dict, dict]:
@@ -137,52 +85,60 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, in
             if initial_depth >= tree.depth:
                 count += 1
                 logger.info('cascade <%s> ignored since the initial depth is more than or equal to the tree depth', cid)
-                continue
-
-            logger.info('running prediction with method <%s> on cascade <%s>', method.value, cid)
-
-            # Copy roots in a new tree.
-            initial_tree = tree.copy(initial_depth)
-
-            # Predict remaining nodes.
-            with Timer('prediction', level='debug'):
-                # TODO: apply max_depth for all methods.
-                if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
-                    res_trees = model.predict(cid, initial_tree, threshold=thresholds)
-                else:
-                    res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step)
-
-            # Evaluate the results.
-            with Timer('evaluating results', level='debug'):
-                logs = [f'{"threshold":>10}{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
                 for thr in thresholds:
-                    res_tree = res_trees[thr]
-
-                    meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph)
-
+                    precisions[thr].append(None)
+                    recalls[thr].append(None)
+                    fprs[thr].append(None)
+                    f1s[thr].append(None)
                     if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
-                        prp = meas.prp(model.probabilities)
-                        prp1 = prp[0] if prp else 0
-                        prp2 = prp[1] if len(prp) > 1 else 0
-                        prp1_list[thr].append(prp1)
-                        prp2_list[thr].append(prp2)
+                        prp1_list[thr].append(None)
+                        prp2_list[thr].append(None)
+            else:
+                logger.info('running prediction with method <%s> on cascade <%s>', method.value, cid)
 
-                    prec = meas.precision()
-                    rec = meas.recall()
-                    fpr = meas.fpr()
-                    f1 = meas.f1()
-                    precisions[thr].append(prec)
-                    recalls[thr].append(rec)
-                    fprs[thr].append(fpr)
-                    f1s[thr].append(f1)
+                # Copy roots in a new tree.
+                initial_tree = tree.copy(initial_depth)
 
-                    logs.append(
-                        f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{prec:10.3f}{rec:10.3f}{f1:10.3f}')
-                    # if method in ['aslt', 'avg']:
-                    #     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-                    # log_trees(tree, res_trees, max_depth)
+                # Predict remaining nodes.
+                with Timer('prediction', level='debug'):
+                    # TODO: apply max_depth for all methods.
+                    if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
+                        res_trees = model.predict(cid, initial_tree, threshold=thresholds)
+                    else:
+                        res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step)
 
-                logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
+                # Evaluate the results.
+                with Timer('evaluating results', level='debug'):
+                    logs = [f'{"threshold":>10}{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
+                    for thr in thresholds:
+                        res_tree = res_trees[thr]
+
+                        meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
+                                                                 graph)
+
+                        if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
+                            prp = meas.prp(model.probabilities)
+                            prp1 = prp[0] if prp else 0
+                            prp2 = prp[1] if len(prp) > 1 else 0
+                            prp1_list[thr].append(prp1)
+                            prp2_list[thr].append(prp2)
+
+                        prec = meas.precision()
+                        rec = meas.recall()
+                        fpr = meas.fpr()
+                        f1 = meas.f1()
+                        precisions[thr].append(prec)
+                        recalls[thr].append(rec)
+                        fprs[thr].append(fpr)
+                        f1s[thr].append(f1)
+
+                        logs.append(
+                            f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{prec:10.3f}{rec:10.3f}{f1:10.3f}')
+                        # if method in ['aslt', 'avg']:
+                        #     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
+                        # log_trees(tree, res_trees, max_depth)
+
+                        logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
 
             count += 1
 

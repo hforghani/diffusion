@@ -1,5 +1,4 @@
 import abc
-import logging
 import math
 import numbers
 import os
@@ -7,15 +6,22 @@ from multiprocessing import Pool
 from typing import Union, Tuple
 
 import numpy as np
+from bson import ObjectId
 from matplotlib import pyplot
 from networkx import DiGraph
 
 import settings
-from cascade.asynchroizables import train_cascades, test_cascades, test_cascades_multiproc
+from cascade.asynchroizables import test_cascades
 from cascade.models import Project
-from db.managers import MEMMManager
+from diffusion.aslt import AsLT
+from diffusion.avg import LTAvg
+from diffusion.ctic import CTIC
 from diffusion.enum import Method, Criterion
-from local_settings import LOG_LEVEL
+from diffusion.ic_models import DAIC, EMIC
+from memm.models import BinMEMMModel, TDMEMMModel, ReducedTDMEMMModel, ReducedBinMEMMModel, ParentSensTDMEMMModel, \
+    LongParentSensTDMEMMModel, ReducedFullTDMEMM
+from mln.file_generators import FileCreator
+from mln.models import MLN
 from settings import logger
 from utils.time_utils import time_measure, Timer, TimeUnit
 
@@ -52,6 +58,34 @@ class ProjectTester(abc.ABC):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
             return self.test(test_set, threshold, initial_depth, max_depth, model=self.model)
+
+    def _do_train(self, multi_processed, **kwargs):
+        with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
+            model_classes = {
+                Method.ASLT: AsLT,
+                Method.CTIC: CTIC,
+                Method.AVG: LTAvg,
+                Method.EMIC: EMIC,
+                Method.DAIC: DAIC,
+                Method.BIN_MEMM: BinMEMMModel,
+                Method.TD_MEMM: TDMEMMModel,
+                Method.REDUCED_TD_MEMM: ReducedTDMEMMModel,
+                Method.REDUCED_BIN_MEMM: ReducedBinMEMMModel,
+                Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
+                Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
+                Method.REDUCED_FULL_TD_MEMM: ReducedFullTDMEMM,
+            }
+            # Create and train the model if needed.
+            if self.method == Method.MLN_PRAC:
+                model = MLN(self.project, method='edge', format=FileCreator.FORMAT_PRACMLN)
+            elif self.method == Method.MLN_ALCH:
+                model = MLN(self.project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
+            elif self.method in model_classes:
+                model_clazz = model_classes[self.method]
+                model = model_clazz(self.project).fit(multi_processed=multi_processed, eco=self.eco, **kwargs)
+            else:
+                raise Exception('invalid method "%s"' % self.method.value)
+            return model
 
     @abc.abstractmethod
     def train(self, **kwargs):
@@ -123,7 +157,7 @@ class ProjectTester(abc.ABC):
 
     def _get_mean_results(self, precisions: dict, recalls: dict, f1s: dict, fprs: dict, prp1s: dict,
                           prp2s: dict) -> Tuple[dict, dict, dict, dict]:
-        if not any(list(precisions.values())):
+        if all([val is None for val in next(iter(precisions.values()))]):
             logger.info('no average results since the initial depth is more than or equal to the depths of all trees')
             dic = {thr: None for thr in precisions}
             return (dic,) * 4
@@ -137,24 +171,36 @@ class ProjectTester(abc.ABC):
             f'{"threshold":<10}{"precision":<10}{"recall":<10}{"f1":<10}'
         ]
         for thr in precisions:
-            mean_prec[thr] = np.array([precisions[thr]]).mean()
-            mean_rec[thr] = np.array(recalls[thr]).mean()
-            mean_fpr[thr] = np.array(fprs[thr]).mean()
-            mean_f1[thr] = np.array(f1s[thr]).mean()
+            mean_prec[thr] = np.array([val for val in precisions[thr] if val is not None]).mean()
+            mean_rec[thr] = np.array([val for val in recalls[thr] if val is not None]).mean()
+            mean_fpr[thr] = np.array([val for val in fprs[thr] if val is not None]).mean()
+            mean_f1[thr] = np.array([val for val in f1s[thr] if val is not None]).mean()
             logs.append(f'{thr:<10.3f}{mean_prec[thr]:<10.3f}{mean_rec[thr]:<10.3f}{mean_f1[thr]:<10.3f}')
-            # if self.method in ['aslt', 'avg']:
-            #     logger.info('prp1 avg = %.3f', np.mean(np.array(prp1s[thr])))
-            #     logger.info('prp2 avg = %.3f', np.mean(np.array(prp2s[thr])))
+            # if self.method in [Method.MLN_PRAC, Method.MLN_ALCH]:
+            #     mean_prp1[thr] = np.array([val for val in prp1s[thr] if val is not None]).mean()
+            #     mean_prp2[thr] = np.array([val for val in prp2s[thr] if val is not None]).mean()
 
-        logger.debug('\n'.join(logs))
+        if len(precisions) == 1:
+            logger.info('\n'.join(logs))
+        else:
+            logger.debug('\n'.join(logs))
         return mean_prec, mean_rec, mean_f1, mean_fpr
 
     def _log_cascades_results(self, test_set: list, precisions: list, recalls: list, f1s: list):
+        def format_cell(value):
+            if value is None:
+                return f'{"-":<10}'
+            elif isinstance(value, ObjectId):
+                return f'{str(value):<30}'
+            else:
+                return f'{value:<10.3f}'
+
         logs = ['results on test set:',
                 f'{"cascade id":<30}{"precision":<10}{"recall":<10}{"f1":<10}'
                 ]
         for i in range(len(test_set)):
-            logs.append(f'{str(test_set[i]):<30}{precisions[i]:<10.3f}{recalls[i]:<10.3f}{f1s[i]:<10.3f}')
+            logs.append(
+                format_cell(test_set[i]) + format_cell(precisions[i]) + format_cell(recalls[i]) + format_cell(f1s[i]))
 
         logger.info('\n'.join(logs))
 
@@ -196,32 +242,19 @@ class ProjectTester(abc.ABC):
 
 
 class DefaultTester(ProjectTester):
+    def train(self, **kwargs):
+        return self._do_train(multi_processed=False)
+
     def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
         return test_cascades(test_set, self.method, model, thresholds, initial_depth, max_depth, self.criterion, trees,
                              graph)
 
-    def train(self, **kwargs):
-        with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
-            model = train_cascades(self.method, self.project, eco=self.eco, **kwargs)
-        return model
-
 
 class MultiProcTester(ProjectTester):
-    def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
-        return self.__test_multi_processed(test_set, thresholds, initial_depth, max_depth, trees, graph)
-
     def train(self, **kwargs):
-        model = None
-        if not self.eco or not MEMMManager(self.project, self.method).db_exists():
-            # If it is in economical mode, train the cascades once and save them. Then the trained model is fetched
-            # from disk and used at each process. The model is not passed to each process due to pickling size limit.
-            with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]',
-                       unit=TimeUnit.SECONDS):
-                model = train_cascades(self.method, self.project, multi_processed=True, eco=self.eco, **kwargs)
-        return model
+        return self._do_train(multi_processed=True)
 
-    def __test_multi_processed(self, test_set: list, thresholds: list, initial_depth: int, max_depth: int, trees: dict,
-                               graph: DiGraph):
+    def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
         """
         Create a process pool to distribute the prediction.
         """
@@ -231,9 +264,9 @@ class MultiProcTester(ProjectTester):
         results = []
         for j in range(0, len(test_set), step):
             cascade_ids = test_set[j: j + step]
-            res = pool.apply_async(test_cascades_multiproc,
-                                   (cascade_ids, self.method, self.project, thresholds, initial_depth, max_depth,
-                                    self.criterion, trees, graph, self.eco, self.model))
+            res = pool.apply_async(test_cascades,
+                                   (cascade_ids, self.method, self.model, thresholds, initial_depth, max_depth,
+                                    self.criterion, trees, graph))
             results.append(res)
 
         pool.close()
