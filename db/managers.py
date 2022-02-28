@@ -197,6 +197,7 @@ class MEMMManager:
             memm = LongParentTDMEMM()
         else:
             memm = TDMEMM()
-        memm.orig_indexes = memm_data['orig_indexes']
-        memm.Lambda = np.fromiter(memm_data['lambda'], np.float64)
+        orig_indexes = memm_data['orig_indexes']
+        Lambda = np.fromiter(memm_data['lambda'], np.float64)
+        memm.set_params(Lambda, orig_indexes)
         return memm

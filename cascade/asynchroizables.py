@@ -14,7 +14,7 @@ from diffusion.aslt import AsLT
 from cascade.validation import Validation
 from log_levels import DEBUG_LEVELV_NUM
 from memm.models import BinMEMMModel, TDMEMMModel, ReducedTDMEMMModel, ReducedBinMEMMModel, \
-    ParentSensTDMEMMModel, LongParentSensTDMEMMModel
+    ParentSensTDMEMMModel, LongParentSensTDMEMMModel, ReducedFullTDMEMM
 from mln.file_generators import FileCreator
 from mln.models import MLN
 from settings import logger
@@ -89,6 +89,7 @@ def train_cascades(method, project, multi_processed=False, eco=False, **kwargs):
         Method.REDUCED_BIN_MEMM: ReducedBinMEMMModel,
         Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
         Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
+        Method.REDUCED_FULL_TD_MEMM: ReducedFullTDMEMM,
     }
     # Create and train the model if needed.
     if method == Method.MLN_PRAC:

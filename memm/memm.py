@@ -37,6 +37,7 @@ def array_to_str(arr: np.array) -> str:
 class MEMM(abc.ABC):
     def __init__(self):
         self.orig_indexes = []
+        self.orig_indexes_map = {}
         self.Lambda = None
 
     @time_measure(level='debug')
@@ -51,6 +52,7 @@ class MEMM(abc.ABC):
         dim, sequences = evidence['dimension'], evidence['sequences']
         new_sequences, self.orig_indexes = self.decrease_dim(sequences, dim)
         new_dim = len(self.orig_indexes)
+        self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
 
         if new_dim == 0:
             raise MemmException('Cannot train MEMM with all observations given zero')
@@ -97,6 +99,11 @@ class MEMM(abc.ABC):
                 break
 
         return self
+
+    def set_params(self, Lambda, orig_indexes):
+        self.Lambda = Lambda
+        self.orig_indexes = orig_indexes
+        self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
 
     def get_prob(self, obs: np.ndarray, state: int, all_states: list, timers: list = None) -> float:
         """
@@ -259,7 +266,8 @@ class TDMEMM(MEMM):
     def _calc_features(self, obs_mat, state_mat, states=None):
         obs_num, obs_dim = obs_mat.shape
         features = obs_mat.copy()
-        features[np.where(state_mat == False), :] = 1 - features[np.where(state_mat == False), :]
+        zero_state_indexes = np.where(state_mat == False)
+        features[zero_state_indexes, :] = 1 - features[zero_state_indexes, :]
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))

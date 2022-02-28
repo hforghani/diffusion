@@ -158,7 +158,6 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
 
             while cur_step:
                 logger.debug('step %d with %d users started', step_num, len(cur_step))
-                logger.debug('extracting parents and children ...')
                 cur_step_ids = {node.user_id for node in cur_step}
 
                 # Put the state of the last observation in the sequence of (observation, state) equal to 1 (activated)
@@ -186,9 +185,9 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
                     if child_id not in activated:
                         if child_id not in graph:
                             continue
-                        zero_obs = get_zero_obs(graph.in_degree(child_id), method)  # initial observation: 0000000
+                        zero_obs = get_zero_obs(graph, child_id, method)  # initial observation: 0000000
                         obs = observations.setdefault(child_id, zero_obs.copy())
-                        new_obs = get_new_obs(child_id, cur_step_ids, obs, graph)
+                        new_obs = get_new_obs(child_id, cur_step_ids, obs, graph, method)
                         observations[child_id] = new_obs
                         state = inactive_state(method)
                         cascade_seqs.setdefault(child_id, [(zero_obs.copy(), state)])
@@ -227,18 +226,17 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
         raise
 
 
-def get_zero_obs(dim, method):
-    if method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
-        return np.zeros(dim, dtype=bool)
+def get_zero_obs(graph, node_id, method):
+    if method == Method.REDUCED_FULL_TD_MEMM:
+        return np.zeros(graph.number_of_nodes())
+    elif method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
+        return np.zeros(graph.in_degree(node_id), dtype=bool)
     else:
-        return np.zeros(dim)
+        return np.zeros(graph.in_degree(node_id))
 
 
 def set_next_state_observations(observations, method):
-    if method in [Method.TD_MEMM,
-                  Method.REDUCED_TD_MEMM,
-                  Method.PARENT_SENS_TD_MEMM,
-                  Method.LONG_PARENT_SENS_TD_MEMM]:
+    if method not in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
         divide_obs_by_2(observations)
 
 
@@ -247,27 +245,32 @@ def divide_obs_by_2(observations):
         observations[user_id] = obs / 2
 
 
-def get_new_obs(child_id: ObjectId, cur_step_ids: set, obs: np.ndarray, graph: DiGraph) -> np.ndarray:
-    parents = list(graph.predecessors(child_id))
-    cur_step_parents = set(parents) & cur_step_ids
-    parent_indexes = [parents.index(uid) for uid in cur_step_parents]
-    new_obs = obs.copy()
-    new_obs[parent_indexes] = 1
+def get_new_obs(child_id: ObjectId, cur_step_ids: set, obs: np.ndarray, graph: DiGraph, method: Method) -> np.ndarray:
+    if method == Method.REDUCED_FULL_TD_MEMM:
+        nodes = list(graph.nodes())
+        cur_step_nodes = set(nodes) & cur_step_ids
+        new_active_indexes = [nodes.index(uid) for uid in cur_step_nodes]
+    else:
+        parents = list(graph.predecessors(child_id))
+        cur_step_parents = set(parents) & cur_step_ids
+        new_active_indexes = [parents.index(uid) for uid in cur_step_parents]
 
+    new_obs = obs.copy()
+    new_obs[new_active_indexes] = 1
     return new_obs
 
 
 def inactive_state(method):
-    if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:
+    if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:  # Methods with multiple states
         return 0
-    else:
+    else:  # Methods with 2 states
         return False
 
 
 def active_state(method, node, graph):
-    if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:
+    if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:  # Methods with multiple states
         parents = list(graph.predecessors(node.user_id))
         index = parents.index(node.parent_id)
         return index + 1
-    else:
+    else:  # Methods with 2 states
         return True
