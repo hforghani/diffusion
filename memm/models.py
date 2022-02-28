@@ -447,18 +447,30 @@ class MEMMModel(abc.ABC):
         else:
             return MEMMManager(self.project, self.method).fetch_one(user_id)
 
+    def _get_obs_indexes_to_update(self, cur_step_ids, parents_map, nodes_map, threshold=None,
+                                   cur_step_thresholds=None):
+        if threshold is None:
+            return [parents_map[uid] for uid in cur_step_ids if uid in parents_map]
+        else:
+            return [parents_map[uid] for uid in cur_step_ids if
+                    uid in parents_map and threshold in cur_step_thresholds[uid]]
+
     def _get_initial_observations(self, initial_tree, max_depth_nodes, graph):
         observations = {}
         cur_step = initial_tree.roots
         max_depth_node_ids = set(node.user_id for node in max_depth_nodes)
+        all_nodes = list(graph.nodes())
+        nodes_map = {all_nodes[i]: i for i in range(len(all_nodes))}
         # logger.debugv('max_depth_node_ids = %s', pprint.pformat(max_depth_node_ids))
         # logger.debugv('extracting initial observations ...')
 
         i = 1
         while cur_step:
             # logger.debugv('step %d with %d users ...', i, len(cur_step))
+            # Just extract the observations of the leaves of the initial tree.
             children_dic = {node.user_id: set(graph.successors(node.user_id)) & max_depth_node_ids for node in cur_step
                             if node.user_id in graph}
+            cur_step_ids = [node.user_id for node in cur_step]
             # logger.debugv('children_dic = %s', pprint.pformat(children_dic))
             parents_dic = {user_id: list(graph.predecessors(user_id)) for user_id in max_depth_node_ids if
                            user_id in graph}
@@ -470,8 +482,10 @@ class MEMMModel(abc.ABC):
                     memm = self._get_memm(child_id)
                     if memm is not None:
                         # Update the observation of this child.
-                        index = parents_dic[child_id].index(node.user_id)
-                        self._update_observation(child_id, [index], observations, memm)  # TODO: Is it correct?
+                        parents = parents_dic[child_id]
+                        parents_map = {parents[i]: i for i in range(len(parents))}
+                        new_active_indexes = self._get_obs_indexes_to_update(cur_step_ids, parents_map, nodes_map)
+                        self._update_observation(child_id, new_active_indexes, observations, memm)
                         # logger.debugv('obs set: %s', observations[child_id])
 
             next_step = reduce(lambda x, y: x + y, [node.children for node in cur_step], [])
@@ -499,11 +513,6 @@ class ReducedMEMMModel(MEMMModel, ABC):
 
     def _extract_evidences(self, cascade_ids, graph, act_seqs, trees):
         return extract_reduced_memm_evidences(cascade_ids, graph, trees, self.method)
-
-    def _get_obs_indexes_to_update(self, cur_step_ids, parents_map, nodes_map, threshold, cur_step_thresholds):
-        new_active_indexes = [parents_map[uid] for uid in cur_step_ids if
-                              uid in parents_map and threshold in cur_step_thresholds[uid]]
-        return new_active_indexes
 
     def predict(self, initial_tree, graph, thresholds, max_step=None, multiprocessed=True):
         """
@@ -740,11 +749,14 @@ class LongParentSensTDMEMMModel(ParentSensTDMEMMModel):
 class ReducedFullTDMEMM(ReducedTDMEMMModel):
     method = Method.REDUCED_FULL_TD_MEMM
 
-    def _get_obs_indexes_to_update(self, cur_step_ids, parents_map, nodes_map, threshold, cur_step_thresholds):
+    def _get_obs_indexes_to_update(self, cur_step_ids, parents_map, nodes_map, threshold=None,
+                                   cur_step_thresholds=None):
         """ Index i of the observation is related to the index i in the list of the graph nodes. """
-        new_active_indexes = [nodes_map[uid] for uid in cur_step_ids if
-                              threshold in cur_step_thresholds[uid] and uid in nodes_map]
-        return new_active_indexes
+        if threshold is None:
+            return [nodes_map[uid] for uid in cur_step_ids if uid in nodes_map]
+        else:
+            return [nodes_map[uid] for uid in cur_step_ids if
+                    threshold in cur_step_thresholds[uid] and uid in nodes_map]
 
     def _predict_by_obs(self, obs, thr, memm, tree, parents, all_nodes, new_active_indexes):
         if (obs == self._last_obs).all():

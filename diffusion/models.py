@@ -238,7 +238,7 @@ class IC(abc.ABC):
                             # Add it to the tree.
                             child = trees[thr].add_node(v, act_time=receive_dt, parent_id=u)
                             child_max_pred_thr = thr
-                            logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
+                            logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', prob, thr)
 
                     if child_max_pred_thr is not None:
                         next_step.append((child, child_max_pred_thr))
