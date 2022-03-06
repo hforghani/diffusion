@@ -133,6 +133,92 @@ class EvidenceManager:
             collection.create_index('user_id')
 
 
+class EdgeEvideneManger(EvidenceManager):
+    def get_one(self, edge):
+        fs = gridfs.GridFS(self.db)
+        doc = fs.find_one({'src': edge[0], 'dst': edge[1]})
+        if doc is None:
+            raise ValueError(f'No evidence exists for edge {edge}')
+        return {
+            'dimension': doc.dimension,
+            'sequences': self._str_to_sequences(doc.read())
+        }
+
+    def get_many(self):
+        fs = gridfs.GridFS(self.db)
+        documents = fs.find(no_cursor_timeout=True)
+
+        if documents.count():
+            return {
+                (doc.src, doc.dst): {
+                    'dimension': doc.dimension,
+                    'sequences': self._str_to_sequences(doc.read())
+                }
+                for doc in documents
+            }
+        else:
+            raise DataDoesNotExist(f'No MEMM evidences exist on project {self.project.name}')
+
+    def get_many_generator(self):
+        """
+        Get the generator of (edge, evidences) tuples which each "evidences" is a dictionary
+        {'dimension': dim, 'sequences': sequences}. Read the doc of get_many for more information.
+        :param user_ids:
+        :return:
+        """
+        fs = gridfs.GridFS(self.db)
+        documents = fs.find(no_cursor_timeout=True)
+
+        if documents.count():
+            for doc in documents:
+                evidences = {
+                    'dimension': doc.dimension,
+                    'sequences': self._str_to_sequences(doc.read())
+                }
+                yield (doc.src, doc.dst), evidences
+        else:
+            raise DataDoesNotExist(f'No MEMM evidences exist on project {self.project.name}')
+
+    def insert(self, evidences):
+        """
+        :param evidences: dictionary of user id's to MEMM evidences. Each evidence is a dictionary
+         with 2 keys:
+            <p>dimension : number of observation dimensions.</p>
+            <p>sequences : list of (obs, state) sequences.</p>
+        :return:
+        """
+        fs = gridfs.GridFS(self.db)
+
+        logger.info('inserting %d MEMM evidence documents ...', len(evidences))
+        i = 0
+        for edge, sequences in evidences.items():
+            fs.put(bytes(self._sequences_to_str(sequences['sequences']), encoding='utf8'),
+                   src=edge[0], dst=edge[1], dimension=sequences['dimension'])
+            i += 1
+            if i % 10000 == 0:
+                logger.info('%d documents inserted', i)
+
+    def _sequences_to_str(self, sequences):
+        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
+            return str([[(obs.astype(int).tolist(), state) for obs, state in seq] for seq in sequences])
+        else:
+            return str([[(obs.tolist(), state) for obs, state in seq] for seq in sequences])
+
+    def _str_to_sequences(self, seq_str):
+        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
+            return [[(np.fromiter(obs, bool), state) for obs, state in seq] for seq in eval(seq_str)]
+        else:
+            return [[(np.fromiter(obs, np.float64), state) for obs, state in seq] for seq in eval(seq_str)]
+
+    def create_index(self):
+        """
+        Create index on 'user_id' key of MEMM evidences collection of the given project if does not exist.
+        :return:
+        """
+        collection = self.db.get_collection('fs.files')
+        collection.create_index([('src', pymongo.ASCENDING), ('dst', pymongo.ASCENDING)])
+
+
 class MEMMManager:
     def __init__(self, project, method):
         self.project = project

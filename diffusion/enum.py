@@ -15,6 +15,7 @@ class Method(Enum):
     PARENT_SENS_TD_MEMM = 'prtdmemm'
     LONG_PARENT_SENS_TD_MEMM = 'lprtdmemm'
     REDUCED_FULL_TD_MEMM = 'rftdmemm'
+    TD_EDGE_MEMM = 'tdememm'
     AVG = 'avg'
 
 

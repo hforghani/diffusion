@@ -135,7 +135,7 @@ class EMIC(IC):
                         pos_indexes_u_v.size + neg_count)
                 logger.debugv('negatives count = %d', neg_count)
 
-            logger.debugv('positives count = %d', len(pos_indexes_u_v.size))
+            logger.debugv('positives count = %d', pos_indexes_u_v.size)
             logger.debugv('pos_indexes = %s', pos_indexes_u_v)
             # logger.debugv('p[pos_indexes, user_index] = %s', p[pos_indexes, v_index])
             logger.debugv('k_u_v = %f', k[u_index, v_index])

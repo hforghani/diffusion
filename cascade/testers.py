@@ -19,7 +19,7 @@ from diffusion.ctic import CTIC
 from diffusion.enum import Method, Criterion
 from diffusion.ic_models import DAIC, EMIC
 from memm.models import BinMEMMModel, TDMEMMModel, ReducedTDMEMMModel, ReducedBinMEMMModel, ParentSensTDMEMMModel, \
-    LongParentSensTDMEMMModel, ReducedFullTDMEMM
+    LongParentSensTDMEMMModel, ReducedFullTDMEMMModel, TDEdgeMEMMModel
 from mln.file_generators import FileCreator
 from mln.models import MLN
 from settings import logger
@@ -73,7 +73,8 @@ class ProjectTester(abc.ABC):
                 Method.REDUCED_BIN_MEMM: ReducedBinMEMMModel,
                 Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
                 Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
-                Method.REDUCED_FULL_TD_MEMM: ReducedFullTDMEMM,
+                Method.REDUCED_FULL_TD_MEMM: ReducedFullTDMEMMModel,
+                Method.TD_EDGE_MEMM: TDEdgeMEMMModel,
             }
             # Create and train the model if needed.
             if self.method == Method.MLN_PRAC:

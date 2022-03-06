@@ -6,17 +6,20 @@ import numpy as np
 from bson import ObjectId
 from networkx import DiGraph
 
+import settings
 from db.managers import MEMMManager
 from diffusion.enum import Method
+from log_levels import DEBUG_LEVELV_NUM
 from memm.memm import BinMEMM, TDMEMM, ParentTDMEMM, LongParentTDMEMM
 from memm.exceptions import MemmException
 from settings import logger
+from utils.time_utils import TimeUnit, Timer
 
 
 def train_memms(evidences, method, iterations, save_in_db=False, project=None):
     try:
-        user_ids = list(evidences.keys())
-        shuffle(user_ids)
+        keys = list(evidences.keys())
+        shuffle(keys)
         logger.debugv('training memms started')
         memms = {}
         count = 0
@@ -25,16 +28,16 @@ def train_memms(evidences, method, iterations, save_in_db=False, project=None):
         if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:
             graph = project.load_or_extract_graph()
 
-        for uid in user_ids:
+        for key in keys:
             count += 1
-            ev = evidences.pop(uid)  # to free RAM
-            logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, uid, ev['dimension'])
+            ev = evidences.pop(key)  # to free RAM
+            logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, key, ev['dimension'])
 
             states = [False, True]
             if method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
                 memm = BinMEMM()
             elif method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:
-                states = list(range(graph.in_degree(uid) + 1))
+                states = list(range(graph.in_degree(key) + 1))
                 if method == Method.PARENT_SENS_TD_MEMM:
                     memm = ParentTDMEMM()
                 else:
@@ -44,9 +47,9 @@ def train_memms(evidences, method, iterations, save_in_db=False, project=None):
 
             try:
                 memm.fit(ev, states, iterations)
-                memms[uid] = memm
+                memms[key] = memm
             except MemmException:
-                logger.warn('evidences for user %s ignored due to insufficient data', uid)
+                logger.warn('evidences for user %s ignored due to insufficient data', key)
             if count % 100 == 0:
                 logger.info('%d memms trained', count)
 
@@ -68,7 +71,9 @@ def train_memms(evidences, method, iterations, save_in_db=False, project=None):
 
 def extract_bin_memm_evidences(train_set, graph, act_seqs):
     try:
-        evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
+        ''' evidences: dictionary of user id's to dictionaries in the format 
+                        {'dimension': dimension, 'sequences': list_of_sequences} '''
+        evidences = {}
         parent_sizes = {}  # dictionary of user id's to number of their parents
         count = 0
 
@@ -142,7 +147,9 @@ def extract_bin_memm_evidences(train_set, graph, act_seqs):
 
 def extract_reduced_memm_evidences(train_set, graph, trees, method):
     try:
-        evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
+        ''' evidences: dictionary of user id's to dictionaries in the format 
+                        {'dimension': dimension, 'sequences': list_of_sequences} '''
+        evidences = {}
         cascade_num = 1
 
         # Iterate each activation sequence and extract sequences of (observation, state) for each user
@@ -210,7 +217,8 @@ def extract_reduced_memm_evidences(train_set, graph, trees, method):
 
             # Add current sequence of pairs (observation, state) to the MEMM evidences.
             logger.debug('adding sequences of current cascade ...')
-            logger.debugv('cascade_seqs =\n%s', pprint.pformat(cascade_seqs))
+            if settings.LOG_LEVEL <= DEBUG_LEVELV_NUM:
+                logger.debugv('cascade_seqs =\n%s', pprint.pformat(cascade_seqs))
             for uid in cascade_seqs:
                 dim = graph.in_degree(uid)
                 evidences.setdefault(uid, {
@@ -274,3 +282,113 @@ def active_state(method, node, graph):
         return index + 1
     else:  # Methods with 2 states
         return True
+
+
+def extract_edge_memm_evidences(train_set, graph, trees, dim_user_indexes_map, method):
+    try:
+        ''' evidences: dictionary of tuples of edges (user_id1, user_id2) to dictionaries in the format 
+                        {'dimension': dimension, 'sequences': list_of_sequences} '''
+        evidences = {}
+        cascade_num = 1
+        # timers = [Timer(f'predict part {i}', level='debug', unit=TimeUnit.SECONDS, silent=True) for i in range(10)]
+
+        # Iterate each activation sequence and extract sequences of (observation, state) for each user
+        for cascade_id in train_set:
+            cascade_seqs = {}  # dictionary of edges to the sequences of tuples (observation, state) for the current cascade
+            tree = trees[cascade_id]
+            observations = {}  # current observation of each edge
+            # activated = set()  # set of current activated edges
+            logger.debug('cascade %d ...', cascade_num)
+
+            cur_step = tree.roots
+            step_num = 1
+
+            while cur_step:
+                logger.debug('step %d with %d users started', step_num, len(cur_step))
+                cur_step_ids = {node.user_id for node in cur_step}
+                cur_step_edges = [(node.parent_id, node.user_id) for node in cur_step if node.parent_id is not None]
+                logger.debug('number of edges ending to current step: %d', len(cur_step_edges))
+
+                # Put the state of the last observation in the sequence of (observation, state) equal to 1 (activated)
+                # for all edges ending to the current step.
+                for edge in cur_step_edges:
+                    if edge in cascade_seqs:
+                        obs = cascade_seqs[edge][-1][0]
+                        cascade_seqs[edge] = cascade_seqs[edge][:-1] + [(obs, True)]
+                        logger.debugv('(obs, state) updated for %s : (%s, %d)', edge, obs, True)
+                        del observations[edge]
+
+                # Extract the siblings and spouse edges of all nodes in the current step. The observations of these
+                # nodes must be updated.
+                sibling_edges = {(i, j) for node in cur_step for i in graph.predecessors(node.user_id) for j in
+                                 graph.successors(i) if i != j}
+                spouse_edges = {(i, j) for node in cur_step for j in graph.successors(node.user_id) for i in
+                                graph.predecessors(j) if i != j}
+                related_edges = list(sibling_edges | spouse_edges)
+
+                # i = 0
+                logger.debug('number of related edges to the current step: %d', len(related_edges))
+                for edge in related_edges:
+                    dim_users_map = dim_user_indexes_map[edge]
+                    zero_obs = np.zeros(len(dim_users_map))  # initial observation: 0000000
+                    obs = observations.setdefault(edge, zero_obs.copy())
+                    new_obs = get_new_edge_obs(obs, cur_step_ids, dim_users_map, method)
+                    observations[edge] = new_obs
+                    state = inactive_edge_state(method)
+                    cascade_seqs.setdefault(edge, [(zero_obs.copy(), state)])
+                    cascade_seqs[edge].append((new_obs, state))
+                    # logger.debugv('(obs, state) added for %s : (%s, %d)', edge, new_obs, state)
+                    # i += 1
+                    # if i % 200 == 0:
+                    #     for timer in timers:
+                    #         if timer.sum != 0:
+                    #             timer.report_sum()
+
+                # Update the current step nodes.
+                cur_step = reduce(lambda li1, li2: li1 + li2, [node.children for node in cur_step])
+
+                # Update the observations for the next step if necessary.
+                if cur_step:
+                    divide_obs_by_2(observations)
+
+                logger.debug('%d steps done', step_num)
+                step_num += 1
+
+            if cascade_num % 100 == 0:
+                logger.info('%d cascades done', cascade_num)
+            cascade_num += 1
+
+            # if settings.LOG_LEVEL <= DEBUG_LEVELV_NUM:
+            #     logger.debugv('cascade_seqs =\n%s', pprint.pformat(cascade_seqs))
+
+            # Add current sequence of pairs (observation, state) to the MEMM evidences.
+            logger.debug('adding sequences of current cascade ...')
+            for edge in cascade_seqs:
+                dim = len(dim_user_indexes_map[edge])
+                evidences.setdefault(edge, {
+                    'dimension': dim,
+                    'sequences': []
+                })
+                evidences[edge]['sequences'].append(cascade_seqs[edge])
+
+        logger.info('evidences extracted from %d cascades', len(train_set))
+        return evidences
+    except:
+        logger.error(traceback.format_exc())
+        raise
+
+
+def get_zero_edge_obs(dim: int, method: Method):
+    return np.zeros(dim)
+
+
+def get_new_edge_obs(obs: np.ndarray, cur_step_ids: set, dim_users_map: list, method: Method) -> np.ndarray:
+    new_active_indexes = [dim_users_map.get(uid) for uid in cur_step_ids]
+    new_active_indexes = list(filter(lambda x: x is not None, new_active_indexes))
+    new_obs = obs.copy()
+    new_obs[new_active_indexes] = 1
+    return new_obs
+
+
+def inactive_edge_state(method):
+    return False
