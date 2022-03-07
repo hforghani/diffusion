@@ -80,7 +80,7 @@ class MEMM(abc.ABC):
         self.Lambda = np.ones(feat_dim)
 
         # GIS, run until convergence
-        epsilon = 10 ** -4
+        epsilon = 10 ** -10
         iter_count = 0
         while True:
             iter_count += 1

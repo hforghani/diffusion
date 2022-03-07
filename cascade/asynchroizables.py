@@ -138,7 +138,7 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, in
                         #     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
                         # log_trees(tree, res_trees, max_depth)
 
-                        logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
+                    logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
 
             count += 1
 

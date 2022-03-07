@@ -19,10 +19,10 @@ from log_levels import DEBUG_LEVELV_NUM
 from memm.asyncronizables import train_memms, extract_bin_memm_evidences, extract_reduced_memm_evidences, \
     divide_obs_by_2, extract_edge_memm_evidences, get_new_edge_obs
 from db.exceptions import DataDoesNotExist
-from db.managers import MEMMManager, EvidenceManager, EdgeEvideneManger
+from db.managers import MEMMManager, EvidenceManager, EdgeEvidenceManager, EdgeMEMMManager
 from db.reconnection import reconnect
 from diffusion.enum import Method
-from memm.memm import MEMM
+from memm.memm import MEMM, array_to_str
 from settings import logger
 from utils.text_utils import columnize
 from utils.time_utils import Timer, TimeUnit, time_measure
@@ -225,7 +225,8 @@ class MEMMModel(abc.ABC):
             del multi_processed_ev
             if eco:
                 logger.info('inserting MEMMs into db ...')
-                MEMMManager(self.project, self.method).insert(memms)
+                manager = self._get_memm_manager()
+                manager.insert(memms)
                 memms = {}
 
         else:
@@ -252,7 +253,7 @@ class MEMMModel(abc.ABC):
         :return: self
         """
         train_set, _, _ = self.project.load_sets()
-        manager = MEMMManager(self.project, self.method)
+        manager = self._get_memm_manager()
 
         # If it is in economical mode, train the MEMMs only if they are not saved in DB.
         if not eco or not manager.db_exists():
@@ -346,6 +347,10 @@ class MEMMModel(abc.ABC):
 
     @abc.abstractmethod
     def _get_evid_manager(self):
+        pass
+
+    @abc.abstractmethod
+    def _get_memm_manager(self):
         pass
 
 
@@ -527,8 +532,15 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
     def _get_evid_manager(self):
         return EvidenceManager(self.project, self.method)
 
+    def _get_memm_manager(self):
+        return MEMMManager(self.project, self.method)
+
 
 class EdgeMEMMModel(MEMMModel, abc.ABC):
+    def __init__(self, project):
+        super(EdgeMEMMModel, self).__init__(project)
+        self.max_iterations = 1000
+
     """
     Edge-based MEMM Model
     """
@@ -573,15 +585,16 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
             cur_step_ids = {item[0] for item in cur_step}
             cur_step_thresholds = {node_id: thr for node_id, thr in cur_step}
 
-            # Update the observations of all edges related the current step.
-            self.__update_cur_step_obs(observations, cur_step_ids, graph, dim_user_indexes_map)
+            for node_id in cur_step_ids:
 
-            j = 0
-            for node, thresholds in cur_step:
-                node_id = node.user_id
+                if node_id not in graph:
+                    logger.debug('node %s skipped since is not in graph', node_id)
+                    continue
+
                 children = list(graph.successors(node_id))
-                logger.debug('predicting from node %s with %d children ...', len(children))
+                logger.debug('predicting from node %s with %d children ...', node_id, len(children))
 
+                j = 0
                 for child_id in children:
 
                     if child_id not in active_ids:
@@ -589,8 +602,8 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                         memm = self._get_memm(edge)
 
                         if memm is not None:
-                            parents = list(graph.predecessors(child_id))
-                            parents_map = {parents[i]: i for i in range(len(parents))}
+                            logger.debugv('testing reshare from %s to %s ...', node_id, child_id)
+
                             child_thresholds = set()
                             self._last_prob = None
                             self._last_obs = None
@@ -604,10 +617,11 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
 
                                 if updated:
                                     obs = observations[thr][edge]
-                                    logger.debugv('testing reshare from %s to %s with obs %s using thr %f ...', node_id,
-                                                  child_id, obs, thr)
-                                    node_id = self._predict_by_obs(obs, edge, thr, memm, trees[thr])
-                                    if node_id:
+                                    if (obs != self._last_obs).any():
+                                        logger.debugv('obs = %s', array_to_str(obs))
+                                    logger.debugv('threshold %f ...', thr)
+                                    res = self._predict_by_obs(obs, edge, thr, memm, trees[thr])
+                                    if res:
                                         trees[thr].add_node(child_id, parent_id=node_id)
                                         child_thresholds.add(thr)
 
@@ -633,30 +647,24 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
 
         return trees
 
-    def _get_obs_indexes_to_update(self, cur_step_ids, parents_map, nodes_map, threshold=None,
-                                   cur_step_thresholds=None):
-        if threshold is None:
-            return [parents_map[uid] for uid in cur_step_ids if uid in parents_map]
-        else:
-            return [parents_map[uid] for uid in cur_step_ids if
-                    uid in parents_map and threshold in cur_step_thresholds[uid]]
-
     def _get_initial_observations(self, initial_tree, max_depth_nodes, graph, dim_user_indexes_map):
         observations = {}
         cur_step = initial_tree.roots
-        max_depth_node_ids = [node.user_id for node in max_depth_nodes]
-        max_depth_edges = {(i, j) for i in max_depth_node_ids for j in graph.successors(i)}
+        max_depth_node_ids = {node.user_id for node in max_depth_nodes}
+        graph_ids = set(graph.nodes())
+        max_depth_edges = {(i, j) for i in max_depth_node_ids & graph_ids for j in graph.successors(i)}
 
         i = 1
         while cur_step:
             # logger.debugv('step %d with %d users ...', i, len(cur_step))
             cur_step_ids = [node.user_id for node in cur_step]
+            cur_step_ids_in_graph = set(cur_step_ids) & set(graph.nodes())
 
             # Extract the siblings and spouse edges of all nodes in the current step. The observations of these
             # nodes must be updated.
-            sibling_edges = {(i, j) for node in cur_step for i in graph.predecessors(node.user_id) for j in
+            sibling_edges = {(i, j) for uid in cur_step_ids_in_graph for i in graph.predecessors(uid) for j in
                              graph.successors(i) if i != j}
-            spouse_edges = {(i, j) for node in cur_step for j in graph.successors(node.user_id) for i in
+            spouse_edges = {(i, j) for uid in cur_step_ids_in_graph for j in graph.successors(uid) for i in
                             graph.predecessors(j) if i != j}
             # Just extract the observations of the edges after the max depth of the initial tree.
             related_edges = list((sibling_edges | spouse_edges) & max_depth_edges)
@@ -721,6 +729,7 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
             prob = self._last_prob
         else:
             prob = memm.get_prob(obs, True, [False, True])
+            logger.debugv('prob = %f', prob)
             if prob == np.nan:
                 logger.warning('activation prob. of obs. %s is nan', obs)
             self._last_obs, self._last_prob = obs, prob
@@ -735,7 +744,10 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
         return None
 
     def _get_evid_manager(self):
-        return EdgeEvideneManger(self.project, self.method)
+        return EdgeEvidenceManager(self.project, self.method)
+
+    def _get_memm_manager(self):
+        return EdgeMEMMManager(self.project, self.method)
 
 
 class ReducedMEMMModel(NodeMEMMModel, abc.ABC):

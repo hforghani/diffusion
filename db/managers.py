@@ -133,7 +133,7 @@ class EvidenceManager:
             collection.create_index('user_id')
 
 
-class EdgeEvideneManger(EvidenceManager):
+class EdgeEvidenceManager(EvidenceManager):
     def get_one(self, edge):
         fs = gridfs.GridFS(self.db)
         doc = fs.find_one({'src': edge[0], 'dst': edge[1]})
@@ -149,13 +149,17 @@ class EdgeEvideneManger(EvidenceManager):
         documents = fs.find(no_cursor_timeout=True)
 
         if documents.count():
-            return {
-                (doc.src, doc.dst): {
+            results = {}
+            i = 0
+            for doc in documents:
+                results[(doc.src, doc.dst)] = {
                     'dimension': doc.dimension,
                     'sequences': self._str_to_sequences(doc.read())
                 }
-                for doc in documents
-            }
+                i += 1
+                if i % 100 == 0:
+                    logger.debug('%d evidences fetched', i)
+            return results
         else:
             raise DataDoesNotExist(f'No MEMM evidences exist on project {self.project.name}')
 
@@ -163,7 +167,6 @@ class EdgeEvideneManger(EvidenceManager):
         """
         Get the generator of (edge, evidences) tuples which each "evidences" is a dictionary
         {'dimension': dim, 'sequences': sequences}. Read the doc of get_many for more information.
-        :param user_ids:
         :return:
         """
         fs = gridfs.GridFS(self.db)
@@ -237,7 +240,7 @@ class MEMMManager:
         logger.debug('inserting %d MEMM documents ...', len(memms))
         i = 0
         for uid in memms:
-            doc = self.__get_doc(memms[uid])
+            doc = self._get_doc(memms[uid])
             fs.put(bytes(str(doc), encoding='utf8'), user_id=uid)
             i += 1
             if i % 10000 == 0:
@@ -248,7 +251,7 @@ class MEMMManager:
         memms = {}
         i = 0
         for doc in fs.find():
-            memm = self.__doc_to_memm(doc)
+            memm = self._doc_to_memm(doc)
             memms[doc.user_id] = memm
             i += 1
             if i % 10000 == 0:
@@ -262,17 +265,17 @@ class MEMMManager:
         doc = fs.find_one({'user_id': user_id})
         if doc is None:
             return None
-        memm = self.__doc_to_memm(doc)
+        memm = self._doc_to_memm(doc)
         return memm
 
-    def __get_doc(self, memm):
+    def _get_doc(self, memm):
         doc = {
             'orig_indexes': memm.orig_indexes,
             'lambda': memm.Lambda.tolist()
         }
         return doc
 
-    def __doc_to_memm(self, doc):
+    def _doc_to_memm(self, doc):
         data = doc.read()
         memm_data = eval(data)
         if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
@@ -286,4 +289,38 @@ class MEMMManager:
         orig_indexes = memm_data['orig_indexes']
         Lambda = np.fromiter(memm_data['lambda'], np.float64)
         memm.set_params(Lambda, orig_indexes)
+        return memm
+
+
+class EdgeMEMMManager(MEMMManager):
+    def insert(self, memms):
+        fs = gridfs.GridFS(self.db)
+
+        logger.debug('inserting %d MEMM documents ...', len(memms))
+        i = 0
+        for edge in memms:
+            doc = self._get_doc(memms[edge])
+            fs.put(bytes(str(doc), encoding='utf8'), src=edge[0], dst=edge[1])
+            i += 1
+            if i % 10000 == 0:
+                logger.debug('%d documents inserted', i)
+
+    def fetch_all(self):
+        fs = gridfs.GridFS(self.db)
+        memms = {}
+        i = 0
+        for doc in fs.find():
+            memm = self._doc_to_memm(doc)
+            memms[(doc.src, doc.dst)] = memm
+            i += 1
+            if i % 10000 == 0:
+                logger.debug('%d MEMMs fetched', i)
+        return memms
+
+    def fetch_one(self, edge):
+        fs = gridfs.GridFS(self.db)
+        doc = fs.find_one({'src': edge[0], 'dst': edge[1]})
+        if doc is None:
+            return None
+        memm = self._doc_to_memm(doc)
         return memm
