@@ -1,5 +1,5 @@
 import argparse
-from pprint import PrettyPrinter
+import pprint
 from bson import ObjectId
 import numpy as np
 
@@ -15,25 +15,25 @@ from memm.memm import array_to_str, ParentTDMEMM
 
 def print_info(key, evidences, memm, graph, method):
     dim = evidences['dimension']
-    pp = PrettyPrinter()
     new_sequences, orig_indexes = memm.decrease_dim(evidences['sequences'], dim)
     str_sequences = [[(array_to_str(obs), state) for obs, state in seq] for seq in new_sequences]
     dim_users = get_dim_users(key, graph, method)
-    parent_user_ids = [dim_users[index] for index in orig_indexes]
+    dec_dim_users = [dim_users[index] for index in orig_indexes]
 
-    print('Lambda:')
-    pp.pprint(list(memm.Lambda))
+    print_lambda(memm, orig_indexes, dec_dim_users)
     print('\nActivation probability of observations:')
     all_obs, _ = memm.get_all_obs_mat(new_sequences)
     print_probs(all_obs, memm, dim_users)
-    print('\nSelected indexes:')
-    pp.pprint(orig_indexes)
-    print('\nUser ids of selected indexes:')
-    pp.pprint(parent_user_ids)
     print('\nEvidences with decreased dimensions:')
-    pp.pprint(str_sequences)
-    print('\nEvidences:')
-    pp.pprint([[(array_to_str(obs), state) for obs, state in seq] for seq in evidences['sequences']])
+    pprint.pprint(str_sequences)
+    # print('\nEvidences:')
+    # pprint.pprint([[(array_to_str(obs), state) for obs, state in seq] for seq in evidences['sequences']])
+
+
+def print_lambda(memm, orig_indexes, dec_dim_users):
+    print(f'{"index":<10}{"user id":<30}{"lambda":<10}')
+    for i in range(len(orig_indexes)):
+        print(f'{orig_indexes[i]:<10}{str(dec_dim_users[i]):<30}{memm.Lambda[i]:<10}')
 
 
 def print_probs(all_obs, memm, dim_users):

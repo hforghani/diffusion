@@ -15,6 +15,15 @@ from utils.time_utils import time_measure
 # pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
 
+def get_def_thr(method):
+    if method == Method.MLN_PRAC:
+        return 5, 10
+    elif method == Method.MLN_ALCH:
+        return 0, 0.5
+    else:
+        return 0, 1
+
+
 def run_predict(method_name: str, project_name: str, validation: bool, criterion: Criterion, min_threshold: Number,
                 max_threshold: Number, thresholds_count: int, initial_depth: int, max_depth: int, iterations: int,
                 multi_processed: bool, eco: bool):
@@ -22,12 +31,13 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
     method = Method(method_name)
 
     if validation:
-        thres_min = min_threshold if min_threshold else settings.THRESHOLDS[method][0]
-        thres_max = max_threshold if max_threshold else settings.THRESHOLDS[method][1]
-        if thres_max < thres_min:
+        default_thr = get_def_thr(method)
+        thr_min = min_threshold if min_threshold else default_thr[0]
+        thr_max = max_threshold if max_threshold else default_thr[1]
+        if thr_max < thr_min:
             raise ValueError('the min threshold is greater than the max threshold')
-        step = (thres_max - thres_min) / (thresholds_count - 1)
-        thresholds = [step * i + thres_min for i in range(thresholds_count)]
+        step = (thr_max - thr_min) / (thresholds_count - 1)
+        thresholds = [step * i + thr_min for i in range(thresholds_count)]
     else:
         thresholds = [min_threshold]
 

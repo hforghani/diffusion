@@ -12,14 +12,4 @@ MONGO_URL = 'mongodb://localhost:27017/'
 WEIBO_FOLLOWERS_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\weibo_network.txt'
 WEIBO_UIDLIST_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\uidlist.txt'
 
-THRESHOLDS = {
-    'binmemm': (0.1, 1),
-    'floatmemm': (0.1, 1),
-    'parentmemm': (0, 1),
-    'mlnprac': (5, 10),
-    'mlnalch': (0, 0.5),
-    'aslt': (0, 1),
-    'avg': (0, 1),
-}
-
 PROCESS_COUNT = multiprocessing.cpu_count() - 1

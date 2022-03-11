@@ -7,6 +7,7 @@ import settings
 from cascade.validation import Validation
 from diffusion.enum import Method, Criterion
 from log_levels import DEBUG_LEVELV_NUM
+from memm.models import TDEdgeMEMMModel
 from settings import logger
 from utils.time_utils import Timer
 
@@ -79,6 +80,11 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, in
         max_step = max_depth - initial_depth if max_depth is not None else None
         count = 1
 
+        if method == Method.TD_EDGE_MEMM:
+            dim_user_indexes_map = TDEdgeMEMMModel.extract_dim_user_indexes_map(graph)
+        else:
+            dim_user_indexes_map = None
+
         for cid in cascade_ids:
             tree = trees[cid]
 
@@ -104,6 +110,9 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, in
                     # TODO: apply max_depth for all methods.
                     if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
                         res_trees = model.predict(cid, initial_tree, threshold=thresholds)
+                    elif method == Method.TD_EDGE_MEMM:
+                        res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step,
+                                                  dim_user_indexes_map=dim_user_indexes_map)
                     else:
                         res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step)
 
