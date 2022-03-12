@@ -58,7 +58,7 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
         return tester.run_validation_test(thresholds, initial_depth, max_depth, iterations=iterations)
     else:
         if min_threshold is None:
-            raise ValueError('must specify the threshold via -t option when --validation options is not given')
+            raise ValueError('must specify the threshold via -t option when --validation option is not given')
         return tester.run_test(min_threshold, initial_depth, max_depth, iterations=iterations)
 
 

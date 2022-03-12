@@ -1,12 +1,17 @@
 import numbers
 import os
 from multiprocessing import Pool
-from typing import Union, Tuple
+from typing import Union, Tuple, Any
 
+import numpy as np
 from matplotlib import pyplot
+from sklearn import metrics
+from sklearn.metrics import make_scorer
+from sklearn.model_selection import GridSearchCV
 
 from cascade.asynchroizables import test_cascades
-from cascade.models import Project
+from cascade.estimators import MEMMEstimator
+from cascade.models import Project, ParamTypes
 from diffusion.aslt import AsLT
 from diffusion.avg import LTAvg
 from diffusion.ctic import CTIC
@@ -37,7 +42,10 @@ class ProjectTester(abc.ABC):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
             thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=self.model)
-            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
+            if isinstance(thr, numbers.Number):
+                logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
+            else:
+                logger.info('{0} TEST {0}'.format('=' * 20))
             precision, recall, f1, fpr = self.test(test_set, thr, initial_depth, max_depth, model=self.model)
             return precision, recall, f1, fpr, thr
 
@@ -63,6 +71,7 @@ class ProjectTester(abc.ABC):
                 Method.BIN_MEMM: BinMEMMModel,
                 Method.TD_MEMM: TDMEMMModel,
                 Method.REDUCED_TD_MEMM: ReducedTDMEMMModel,
+                Method.THR_REDUCED_TD_MEMM: ThrTDMEMMModel,
                 Method.REDUCED_BIN_MEMM: ReducedBinMEMMModel,
                 Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
                 Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
@@ -86,7 +95,7 @@ class ProjectTester(abc.ABC):
         pass
 
     @time_measure(level='debug')
-    def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
+    def default_validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
         """
         :param model: trained model, if None the model is trained in test method
         :param val_set: validation set. list of cascade id's
@@ -105,7 +114,57 @@ class ProjectTester(abc.ABC):
         self.__save_charts(best_thr, precs, recs, f1s, fprs, thresholds, initial_depth, max_depth)
         return best_thr
 
-    def test(self, test_set: list, thr: Union[list, numbers.Number], initial_depth: int = 0, max_depth: int = None,
+    @time_measure(level='debug')
+    def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
+        if self.method == Method.THR_REDUCED_TD_MEMM:
+            return self.__validate_multi_thr(val_set, thresholds, model)
+        else:
+            return self.default_validate(val_set, thresholds, initial_depth, max_depth, model)
+
+    def __validate_multi_thr(self, val_set, thresholds, model):
+        try:
+            best_thresholds = self.project.load_param('thresholds', ParamTypes.JSON)
+            best_thresholds = {ObjectId(node_id): thr for node_id, thr in best_thresholds.items()}
+            logger.info('thresholds loaded')
+        except FileNotFoundError:
+            evidences = ReducedTDMEMMModel(self.project).prepare_evidences(val_set,
+                                                                           multi_processed=self._evid_multiprocessed(),
+                                                                           eco=False)
+            graph = self.project.load_or_extract_graph()
+            best_thresholds = {}
+            i = 0
+            logger.info('selecting thresholds for %d nodes ...', graph.number_of_nodes())
+
+            for node_id in graph.nodes():
+                if node_id in evidences:
+                    sequences = evidences[node_id]['sequences']
+                    memm = model.get_memm(node_id)
+                    if memm:
+                        obs, states = self.__sequences_to_obs_states(sequences, memm)
+                        if states.any():
+                            estimator = MEMMEstimator(memm)
+                            parameters = dict(threshold=thresholds)
+                            f1_scorer = make_scorer(metrics.f1_score, average='weighted', labels=[False, True])
+                            gs = GridSearchCV(estimator, parameters, n_jobs=self._get_validate_n_jobs(),
+                                              scoring=f1_scorer)
+                            gs.fit(obs, states)
+                            thr = gs.best_params_['threshold']
+                            best_thresholds[node_id] = thr
+                            logger.debugv('best threshold for %s with %d obs : %f', node_id, obs.shape[0], thr)
+                i += 1
+                if i % 100 == 0:
+                    logger.debug('threshold selected for %d nodes', i)
+
+            # Set the threshold of any node absent in the validation set equal to the mean thrshold.
+            mean_thr = float(np.mean(np.array(list(best_thresholds.values()))))
+            for node_id in graph.nodes():
+                best_thresholds.setdefault(node_id, mean_thr)
+
+            self.project.save_param({str(node_id): thr for node_id, thr in best_thresholds.items()}, 'thresholds',
+                                    ParamTypes.JSON)
+        return best_thresholds
+
+    def test(self, test_set: list, thr: Any, initial_depth: int = 0, max_depth: int = None,
              model=None) -> tuple:
         """
         Test on test set by the threshold(s) given.
@@ -133,12 +192,12 @@ class ProjectTester(abc.ABC):
         precisions, recalls, f1s, fprs, prp1_list, prp2_list = self._do_test(test_set, thresholds, graph, trees,
                                                                              initial_depth, max_depth, model)
 
-        if isinstance(thr, numbers.Number):  # It is in test stage
+        if type(thr) != list:  # It is in test stage
             self._log_cascades_results(test_set, precisions[thr], recalls[thr], f1s[thr])
 
         mean_prec, mean_rec, mean_f1, mean_fpr = self._get_mean_results(precisions, recalls, f1s, fprs, prp1_list,
                                                                         prp2_list)
-        if isinstance(thr, numbers.Number):  # It is in test stage
+        if type(thr) != list:  # It is in test stage
             return mean_prec[thr], mean_rec[thr], mean_f1[thr], mean_fpr[thr]
         else:  # It is in validation stage
             return mean_prec, mean_rec, mean_f1, mean_fpr
@@ -234,6 +293,25 @@ class ProjectTester(abc.ABC):
         pyplot.savefig(filename)
         # pyplot.show()
 
+    def __sequences_to_obs_states(self, sequences, memm):
+        observations = []
+        states = []
+        for seq in sequences:
+            for obs, state in seq:
+                observations.append(obs)
+                states.append(state)
+        observations = np.array(observations)[:, memm.orig_indexes]
+        states = np.array(states)
+        return observations, states
+
+    @abc.abstractmethod
+    def _get_validate_n_jobs(self):
+        pass
+
+    @abc.abstractmethod
+    def _evid_multiprocessed(self):
+        pass
+
 
 class DefaultTester(ProjectTester):
     def train(self, **kwargs):
@@ -242,6 +320,12 @@ class DefaultTester(ProjectTester):
     def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
         return test_cascades(test_set, self.method, model, thresholds, initial_depth, max_depth, self.criterion, trees,
                              graph)
+
+    def _get_validate_n_jobs(self):
+        return None
+
+    def _evid_multiprocessed(self):
+        return False
 
 
 class MultiProcTester(ProjectTester):
@@ -266,6 +350,11 @@ class MultiProcTester(ProjectTester):
         pool.close()
         pool.join()
 
+        # If thresholds is dict implies that we have one threshold for each node id. Also, we are sure we are at test
+        # stage, not at validation stage. As a result set the threshold None.
+        if isinstance(thresholds, dict):
+            thresholds = [None]
+
         precisions = {thr: [] for thr in thresholds}
         recalls = {thr: [] for thr in thresholds}
         f1s = {thr: [] for thr in thresholds}
@@ -285,3 +374,9 @@ class MultiProcTester(ProjectTester):
                 prp2_list[thr].extend(prp2_subset[thr])
 
         return precisions, recalls, f1s, fprs, prp1_list, prp2_list
+
+    def _get_validate_n_jobs(self):
+        return settings.PROCESS_COUNT
+
+    def _evid_multiprocessed(self):
+        return True

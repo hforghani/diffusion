@@ -274,6 +274,14 @@ class TDMEMM(MEMM):
         features = np.concatenate((features, last_feat), axis=1)
         return features, C
 
+    def multi_prob(self, observations):
+        f0, _ = self._calc_features(observations, np.array([[False]]), [False, True])
+        f1, _ = self._calc_features(observations, np.array([[True]]), [False, True])
+        dots0 = f0.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
+        dots1 = f1.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
+        prob = 1 / (np.exp(dots0 - dots1) + 1)
+        return prob
+
 
 class ParentTDMEMM(MEMM):
 

@@ -12,6 +12,7 @@ class Method(Enum):
     TD_MEMM = 'tdmemm'
     REDUCED_BIN_MEMM = 'rbmemm'
     REDUCED_TD_MEMM = 'rtdmemm'
+    THR_REDUCED_TD_MEMM = 'trtdmemm'
     PARENT_SENS_TD_MEMM = 'prtdmemm'
     LONG_PARENT_SENS_TD_MEMM = 'lprtdmemm'
     REDUCED_FULL_TD_MEMM = 'rftdmemm'
