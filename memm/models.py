@@ -263,20 +263,7 @@ class MEMMModel(abc.ABC):
 
         if eco:
             logger.info('loading MEMMs from db ...')
-            try:
-                self._memms = manager.fetch_all()
-
-            except pymongo.errors.AutoReconnect:
-                """ In the case of memory leak, it may raise AutoReconnect error. Then it loads MEMMs 
-                one by one at the test stage via get_memm function. """
-                logger.warning('AutoReconnect error!')
-                reconnect()
-            except MemoryError:
-                """If the MEMMs size is too large, the Mongo connection will be lost due to memory leak.
-                So it will be cleaned up. Then it fetches MEMMs one by one from db at the test stage via
-                get_memm function."""
-                logger.warning('Memory error!')
-                reconnect()
+            self._memms = manager.fetch_all()
 
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
         return self

@@ -10,7 +10,6 @@ from sklearn.metrics import make_scorer, f1_score
 from sklearn.model_selection import GridSearchCV
 
 from cascade.asynchroizables import test_cascades
-from cascade.estimators import MEMMEstimator
 from cascade.metric import Metric
 from cascade.models import Project, ParamTypes
 from diffusion.aslt import AsLT
@@ -144,15 +143,7 @@ class ProjectTester(abc.ABC):
                     if memm:
                         obs, states = self.__sequences_to_obs_states(sequences, memm)
                         n_samples = obs.shape[0]
-                        if states.any() and n_samples >= 3:
-                            # estimator = MEMMEstimator(memm)
-                            # parameters = dict(threshold=thresholds)
-                            # f1_scorer = make_scorer(metrics.f1_score, average='weighted', labels=[False, True])
-                            # n_jobs = self._get_validate_n_jobs() if n_samples > 100 else None
-                            # gs = GridSearchCV(estimator, parameters, cv=2, n_jobs=n_jobs, scoring=f1_scorer)
-                            # gs.fit(obs, states)
-                            # best_thr = gs.best_params_['threshold']
-
+                        if states.any():
                             f1s = {}
                             probs = memm.multi_prob(obs)
                             for thr in thresholds:

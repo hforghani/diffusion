@@ -121,8 +121,6 @@ class MEMM(abc.ABC):
         dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         s_value = dots[all_states.index(state)]
         prob = float(1 / np.sum(np.array([np.exp(dots[i] - s_value) for i in range(len(all_states))])))
-        if (obs == 0).all():
-            logger.debug('obs = 0 -> prob = %f', prob)
         return prob
 
     def get_probs(self, obs: np.ndarray, all_states: list) -> list:
@@ -139,13 +137,6 @@ class MEMM(abc.ABC):
         for i in range(len(all_states)):
             exp_sum = np.sum(np.array([np.exp(dots[j] - dots[i]) for j in range(len(all_states)) if j != i]))
             probs[i] = 1 / (1 + exp_sum)
-        # logger.debug('obs = %s', obs)
-        # logger.debug('states = %s', states)
-        # logger.debug('all_states = %s', all_states)
-        # logger.debug('features =\n%s', f)
-        # logger.debug('self.Lambda = %s', self.Lambda)
-        # logger.debug('dots =\n%s', dots)
-        # logger.debug('probs =%s', probs)
         return probs.tolist()
 
     def get_all_obs_mat(self, sequences):
