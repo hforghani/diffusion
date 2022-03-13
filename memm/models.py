@@ -1041,7 +1041,7 @@ class ThrTDMEMMModel(ReducedTDMEMMModel):
             cur_step = next_step
             step_num += 1
 
-        return {None: tree}
+        return tree
 
     def _predict_by_obs(self, obs, thr, memm, tree, parents, all_nodes, new_active_indexes):
         prob = memm.get_prob(obs, True, [False, True])

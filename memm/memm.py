@@ -121,6 +121,8 @@ class MEMM(abc.ABC):
         dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         s_value = dots[all_states.index(state)]
         prob = float(1 / np.sum(np.array([np.exp(dots[i] - s_value) for i in range(len(all_states))])))
+        if (obs == 0).all():
+            logger.debug('obs = 0 -> prob = %f', prob)
         return prob
 
     def get_probs(self, obs: np.ndarray, all_states: list) -> list:
@@ -250,6 +252,8 @@ class MEMM(abc.ABC):
 
 class BinMEMM(MEMM):
     def _calc_features(self, obs_mat, state_mat, states=None):
+        if obs_mat.shape[0] != state_mat.shape[0]:
+            raise ValueError('number of observations and sates must be equal')
         obs_num, obs_dim = obs_mat.shape
         # features = np.logical_and(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
         features = np.logical_not(
@@ -264,6 +268,8 @@ class BinMEMM(MEMM):
 
 class TDMEMM(MEMM):
     def _calc_features(self, obs_mat, state_mat, states=None):
+        if obs_mat.shape[0] != state_mat.shape[0]:
+            raise ValueError('number of observations and sates must be equal')
         obs_num, obs_dim = obs_mat.shape
         features = obs_mat.copy()
         zero_state_indexes = np.where(state_mat == False)
@@ -275,17 +281,26 @@ class TDMEMM(MEMM):
         return features, C
 
     def multi_prob(self, observations):
-        f0, _ = self._calc_features(observations, np.array([[False]]), [False, True])
-        f1, _ = self._calc_features(observations, np.array([[True]]), [False, True])
+        obs_num = observations.shape[0]
+        f0, _ = self._calc_features(observations, np.array([[False]] * obs_num), [False, True])
+        f1, _ = self._calc_features(observations, np.array([[True]] * obs_num), [False, True])
         dots0 = f0.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         dots1 = f1.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         prob = 1 / (np.exp(dots0 - dots1) + 1)
+        prob[(observations == 0).all(axis=1)] = 0
+        # logger.debugv('observations =\n%s', observations)
+        # logger.debugv('f0 =\n%s', f0)
+        # logger.debugv('f1 =\n%s', f1)
+        # logger.debugv('self.Lambda =\n%s', self.Lambda)
+        # logger.debugv('prob =\n%s', prob)
         return prob
 
 
 class ParentTDMEMM(MEMM):
 
     def _calc_features(self, obs_mat, state_mat, states=None):
+        if obs_mat.shape[0] != state_mat.shape[0]:
+            raise ValueError('number of observations and sates must be equal')
         if states is None:
             raise ValueError('states must be given for ParentTDMEMM')
         # logger.debugv('obs_mat, state_mat =\n%s',

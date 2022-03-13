@@ -2,6 +2,7 @@ import argparse
 # from profilehooks import timecall, profile
 from numbers import Number
 
+from cascade.metric import Metric
 from cascade.models import Project
 import settings
 from cascade.testers import MultiProcTester, DefaultTester
@@ -26,7 +27,7 @@ def get_def_thr(method):
 
 def run_predict(method_name: str, project_name: str, validation: bool, criterion: Criterion, min_threshold: Number,
                 max_threshold: Number, thresholds_count: int, initial_depth: int, max_depth: int, iterations: int,
-                multi_processed: bool, eco: bool):
+                multi_processed: bool, eco: bool) -> Metric:
     project = Project(project_name)
     method = Method(method_name)
 
@@ -67,10 +68,10 @@ def handle(args):
     res = run_predict(args.method, args.project, args.validation, Criterion(args.criterion), args.min_threshold,
                       args.max_threshold, args.thresholds_count, args.initial_depth, args.max_depth, args.iterations,
                       args.multi_processed, args.eco)
-    prec, rec, f1, fpr = res[:4]
 
-    if prec is not None:
-        logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', prec, rec, f1, fpr)
+    if res is not None:
+        logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', res.precision(), res.recall(),
+                    res.f1(), res.fpr())
 
 
 def main():

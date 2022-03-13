@@ -23,8 +23,8 @@ def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_
             logger.info('running prediction from depth %d to %s using method %s ...', initial_depth,
                         max_depth if max_depth is not None else 'end', method.value)
             thresholds = [i / 100 for i in range(101)]
-            _, _, f1, _, _ = testers[method].run_validation_test(thresholds, initial_depth, max_depth)
-            cur_results[method] = f1
+            mean_res = testers[method].run_validation_test(thresholds, initial_depth, max_depth)
+            cur_results[method] = mean_res.f1()
         results[(initial_depth, max_depth)] = cur_results
     return results
 

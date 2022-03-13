@@ -1,10 +1,11 @@
 import traceback
-from typing import Tuple
+import typing
+from typing import Tuple, Any
 
 from networkx import DiGraph
 
 import settings
-from cascade.validation import Validation
+from cascade.metric import Metric
 from diffusion.enum import Method, Criterion
 from log_levels import DEBUG_LEVELV_NUM
 from memm.models import TDEdgeMEMMModel
@@ -33,7 +34,7 @@ def evaluate_nodes(initial_tree, res_tree, tree, all_nodes, max_depth=None):
     ref_set = set(all_nodes) - initial_nodes
 
     # Evaluate the result.
-    meas = Validation(res_output, true_output, ref_set)
+    meas = Metric(res_output, true_output, ref_set)
     return meas, res_output, true_output
 
 
@@ -47,7 +48,7 @@ def evaluate_edges(initial_tree, res_tree, tree, all_edges, max_depth=None):
     ref_set = set(all_edges) - initial_edges
 
     # Evaluate the result.
-    meas = Validation(res_output, true_output, ref_set)
+    meas = Metric(res_output, true_output, ref_set)
     return meas, res_output, true_output
 
 
@@ -67,16 +68,10 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
                                                     res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
-def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, initial_depth: int, max_depth: int,
-                  criterion: Criterion, trees: dict, graph: DiGraph) \
-        -> Tuple[dict, dict, dict, dict, dict, dict]:
+def test_cascades(cascade_ids: list, method: Method, model, thresholds: Any, initial_depth: int, max_depth: int,
+                  criterion: Criterion, trees: dict, graph: DiGraph) -> typing.Union[dict, list]:
     try:
-        prp1_list = {thr: [] for thr in thresholds}
-        prp2_list = {thr: [] for thr in thresholds}
-        precisions = {thr: [] for thr in thresholds}
-        recalls = {thr: [] for thr in thresholds}
-        fprs = {thr: [] for thr in thresholds}
-        f1s = {thr: [] for thr in thresholds}
+        results = {thr: [] for thr in thresholds} if isinstance(thresholds, list) else []
         max_step = max_depth - initial_depth if max_depth is not None else None
         count = 1
 
@@ -91,14 +86,11 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, in
             if initial_depth >= tree.depth:
                 count += 1
                 logger.info('cascade <%s> ignored since the initial depth is more than or equal to the tree depth', cid)
-                for thr in thresholds:
-                    precisions[thr].append(None)
-                    recalls[thr].append(None)
-                    fprs[thr].append(None)
-                    f1s[thr].append(None)
-                    if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
-                        prp1_list[thr].append(None)
-                        prp2_list[thr].append(None)
+                if isinstance(thresholds, list):
+                    for thr in thresholds:
+                        results[thr].append(None)
+                else:
+                    results.append(None)
             else:
                 logger.info('running prediction with method <%s> on cascade <%s>', method.value, cid)
 
@@ -118,40 +110,32 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: list, in
 
                 # Evaluate the results.
                 with Timer('evaluating results', level='debug'):
-                    logs = [f'{"threshold":>10}{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
-                    for thr in thresholds:
-                        res_tree = res_trees[thr]
-
-                        meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
+                    if isinstance(thresholds, list):
+                        logs = [f'{"threshold":>10}{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
+                        for thr in thresholds:
+                            res_tree = res_trees[thr]
+                            meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
+                                                                     graph)
+                            results.append(meas)
+                            logs.append(
+                                f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{meas.precision():10.3f}'
+                                f'{meas.recall():10.3f}{meas.f1():10.3f}')
+                    else:
+                        # res_trees is an instance of CascadeTree
+                        logs = [f'{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
+                        meas, res_output, true_output = evaluate(initial_tree, res_trees, tree, max_depth, criterion,
                                                                  graph)
-
-                        if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
-                            prp = meas.prp(model.probabilities)
-                            prp1 = prp[0] if prp else 0
-                            prp2 = prp[1] if len(prp) > 1 else 0
-                            prp1_list[thr].append(prp1)
-                            prp2_list[thr].append(prp2)
-
-                        prec = meas.precision()
-                        rec = meas.recall()
-                        fpr = meas.fpr()
-                        f1 = meas.f1()
-                        precisions[thr].append(prec)
-                        recalls[thr].append(rec)
-                        fprs[thr].append(fpr)
-                        f1s[thr].append(f1)
-
+                        results.append(meas)
                         logs.append(
-                            f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{prec:10.3f}{rec:10.3f}{f1:10.3f}')
-                        # if method in ['aslt', 'avg']:
-                        #     log += ', prp = (%.3f, %.3f, ...)' % (prp1, prp2)
-                        # log_trees(tree, res_trees, max_depth)
+                            f'{len(res_output):10}{len(true_output):10}{meas.precision():10.3f}{meas.recall():10.3f}'
+                            f'{meas.f1():10.3f}')
 
+                    # log_trees(tree, res_trees, max_depth)
                     logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
 
             count += 1
 
-        return precisions, recalls, f1s, fprs, prp1_list, prp2_list
+        return results
 
     except:
         logger.error(traceback.format_exc())
