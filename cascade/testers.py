@@ -1,13 +1,10 @@
 import numbers
 import os
 from multiprocessing import Pool
-from typing import Union, Tuple, Any
+from typing import Union, Any
 
-import numpy as np
 from matplotlib import pyplot
-from sklearn import metrics
-from sklearn.metrics import make_scorer, f1_score
-from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import f1_score
 
 from cascade.asynchroizables import test_cascades
 from cascade.metric import Metric
@@ -93,7 +90,7 @@ class ProjectTester(abc.ABC):
         pass
 
     @time_measure(level='debug')
-    def default_validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
+    def __default_validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
         """
         :param model: trained model, if None the model is trained in test method
         :param val_set: validation set. list of cascade id's
@@ -120,7 +117,7 @@ class ProjectTester(abc.ABC):
         if self.method == Method.THR_REDUCED_TD_MEMM:
             return self.__validate_multi_thr(val_set, thresholds, model)
         else:
-            return self.default_validate(val_set, thresholds, initial_depth, max_depth, model)
+            return self.__default_validate(val_set, thresholds, initial_depth, max_depth, model)
 
     def __validate_multi_thr(self, val_set, thresholds, model):
         try:
@@ -146,12 +143,15 @@ class ProjectTester(abc.ABC):
                         if states.any():
                             f1s = {}
                             probs = memm.multi_prob(obs)
+                            # logger.debugv('obs = \n%s', obs)
+                            # logger.debugv('states = \n%s', np.squeeze(states))
+                            # logger.debugv('probs = \n%s', probs)
                             for thr in thresholds:
                                 pred_states = probs >= thr
                                 f1 = f1_score(states, pred_states)
                                 f1s[thr] = f1
+                                # logger.debugv('thr = %f, f1 = %f, pred_states = %s', thr, f1, np.squeeze(pred_states))
                             best_thr = max(f1s, key=lambda thr: f1s[thr])
-
                             best_thresholds[node_id] = best_thr
                             logger.debugv('best threshold for %s with %d obs : %f', node_id, n_samples, best_thr)
                 i += 1
@@ -160,6 +160,7 @@ class ProjectTester(abc.ABC):
 
             # Set the threshold of any node absent in the validation set equal to the mean thrshold.
             mean_thr = float(np.mean(np.array(list(best_thresholds.values()))))
+            # logger.debugv('mean_thr = %s', mean_thr)
             for node_id in graph.nodes():
                 best_thresholds.setdefault(node_id, mean_thr)
 
@@ -192,12 +193,15 @@ class ProjectTester(abc.ABC):
                 'no average results since the initial depth is more than or equal to the depths of all trees')
             return None
 
+        if isinstance(thr, numbers.Number):  # It is on test stage.
+            thr = [thr]
+
         results = self._do_test(test_set, thr, graph, trees, initial_depth, max_depth, model)
 
         if isinstance(results, list):  # It is in test stage
             self._log_cascades_results(test_set, results)
 
-        if isinstance(results, list):
+        if isinstance(results, list):  # It is in test stage
             mean_res = self._get_mean_results(results)
         else:
             mean_res = self._get_mean_results_dict(results)
@@ -221,7 +225,7 @@ class ProjectTester(abc.ABC):
             fpr = np.array([m.fpr() for m in results[thr] if m is not None]).mean()
             f1 = np.array([m.f1() for m in results[thr] if m is not None]).mean()
             mean_metric.set(prec, rec, f1, fpr)
-            mean_res[thr] = mean_res
+            mean_res[thr] = mean_metric
             logs.append(f'{thr:<10.3f}{prec:<10.3f}{rec:<10.3f}{f1:<10.3f}')
 
         logger.debug('\n'.join(logs))

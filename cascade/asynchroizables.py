@@ -116,7 +116,7 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: Any, ini
                             res_tree = res_trees[thr]
                             meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
                                                                      graph)
-                            results.append(meas)
+                            results[thr].append(meas)
                             logs.append(
                                 f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{meas.precision():10.3f}'
                                 f'{meas.recall():10.3f}{meas.f1():10.3f}')

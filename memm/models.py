@@ -882,9 +882,9 @@ class ReducedMEMMModel(NodeMEMMModel, abc.ABC):
                 j += 1
                 if j % 100 == 0:
                     logger.debugv('%d / %d of children iterated', j, len(all_children))
-                    # for timer in timers:
-                    #     if timer.sum:
-                    #         timer.report_sum()
+                    for timer in timers:
+                        if timer.sum:
+                            timer.report_sum()
 
             # Update the observations to prepare for the next step.
             for thr, obs_thr in observations.items():
