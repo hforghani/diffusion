@@ -230,8 +230,7 @@ class IC(abc.ABC):
                                 delay = 1 / delay_param if delay_param > 0 else self.max_delay  # in months
                                 if delay > self.max_delay:
                                     delay = self.max_delay
-                                send_dt = str_to_datetime(node.datetime)
-                                receive_dt = (send_dt + timedelta(days=30 * delay)).strftime(DT_FORMAT)
+                                receive_dt = node.datetime + timedelta(days=30 * delay)
                             else:
                                 receive_dt = None
 

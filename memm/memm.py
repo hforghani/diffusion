@@ -1,4 +1,5 @@
 import abc
+import pprint
 from abc import ABC
 from functools import reduce
 import numpy as np
@@ -8,30 +9,25 @@ from settings import logger
 from utils.time_utils import Timer, TimeUnit, time_measure
 
 
-def obs_to_str(obs: int, dim: int) -> str:
-    return '{:>0{w}}'.format(bin(obs)[2:], w=dim)[::-1]
+def obs_to_str(arr: np.array) -> str:
+    rows = []
+    for row in arr:
+        if row.dtype == bool:
+            rows.append(''.join(str(int(d)) for d in row))
+        else:
+            rows.append(str(row.tolist()))
+    return '\n'.join(rows)
 
 
-def obs_to_array(obs: int, dim: int) -> np.array:
-    obs_arr = []
-    for _ in range(dim):
-        obs_arr.append(obs % 2)
-        obs >>= 1
-    return np.array(obs_arr, dtype=bool)
-
-
-def array_to_obs(arr: np.array) -> int:
-    obs = 0
-    for index in np.nonzero(arr)[0]:
-        obs |= 1 << int(index)
-    return obs
-
-
-def array_to_str(arr: np.array) -> str:
+def arr_to_str(arr: np.array) -> str:
     if arr.dtype == bool:
         return ''.join(str(int(d)) for d in arr)
     else:
         return str(arr.tolist())
+
+
+def two_d_arr_to_str(arr: np.array) -> str:
+    return '\n'.join(arr_to_str(arr[i, :]) for i in range(arr.shape[0]))
 
 
 class MEMM(abc.ABC):
@@ -39,6 +35,7 @@ class MEMM(abc.ABC):
         self.orig_indexes = []
         self.orig_indexes_map = {}
         self.Lambda = None
+        self.feat_dim = None
 
     @time_measure(level='debug')
     def fit(self, evidence: dict, states: list, iterations: int):
@@ -50,26 +47,27 @@ class MEMM(abc.ABC):
         :return:            self
         """
         dim, sequences = evidence['dimension'], evidence['sequences']
-        new_sequences, self.orig_indexes = self.decrease_dim(sequences, dim)
+        new_sequences, self.orig_indexes = self.decrease_dim(sequences)
         new_dim = len(self.orig_indexes)
         self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
 
         if new_dim == 0:
             raise MemmException('Cannot train MEMM with all observations given zero')
 
-        all_obs_arr, map_obs_index = self.get_all_obs_mat(new_sequences)
-        logger.debugv('all_obs_arr =\n%s', all_obs_arr)
-
-        # Create matrices of observations and states of which previous state is zero.
-        obs_mat, state_mat, obs_indexes = self._create_matrices(new_sequences, map_obs_index)
+        # Get all observations and states of which previous state is zero.
+        all_obs, state_mat = self.get_all_obs(new_sequences)
+        logger.debugv('all_obs =\n%s', all_obs)
+        logger.debugv('state_mat =\n%s', state_mat)
         logger.debugv('all possible states = %s', states)
-        logger.debugv('obs_mat, state_mat =\n%s',
-                      np.concatenate((obs_mat, state_mat.reshape(state_mat.shape[0], 1)), axis=1))
 
         # Calculate features for observation-state pairs. Shape of features is obs_num * (obs_dim+1)
-        features, C = self._calc_features(obs_mat, state_mat, states)
+        features, C = self._calc_features(all_obs, state_mat)
+        self.feat_dim = features.shape[1]
         logger.debugv('features =\n%s', features)
-        feat_dim = features.shape[1]
+
+        obs_num = len(all_obs)
+        features_for_all_states = [self._calc_features(all_obs, np.ones((obs_num, 1)) * s)[0] for s in states]
+        # logger.debugv('features_for_all_states =\n%s', pprint.pformat(features_for_all_states))
 
         # Calculate the training data average for each feature.
         F = np.mean(features, axis=0).T
@@ -77,7 +75,7 @@ class MEMM(abc.ABC):
 
         # Initialize Lambda as 1 then learn from training data.
         # Lambda is different per s' (previous state), But here just we use s' = 0.
-        self.Lambda = np.ones(feat_dim)
+        self.Lambda = np.ones(self.feat_dim)
 
         # GIS, run until convergence
         epsilon = 10 ** -10
@@ -86,14 +84,14 @@ class MEMM(abc.ABC):
             iter_count += 1
             logger.debugv("iteration = %d ...", iter_count)
             Lambda0 = np.copy(self.Lambda)
-            TPM = self.__build_tpm(self.Lambda, all_obs_arr, states)
+            TPM = self.__build_tpm(features_for_all_states, self.Lambda)
             logger.debugv('TPM =\n%s', TPM)
-            E = self.__build_expectation(obs_mat, TPM, obs_indexes, states)
+            E = self.__build_expectation(features_for_all_states, TPM)
             logger.debugv('E =\n%s', E)
             self.Lambda = self.__build_next_lambda(self.Lambda, C, F, E)
             logger.debugv('lambda = %s', self.Lambda)
 
-            diff = np.linalg.norm(Lambda0 - self.Lambda) / np.sqrt(feat_dim)
+            diff = np.linalg.norm(Lambda0 - self.Lambda) / np.sqrt(self.feat_dim)
             if diff < epsilon or iter_count >= iterations:
                 logger.debug('GIS iterations = %d, diff = %s', iter_count, diff)
                 break
@@ -104,6 +102,7 @@ class MEMM(abc.ABC):
         self.Lambda = Lambda
         self.orig_indexes = orig_indexes
         self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
+        self.feat_dim = Lambda.size
 
     def get_prob(self, obs: np.ndarray, state: int, all_states: list, timers: list = None) -> float:
         """
@@ -116,8 +115,11 @@ class MEMM(abc.ABC):
         #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
 
         # with timers[0]:
-        obs_mat = np.tile(obs, (len(all_states), 1))
-        f, _ = self._calc_features(obs_mat, np.array(all_states).reshape((len(all_states), 1)), all_states)
+        obs = obs[:, self.orig_indexes]
+        if np.count_nonzero(obs) == 0:
+            return 0
+        observations = [obs] * len(all_states)
+        f, _ = self._calc_features(observations, np.array(all_states).reshape((len(all_states), 1)))
         dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         s_value = dots[all_states.index(state)]
         prob = float(1 / np.sum(np.array([np.exp(dots[i] - s_value) for i in range(len(all_states))])))
@@ -125,13 +127,15 @@ class MEMM(abc.ABC):
 
     def get_probs(self, obs: np.ndarray, all_states: list) -> list:
         """
-        Predict the state of the observation given conditioned on that the previous state is 0 (inactive).
+        Get the list of probabilities of transition to all states given the observation conditioned on that the previous
+        state is inactive.
         :param obs:         current observation
         :param all_states:  list of all possible states
         :return:            list of probabilities related to the states given
         """
-        obs_mat = np.tile(obs, (len(all_states), 1))
-        f, _ = self._calc_features(obs_mat, np.array(all_states).reshape((len(all_states), 1)), all_states)
+        obs = obs[:, self.orig_indexes]
+        observations = [obs] * len(all_states)
+        f, _ = self._calc_features(observations, np.array(all_states).reshape((len(all_states), 1)))
         dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         probs = np.zeros(len(all_states))
         for i in range(len(all_states)):
@@ -139,70 +143,65 @@ class MEMM(abc.ABC):
             probs[i] = 1 / (1 + exp_sum)
         return probs.tolist()
 
-    def get_all_obs_mat(self, sequences):
-        all_obs = list(reduce(lambda li1, li2: li1 + li2, [[pair[0] for pair in seq] for seq in sequences]))
-        all_obs_arr = np.unique(np.array(all_obs), axis=0)
-        map_obs_index = {tuple(all_obs_arr[i, :]): i for i in range(all_obs_arr.shape[0])}
-        return all_obs_arr, map_obs_index
+    def get_multi_obs_probs(self, observations: list, all_states: list) -> np.ndarray:
+        probs = np.zeros((len(observations), len(all_states)))
+        for i in range(len(observations)):
+            probs[i, :] = np.array(self.get_probs(observations[i], all_states))
+        return probs
 
-    def _create_matrices(self, sequences, map_obs_index):
-        obs_indexes = []
+    def get_all_obs(self, sequences):
+        observations = []
         states = []
-        obs_mat = []
         for seq in sequences:
-            if not seq:
-                continue
-            obs_mat.extend(obs for obs, state in seq[1:])
-            obs_indexes.extend(map_obs_index[tuple(obs)] for obs, state in seq[1:])
-            states.extend(state for obs, state in seq[1:])
-        obs_mat = np.array(obs_mat)
+            for obs, state in seq:
+                observations.append(obs)
+                states.append(state)
         states = np.array(states)
-        return obs_mat, states, obs_indexes
+        return observations, states
 
     @abc.abstractmethod
-    def _calc_features(self, obs_mat: np.ndarray, state_mat: np.ndarray, states: list = None):
+    def _calc_features(self, observations: list, states: np.ndarray) -> np.ndarray:
         pass
 
-    def __build_tpm(self, Lambda: np.ndarray, all_obs: np.ndarray, states: list):
+    def __build_tpm(self, features: list, Lambda: np.ndarray):
         """
         Create normalized transition probability matrix (TPM) from previous state of 0 (inactivated) given current observation
         :param Lambda:      np array of Lambda weights
-        :param all_obs:     np array of size obs_num * (d+1) containing all unique observations
-        :param states:      list of all possible states
+        :param features:     list of lists. Each row of features[i] contains the features of f(o, states[i] | s' = 0)
+                            where o is an observations.
         :return:            np array of shape (obs_num, S) where S is number of states
         """
-        obs_num = all_obs.shape[0]
+        obs_num = features[0].shape[0]
+        states_num = len(features)
 
-        # features is a list of N * (d+1) matrices. features[i] contains the features of f(o, states[i] | s' = 0)
-        # where o is all_obs.
-        features = [self._calc_features(all_obs, np.ones((obs_num, 1)) * s, states)[0] for s in states]
-        # logger.debugv('features =\n%s', pprint.pformat(features))
+        # dots is a list of values (f(o,s) . lambda) for different s values
+        # logger.debug('features[0] = \n%s', two_d_arr_to_str(features[0]))
+        # logger.debug('Lambda = %s', Lambda)
+        # logger.debug('states_num = %s', states_num)
+        dots = [np.squeeze(features[i].dot(Lambda)) for i in range(states_num)]
+        # logger.debug('dots =\n%s', pprint.pformat(dots))
 
-        # exp_dots is a list of values exp( f(o,s) . lambda ) for different s values
-        dots = [np.squeeze(features[i].dot(Lambda)) for i in range(len(states))]
-        # logger.debugv('dots =\n%s', pprint.pformat(dots))
-
-        TPM = np.zeros((obs_num, len(states)))
-        for i in range(len(states)):
-            exp_sum = np.sum(np.array([np.exp(dots[j] - dots[i]) for j in range(len(states)) if j != i]), axis=0).T
+        TPM = np.zeros((obs_num, states_num))
+        # logger.debug('TPM.shape = %s', TPM.shape)
+        for i in range(states_num):
+            exp_sum = np.sum(np.array([np.exp(dots[j] - dots[i]) for j in range(states_num) if j != i]), axis=0).T
+            # logger.debug('exp_sum.shape = %s', exp_sum.shape)
+            # logger.debug('exp_sum = %s', exp_sum)
             TPM[:, i] = 1 / (1 + exp_sum)
 
         return TPM
 
-    def __build_expectation(self, obs_mat: np.ndarray, TPM: np.ndarray, obs_indexes: list, states: list):
-        obs_num, obs_dim = obs_mat.shape
-
-        # features is a list of N * (d+1) matrices. features[i] contains the features of f(o, states[i] | s' = 0)
-        # where o is obs_mat.
-        features = [self._calc_features(obs_mat, np.ones((obs_num, 1)) * s, states)[0] for s in states]
-        # logger.debugv('features =\n%s', pprint.pformat(features))
-
-        obs_probs = TPM[obs_indexes, :]
-        # logger.debugv('obs_probs =\n%s', obs_probs)
-
-        E = np.sum(np.array([features[i].T.dot(obs_probs[:, i]) for i in range(len(states))]), axis=0)
+    def __build_expectation(self, features: list, TPM: np.ndarray):
+        """
+        :param features:  list of lists. features[i] contains the features of f(o, states[i] | s' = 0)
+                            where o is an observations.
+        :param TPM:      N * d array of TPM
+        :return:        (d+1) array of expectation of features
+        """
+        states_num = len(features)
+        E = np.sum(np.array([features[i].T.dot(TPM[:, i]) for i in range(states_num)]), axis=0)
+        obs_num = features[0].shape[0]
         E /= obs_num
-
         return E
 
     @staticmethod
@@ -218,17 +217,17 @@ class MEMM(abc.ABC):
         # Lambda[F == 0] = 0
         return Lambda
 
-    def decrease_dim(self, sequences, dim):
+    def decrease_dim(self, sequences):
         """
         Decrease dimensions of observations in sequences. Remove the dimensions related to the parents
         which has no activation (e.t. has no digit 1) in any observation.
         :param sequences:   list of sequences of (obs, state)
-        :param dim:         number of observation dimensions
         :return:            new sequences, map of new indexes to the old ones; with one difference that
                             the observation is numpy array in tuple (obs, state)
         """
-        all_obs_mat, map_obs_index = self.get_all_obs_mat(sequences)
-        union = all_obs_mat.any(axis=0)
+        dim = sequences[0][0][0].shape[1]
+        stacked = np.vstack(list(reduce(lambda li1, li2: li1 + li2, [[pair[0] for pair in seq] for seq in sequences])))
+        union = stacked.any(axis=0)
         orig_indexes = list(np.nonzero(union)[0])
         new_dim = len(orig_indexes)
 
@@ -236,20 +235,57 @@ class MEMM(abc.ABC):
             return sequences, list(range(dim))
 
         # Decrease the dimensions and create the new sequences.
-        new_sequences = [[(obs[orig_indexes], state) for obs, state in seq] for seq in sequences]
+        new_sequences = [[(obs[:, orig_indexes], state) for obs, state in seq] for seq in sequences]
 
         return new_sequences, orig_indexes
 
+    def sequences_to_feat_states(self, sequences):
+        new_sequences, orig_indexes = self.decrease_dim(sequences)
+        all_obs, state_mat = self.get_all_obs(new_sequences)
+        features, C = self._calc_features(all_obs, state_mat)
+        return features, state_mat
+
+
+class LongMEMM(MEMM):
+    def _calc_features(self, observations, states):
+        if len(observations) != states.size:
+            raise ValueError('number of observations and states must be equal')
+        obs_num = len(observations)
+        obs_dim = observations[0].shape[1]
+        feat_dim = self.feat_dim if self.feat_dim else max(obs.shape[0] for obs in observations) * obs_dim + 1
+        features = np.zeros((obs_num, feat_dim - 1), dtype=bool)
+        for i in range(obs_num):
+            obs = observations[i]
+            flat_obs = obs.flatten()[:feat_dim - 1]
+            features[i, :flat_obs.size] = flat_obs
+        zero_state_indexes = np.where(np.logical_not(states))
+        features[zero_state_indexes, :] = 0
+        # features[zero_state_indexes, :] = 1 - features[zero_state_indexes, :]
+
+        # logger.debug('obs_num = %s', obs_num)
+        # logger.debug('obs_dim = %s', obs_dim)
+        # logger.debug('feat_dim = %s', feat_dim)
+        # logger.debug('states = %s', states)
+
+        C = obs_dim + 1
+        feat_sum = np.sum(features, axis=1)
+        last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
+        features = np.concatenate((features, last_feat), axis=1)
+        # logger.debug('features = \n%s', two_d_arr_to_str(features))
+        return features, C
+
 
 class BinMEMM(MEMM):
-    def _calc_features(self, obs_mat, state_mat, states=None):
-        if obs_mat.shape[0] != state_mat.shape[0]:
-            raise ValueError('number of observations and sates must be equal')
-        obs_num, obs_dim = obs_mat.shape
-        # features = np.logical_and(obs_mat, np.tile(np.reshape(state_mat, (obs_num, 1)), obs_dim))
-        features = np.logical_not(
-            np.logical_xor(obs_mat, np.tile(np.reshape(state_mat.astype(bool), (obs_num, 1)), obs_dim)))
-        # C = np.max(np.sum(obs_mat, axis=1)) + 1  # C is chosen so that is greater than sum of any row.
+    def _calc_features(self, observations, states):
+        if len(observations) != states.size:
+            raise ValueError('number of observations and states must be equal')
+        obs_num = len(observations)
+        obs_dim = observations[0].shape[1]
+        features = [np.any(obs, axis=0) for obs in observations]
+        features = np.array(features)
+        features = np.logical_and(features, np.tile(np.reshape(states, (obs_num, 1)), obs_dim))
+        # features = np.logical_not(
+        #     np.logical_xor(features, np.tile(np.reshape(states, (obs_num, 1)), obs_dim)))
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
@@ -258,89 +294,80 @@ class BinMEMM(MEMM):
 
 
 class TDMEMM(MEMM):
-    def _calc_features(self, obs_mat, state_mat, states=None):
-        if obs_mat.shape[0] != state_mat.shape[0]:
-            raise ValueError('number of observations and sates must be equal')
-        obs_num, obs_dim = obs_mat.shape
-        features = obs_mat.copy()
-        zero_state_indexes = np.where(state_mat == False)
+    def _calc_features(self, observations, states):
+        if len(observations) != states.size:
+            raise ValueError('number of observations and states must be equal')
+        obs_num = len(observations)
+        obs_dim = observations[0].shape[1]
+        features = []
+        for obs in observations:
+            mults = np.array([0.5 ** i for i in range(obs.shape[0])])
+            mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
+            features.append(np.sum(np.multiply(mults, obs), axis=0))
+        features = np.array(features)
+        zero_state_indexes = np.where(np.logical_not(states))
         features[zero_state_indexes, :] = 1 - features[zero_state_indexes, :]
+        # features[zero_state_indexes, :] = 0
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
         features = np.concatenate((features, last_feat), axis=1)
         return features, C
 
-    def multi_prob(self, observations):
-        obs_num = observations.shape[0]
-        f0, _ = self._calc_features(observations, np.array([[False]] * obs_num), [False, True])
-        f1, _ = self._calc_features(observations, np.array([[True]] * obs_num), [False, True])
-        dots0 = f0.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
-        dots1 = f1.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
-        prob = 1 / (np.exp(dots0 - dots1) + 1)
-        prob[(observations == 0).all(axis=1)] = 0
-        # logger.debugv('observations =\n%s', observations)
-        # logger.debugv('f0 =\n%s', f0)
-        # logger.debugv('f1 =\n%s', f1)
-        # logger.debugv('self.Lambda =\n%s', self.Lambda)
-        # logger.debugv('prob =\n%s', prob)
-        return prob
 
+class ParentTDMEMM(TDMEMM):
 
-class ParentTDMEMM(MEMM):
-
-    def _calc_features(self, obs_mat, state_mat, states=None):
-        if obs_mat.shape[0] != state_mat.shape[0]:
-            raise ValueError('number of observations and sates must be equal')
-        if states is None:
-            raise ValueError('states must be given for ParentTDMEMM')
-        # logger.debugv('obs_mat, state_mat =\n%s',
-        #               np.concatenate((obs_mat, state_mat.reshape(state_mat.shape[0], 1)), axis=1))
-        # logger.debugv('states =\n%s', states)
-        obs_num, obs_dim = obs_mat.shape
+    def _calc_features(self, observations, states):
+        if len(observations) != states.size:
+            raise ValueError('number of observations and states must be equal')
+        obs_num = len(observations)
+        obs_dim = observations[0].shape[1]
+        td_features, _ = super()._calc_features(observations, states != 0)
+        # logger.debug('states = %s', states)
         features = np.zeros((obs_num, 2 * obs_dim))
-        # logger.debugv('features of state 0 update :\n%s', features)
 
         state_to_index = {self.orig_indexes[i] + 1: i for i in range(obs_dim)}
-        # logger.debugv('state_to_index = %s', state_to_index)
+        # logger.debug('state_to_index = %s', state_to_index)
         for i in range(obs_num):
-            s = int(state_mat[i])
+            s = int(states[i])
             if s == 0:
-                features[i, :obs_dim] = 1 - obs_mat[i, :]
+                features[i, :obs_dim] = td_features[i, :-1]
             elif s in state_to_index:
                 ind = state_to_index[s]
-                features[i, obs_dim + ind] = obs_mat[i, ind]
+                features[i, obs_dim + ind] = td_features[i, ind]
 
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
         features = np.concatenate((features, last_feat), axis=1)
-        # logger.debugv('features =\n%s', features)
+        # logger.debug('features = \n%s', two_d_arr_to_str(features[i, :]))
         return features, C
 
 
-class LongParentTDMEMM(MEMM):
+class LongParentTDMEMM(TDMEMM):
 
-    def _calc_features(self, obs_mat, state_mat, states=None):
-        if states is None:
-            raise ValueError('states must be given for ParentTDMEMM')
+    def _calc_features(self, observations, states):
+        if len(observations) != states.size:
+            raise ValueError('number of observations and states must be equal')
+        obs_num = len(observations)
+        obs_dim = observations[0].shape[1]
+        td_features, _ = super()._calc_features(observations, states != 0)
         # logger.debugv('obs_mat, state_mat =\n%s',
         #               np.concatenate((obs_mat, state_mat.reshape(state_mat.shape[0], 1)), axis=1))
         # logger.debugv('states =\n%s', states)
-        obs_num, obs_dim = obs_mat.shape
         features = np.zeros((obs_num, (obs_dim + 1) * obs_dim))
         # logger.debugv('features of state 0 update :\n%s', features)
 
         state_to_index = {self.orig_indexes[i] + 1: i for i in range(obs_dim)}
         # logger.debugv('state_to_index = %s', state_to_index)
         for i in range(obs_num):
-            s = int(state_mat[i])
+            s = int(states[i])
             if s == 0:
-                features[i, :obs_dim] = 1 - obs_mat[i, :]
+                features[i, :obs_dim] = td_features[i, :-1]
             elif s in state_to_index:
                 ind = state_to_index[s]
                 start = (ind + 1) * obs_dim
-                features[i, start: start + obs_dim] = obs_mat[i, :]
+                features[i, start: start + obs_dim] = td_features[i, :-1]
 
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)

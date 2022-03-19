@@ -135,6 +135,7 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: Any, ini
 
             count += 1
 
+        logger.info('done')
         return results
 
     except:

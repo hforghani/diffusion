@@ -1,10 +1,9 @@
 import gridfs
 import pymongo
 from bson import ObjectId
-import numpy as np
 
 from db.exceptions import DataDoesNotExist
-from memm.memm import BinMEMM, TDMEMM, ParentTDMEMM, LongParentTDMEMM
+from memm.memm import *
 from diffusion.enum import Method
 from settings import logger, MONGO_URL
 
@@ -16,11 +15,14 @@ class DBManager:
 
 
 class EvidenceManager:
-    def __init__(self, project, method):
+    def __init__(self, project):
         self.project = project
-        self.method = method
         mongo_client = pymongo.MongoClient(MONGO_URL)
-        self.db = mongo_client[f'{project.db}_{method.value}_evid_{project.name}']
+        db_name = self.get_db_name(project)
+        self.db = mongo_client[db_name]
+
+    def get_db_name(self, project):
+        return f'{project.db}_evid_{project.name}'
 
     def get_one(self, user_id):
         if not isinstance(user_id, ObjectId):
@@ -109,16 +111,10 @@ class EvidenceManager:
                 logger.info('%d documents inserted', i)
 
     def _sequences_to_str(self, sequences):
-        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
-            return str([[(obs.astype(int).tolist(), state) for obs, state in seq] for seq in sequences])
-        else:
-            return str([[(obs.tolist(), state) for obs, state in seq] for seq in sequences])
+        return str([[(obs.astype(int).tolist(), state) for obs, state in seq] for seq in sequences])
 
     def _str_to_sequences(self, seq_str):
-        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
-            return [[(np.fromiter(obs, bool), state) for obs, state in seq] for seq in eval(seq_str)]
-        else:
-            return [[(np.fromiter(obs, np.float64), state) for obs, state in seq] for seq in eval(seq_str)]
+        return [[(np.array(obs, dtype=bool), state) for obs, state in seq] for seq in eval(seq_str)]
 
     def create_index(self):
         """
@@ -133,7 +129,15 @@ class EvidenceManager:
             collection.create_index('user_id')
 
 
+class ParentSensEvidManager(EvidenceManager):
+    def get_db_name(self, project):
+        return f'{project.db}_parent_evid_{project.name}'
+
+
 class EdgeEvidenceManager(EvidenceManager):
+    def get_db_name(self, project):
+        return f'{project.db}_edge_evid_{project.name}'
+
     def get_one(self, edge):
         fs = gridfs.GridFS(self.db)
         doc = fs.find_one({'src': edge[0], 'dst': edge[1]})
@@ -202,13 +206,13 @@ class EdgeEvidenceManager(EvidenceManager):
                 logger.info('%d documents inserted', i)
 
     def _sequences_to_str(self, sequences):
-        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
+        if self.method == Method.BIN_MEMM:
             return str([[(obs.astype(int).tolist(), state) for obs, state in seq] for seq in sequences])
         else:
             return str([[(obs.tolist(), state) for obs, state in seq] for seq in sequences])
 
     def _str_to_sequences(self, seq_str):
-        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
+        if self.method == Method.BIN_MEMM:
             return [[(np.fromiter(obs, bool), state) for obs, state in seq] for seq in eval(seq_str)]
         else:
             return [[(np.fromiter(obs, np.float64), state) for obs, state in seq] for seq in eval(seq_str)]
@@ -278,7 +282,9 @@ class MEMMManager:
     def _doc_to_memm(self, doc):
         data = doc.read()
         memm_data = eval(data)
-        if self.method in [Method.BIN_MEMM, Method.REDUCED_BIN_MEMM]:
+        if self.method == Method.LONG_MEMM:
+            memm = LongMEMM()
+        elif self.method == Method.BIN_MEMM:
             memm = BinMEMM()
         elif self.method == Method.PARENT_SENS_TD_MEMM:
             memm = ParentTDMEMM()

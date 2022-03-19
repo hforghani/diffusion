@@ -3,6 +3,9 @@ import os
 from multiprocessing import Pool
 from typing import Union, Any
 
+import typing
+
+from bson import ObjectId
 from matplotlib import pyplot
 from sklearn.metrics import f1_score
 
@@ -55,7 +58,7 @@ class ProjectTester(abc.ABC):
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
             return self.test(test_set, threshold, initial_depth, max_depth, model=self.model)
 
-    def _do_train(self, multi_processed, **kwargs):
+    def train(self, **kwargs):
         with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
             model_classes = {
                 Method.ASLT: AsLT,
@@ -63,14 +66,12 @@ class ProjectTester(abc.ABC):
                 Method.AVG: LTAvg,
                 Method.EMIC: EMIC,
                 Method.DAIC: DAIC,
+                Method.LONG_MEMM: LongMEMMModel,
                 Method.BIN_MEMM: BinMEMMModel,
                 Method.TD_MEMM: TDMEMMModel,
-                Method.REDUCED_TD_MEMM: ReducedTDMEMMModel,
-                Method.THR_REDUCED_TD_MEMM: ThrTDMEMMModel,
-                Method.REDUCED_BIN_MEMM: ReducedBinMEMMModel,
                 Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
                 Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
-                Method.REDUCED_FULL_TD_MEMM: ReducedFullTDMEMMModel,
+                Method.FULL_TD_MEMM: FullTDMEMMModel,
                 Method.TD_EDGE_MEMM: TDEdgeMEMMModel,
             }
             # Create and train the model if needed.
@@ -80,17 +81,13 @@ class ProjectTester(abc.ABC):
                 model = MLN(self.project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
             elif self.method in model_classes:
                 model_clazz = model_classes[self.method]
-                model = model_clazz(self.project).fit(multi_processed=multi_processed, eco=self.eco, **kwargs)
+                model = model_clazz(self.project).fit(multi_processed=self.multi_processed, eco=self.eco, **kwargs)
             else:
                 raise Exception('invalid method "%s"' % self.method.value)
             return model
 
-    @abc.abstractmethod
-    def train(self, **kwargs):
-        pass
-
     @time_measure(level='debug')
-    def __default_validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
+    def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
         """
         :param model: trained model, if None the model is trained in test method
         :param val_set: validation set. list of cascade id's
@@ -111,62 +108,6 @@ class ProjectTester(abc.ABC):
 
         self.__save_charts(best_thr, results, thresholds, initial_depth, max_depth)
         return best_thr
-
-    @time_measure(level='debug')
-    def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
-        if self.method == Method.THR_REDUCED_TD_MEMM:
-            return self.__validate_multi_thr(val_set, thresholds, model)
-        else:
-            return self.__default_validate(val_set, thresholds, initial_depth, max_depth, model)
-
-    def __validate_multi_thr(self, val_set, thresholds, model):
-        try:
-            best_thresholds = self.project.load_param('thresholds', ParamTypes.JSON)
-            best_thresholds = {ObjectId(node_id): thr for node_id, thr in best_thresholds.items()}
-            logger.info('thresholds loaded')
-        except FileNotFoundError:
-            evidences = ReducedTDMEMMModel(self.project).prepare_evidences(val_set,
-                                                                           multi_processed=self._evid_multiprocessed(),
-                                                                           eco=False)
-            graph = self.project.load_or_extract_graph()
-            best_thresholds = {}
-            i = 0
-            logger.info('selecting thresholds for %d nodes ...', graph.number_of_nodes())
-
-            for node_id in graph.nodes():
-                if node_id in evidences:
-                    sequences = evidences[node_id]['sequences']
-                    memm = model.get_memm(node_id)
-                    if memm:
-                        obs, states = self.__sequences_to_obs_states(sequences, memm)
-                        n_samples = obs.shape[0]
-                        if states.any():
-                            f1s = {}
-                            probs = memm.multi_prob(obs)
-                            # logger.debugv('obs = \n%s', obs)
-                            # logger.debugv('states = \n%s', np.squeeze(states))
-                            # logger.debugv('probs = \n%s', probs)
-                            for thr in thresholds:
-                                pred_states = probs >= thr
-                                f1 = f1_score(states, pred_states)
-                                f1s[thr] = f1
-                                # logger.debugv('thr = %f, f1 = %f, pred_states = %s', thr, f1, np.squeeze(pred_states))
-                            best_thr = max(f1s, key=lambda thr: f1s[thr])
-                            best_thresholds[node_id] = best_thr
-                            logger.debugv('best threshold for %s with %d obs : %f', node_id, n_samples, best_thr)
-                i += 1
-                if i % 100 == 0:
-                    logger.debug('threshold selected for %d nodes', i)
-
-            # Set the threshold of any node absent in the validation set equal to the mean thrshold.
-            mean_thr = float(np.mean(np.array(list(best_thresholds.values()))))
-            # logger.debugv('mean_thr = %s', mean_thr)
-            for node_id in graph.nodes():
-                best_thresholds.setdefault(node_id, mean_thr)
-
-            self.project.save_param({str(node_id): thr for node_id, thr in best_thresholds.items()}, 'thresholds',
-                                    ParamTypes.JSON)
-        return best_thresholds
 
     def test(self, test_set: list, thr: Any, initial_depth: int = 0, max_depth: int = None,
              model=None) -> typing.Union[Metric, dict, None]:
@@ -198,13 +139,17 @@ class ProjectTester(abc.ABC):
 
         results = self._do_test(test_set, thr, graph, trees, initial_depth, max_depth, model)
 
+        if len(results) == 1:  # It is on test stage. Set the results as the list of metrics.
+            results = next(iter(results.values()))
+
         if isinstance(results, list):  # It is in test stage
             self._log_cascades_results(test_set, results)
 
         if isinstance(results, list):  # It is in test stage
             mean_res = self._get_mean_results(results)
-        else:
+        else:  # It is on validation stage and results is a dict.
             mean_res = self._get_mean_results_dict(results)
+
         return mean_res
 
     @abc.abstractmethod
@@ -213,6 +158,10 @@ class ProjectTester(abc.ABC):
         pass
 
     def _get_mean_results_dict(self, results: dict) -> dict:
+        """
+        :param results: dictionary of thresholds to list of Metric instances
+        :return: dictionary of thresholds to Metric instances containing average of precision, recall, f1, and fpr
+        """
         mean_res = {}
         logs = [
             'averages:',
@@ -232,6 +181,10 @@ class ProjectTester(abc.ABC):
         return mean_res
 
     def _get_mean_results(self, results: list) -> Metric:
+        """
+        :param results: list of Metric instances
+        :return: Metric instance containing average of precision, recall, f1, and fpr
+        """
         logs = [
             'averages:',
             f'{"precision":<10}{"recall":<10}{"f1":<10}'
@@ -260,9 +213,12 @@ class ProjectTester(abc.ABC):
                 f'{"cascade id":<30}{"precision":<10}{"recall":<10}{"f1":<10}'
                 ]
         for i in range(len(test_set)):
-            logs.append(
-                format_cell(test_set[i]) + format_cell(results[i].precision()) + format_cell(
-                    results[i].recall()) + format_cell(results[i].f1()))
+            if results[i]:
+                cells = (test_set[i], results[i].precision(), results[i].recall(), results[i].f1())
+            else:
+                cells = (test_set[i], None, None, None)
+            row = ''.join(format_cell(cell) for cell in cells)
+            logs.append(row)
 
         logger.info('\n'.join(logs))
 
@@ -302,30 +258,17 @@ class ProjectTester(abc.ABC):
         pyplot.savefig(filename)
         # pyplot.show()
 
-    def __sequences_to_obs_states(self, sequences, memm):
-        observations = []
-        states = []
-        for seq in sequences:
-            for obs, state in seq:
-                observations.append(obs)
-                states.append(state)
-        observations = np.array(observations)[:, memm.orig_indexes]
-        states = np.array(states)
-        return observations, states
-
     @abc.abstractmethod
     def _get_validate_n_jobs(self):
         pass
 
+    @property
     @abc.abstractmethod
-    def _evid_multiprocessed(self):
+    def multi_processed(self):
         pass
 
 
 class DefaultTester(ProjectTester):
-    def train(self, **kwargs):
-        return self._do_train(multi_processed=False)
-
     def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
         return test_cascades(test_set, self.method, model, thresholds, initial_depth, max_depth, self.criterion, trees,
                              graph)
@@ -333,14 +276,12 @@ class DefaultTester(ProjectTester):
     def _get_validate_n_jobs(self):
         return None
 
-    def _evid_multiprocessed(self):
+    @property
+    def multi_processed(self):
         return False
 
 
 class MultiProcTester(ProjectTester):
-    def train(self, **kwargs):
-        return self._do_train(multi_processed=True)
-
     def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
         """
         Create a process pool to distribute the prediction.
@@ -375,5 +316,6 @@ class MultiProcTester(ProjectTester):
     def _get_validate_n_jobs(self):
         return settings.PROCESS_COUNT
 
-    def _evid_multiprocessed(self):
+    @property
+    def multi_processed(self):
         return True
