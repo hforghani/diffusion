@@ -66,7 +66,8 @@ class MEMM(abc.ABC):
         logger.debugv('features =\n%s', features)
 
         obs_num = len(all_obs)
-        features_for_all_states = [self._calc_features(all_obs, np.ones((obs_num, 1)) * s)[0] for s in states]
+        features_for_all_states = [self._calc_features(all_obs, np.ones(obs_num, dtype=type(states[0])) * s)[0] for s in
+                                   states]
         # logger.debugv('features_for_all_states =\n%s', pprint.pformat(features_for_all_states))
 
         # Calculate the training data average for each feature.
@@ -119,7 +120,7 @@ class MEMM(abc.ABC):
         if np.count_nonzero(obs) == 0:
             return 0
         observations = [obs] * len(all_states)
-        f, _ = self._calc_features(observations, np.array(all_states).reshape((len(all_states), 1)))
+        f, _ = self._calc_features(observations, np.array(all_states))
         dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         s_value = dots[all_states.index(state)]
         prob = float(1 / np.sum(np.array([np.exp(dots[i] - s_value) for i in range(len(all_states))])))
@@ -135,7 +136,7 @@ class MEMM(abc.ABC):
         """
         obs = obs[:, self.orig_indexes]
         observations = [obs] * len(all_states)
-        f, _ = self._calc_features(observations, np.array(all_states).reshape((len(all_states), 1)))
+        f, _ = self._calc_features(observations, np.array(all_states))
         dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         probs = np.zeros(len(all_states))
         for i in range(len(all_states)):
@@ -253,19 +254,24 @@ class LongMEMM(MEMM):
         obs_num = len(observations)
         obs_dim = observations[0].shape[1]
         feat_dim = self.feat_dim if self.feat_dim else max(obs.shape[0] for obs in observations) * obs_dim + 1
-        features = np.zeros((obs_num, feat_dim - 1), dtype=bool)
-        for i in range(obs_num):
-            obs = observations[i]
-            flat_obs = obs.flatten()[:feat_dim - 1]
-            features[i, :flat_obs.size] = flat_obs
-        zero_state_indexes = np.where(np.logical_not(states))
-        features[zero_state_indexes, :] = 0
-        # features[zero_state_indexes, :] = 1 - features[zero_state_indexes, :]
-
+        features = np.zeros((obs_num, feat_dim - 1))
         # logger.debug('obs_num = %s', obs_num)
         # logger.debug('obs_dim = %s', obs_dim)
         # logger.debug('feat_dim = %s', feat_dim)
-        # logger.debug('states = %s', states)
+        # logger.debug('states = %s', arr_to_str(states))
+
+        for ind in range(obs_num):
+            if states[ind]:
+                obs = observations[ind]
+                # TODO: Define time decay parameter and select it in validation.
+                mults = np.array([0.7 ** i for i in range(obs.shape[0])])
+                mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
+                flat_obs = np.multiply(mults, obs).flatten()[:feat_dim - 1]
+                # flat_obs = obs.flatten()[:feat_dim - 1]
+                features[ind, :flat_obs.size] = flat_obs
+                # logger.debug('obs = \n%s', obs_to_str(obs))
+                # logger.debug('mults = \n%s', two_d_arr_to_str(mults))
+                # logger.debug('flat_obs = %s', arr_to_str(flat_obs))
 
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
@@ -301,6 +307,7 @@ class TDMEMM(MEMM):
         obs_dim = observations[0].shape[1]
         features = []
         for obs in observations:
+            # TODO: Define time decay parameter and select it in validation.
             mults = np.array([0.5 ** i for i in range(obs.shape[0])])
             mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
             features.append(np.sum(np.multiply(mults, obs), axis=0))

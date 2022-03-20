@@ -97,15 +97,12 @@ class ProjectTester(abc.ABC):
         :return:
         """
         results = self.test(val_set, thresholds, initial_depth, max_depth, model)
-
         if results is None:
             return None
 
         best_thr = max(results, key=lambda thr: results[thr].f1())
         best_f1 = results[best_thr].f1()
-
         logger.info(f'F1 max = {best_f1} in threshold = {best_thr}')
-
         self.__save_charts(best_thr, results, thresholds, initial_depth, max_depth)
         return best_thr
 

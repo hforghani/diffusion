@@ -1,3 +1,4 @@
+import logging
 import math
 import random
 import traceback
@@ -20,6 +21,7 @@ from utils.time_utils import Timer, time_measure
 
 class MEMMModel(abc.ABC):
     method = None  # Define in the subclasses.
+    max_iterations = 500
 
     def __init__(self, project):
         self.project = project
@@ -29,7 +31,6 @@ class MEMMModel(abc.ABC):
         self._last_obs = None
         self._last_prob = None
         self._last_state = None
-        self.max_iterations = 500
 
     @time_measure(level='debug')
     def prepare_evidences(self, train_set, multi_processed=False, eco=False):
@@ -70,7 +71,6 @@ class MEMMModel(abc.ABC):
                 for j in range(0, len(train_set), step):
                     cascade_ids = train_set[j: j + step]
                     cur_trees = {cid: tree for cid, tree in trees.items() if cid in cascade_ids}
-                    logger.debug('type(self) = %s', type(self))
                     res = pool.apply_async(extract_evidences,
                                            args=(type(self), cascade_ids, graph, cur_trees),
                                            kwds=more_args)
@@ -156,51 +156,43 @@ class MEMMModel(abc.ABC):
 
     @classmethod
     def train_memms(cls, evidences, iterations, save_in_db=False, project=None):
-        try:
-            keys = list(evidences.keys())
-            random.shuffle(keys)
-            logger.debugv('training memms started')
-            memms = {}
-            count = 0
-            manager = cls._get_memm_manager(project) if save_in_db else None
-            graph = None
-            if issubclass(cls, ParentSensTDMEMMModel):
-                graph = project.load_or_extract_graph()
+        keys = list(evidences.keys())
+        random.shuffle(keys)
+        logger.debugv('training memms started')
+        memms = {}
+        count = 0
+        manager = cls._get_memm_manager(project) if save_in_db else None
+        graph = None
+        if issubclass(cls, ParentSensTDMEMMModel):
+            graph = project.load_or_extract_graph()
 
-            for key in keys:
-                count += 1
-                ev = evidences.pop(key)  # to free RAM
-                logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, key, ev['dimension'])
+        for key in keys:
+            count += 1
+            ev = evidences.pop(key)  # to free RAM
+            logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, key, ev['dimension'])
 
-                states = cls.get_states(key, graph)
-                memm = cls.get_memm_instance()
+            states = cls.get_states(key, graph)
+            memm = cls.get_memm_instance()
 
-                try:
-                    memm.fit(ev, states, iterations)
-                    memms[key] = memm
-                except MemmException:
-                    logger.warn('evidences for user %s ignored due to insufficient data', key)
-                except AttributeError:
-                    logger.debug('memm = %s', memm)
-                    logger.debug('cls = %s', cls)
-                    raise
-                if count % 100 == 0:
-                    logger.info('%d memms trained', count)
+            try:
+                memm.fit(ev, states, iterations)
+                memms[key] = memm
+            except MemmException:
+                logger.warn('evidences for user %s ignored due to insufficient data', key)
+            if count % 100 == 0:
+                logger.info('%d memms trained', count)
 
-                if save_in_db and count % 1000 == 0:
-                    logger.debug('inserting MEMMs into db ...')
-                    manager.insert(memms)
-                    memms = {}
-
-            logger.debugv('training memms finished')
-            if save_in_db and memms:
+            if save_in_db and count % 1000 == 0:
                 logger.debug('inserting MEMMs into db ...')
                 manager.insert(memms)
-            else:
-                return memms
-        except:
-            logger.error(traceback.format_exc())
-            raise
+                memms = {}
+
+        logger.debugv('training memms finished')
+        if save_in_db and memms:
+            logger.debug('inserting MEMMs into db ...')
+            manager.insert(memms)
+        else:
+            return memms
 
     def _fit_multiproc(self, evidences, iterations):
         """
@@ -242,6 +234,10 @@ class MEMMModel(abc.ABC):
 
     def _fit_by_evidences(self, train_set, multi_processed=False, eco=False, **kwargs):
         evidences = self.prepare_evidences(train_set, multi_processed, eco)
+
+        # if settings.LOG_LEVEL <= logging.DEBUG:
+        #     self.log_evidences(evidences)
+
         memms = {}
         logger.info('training MEMMs started')
 
@@ -280,13 +276,25 @@ class MEMMModel(abc.ABC):
         evidences otherwise.
         """
         logger.info('training %d MEMMs sequentially ...', len(single_process_ev))
-        single_proc_memms = self.train_memms(single_process_ev, max_iteration, save_in_db=True, project=self.project)
+        single_proc_memms = self.train_memms(single_process_ev, max_iteration, save_in_db=eco, project=self.project)
         del single_process_ev
         if not eco:
             memms.update(single_proc_memms)
 
         logger.info('training MEMMs finished')
         return memms
+
+    def log_evidences(self, evidences):
+        logs = ['evidences: ']
+        for uid, evid in evidences.items():
+            logs.append(f'uid: {uid}')
+            logs.append(f'dimension: {evid["dimension"]}')
+            logs.append(f'sequences:')
+            for i in range(len(evid['sequences'])):
+                logs.append(f'sequence {i}')
+                for obs, state in evid[f'sequences'][i]:
+                    logs.append(f'{obs_to_str(obs)} \t {state}\n')
+        logger.debug('\n'.join(logs))
 
     @time_measure(level='debug')
     def fit(self, multi_processed=False, eco=False, **kwargs):
@@ -653,13 +661,11 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
 
 
 class EdgeMEMMModel(MEMMModel, abc.ABC):
-    def __init__(self, project):
-        super(EdgeMEMMModel, self).__init__(project)
-        self.max_iterations = 1000
-
     """
     Edge-based MEMM Model
     """
+
+    max_iterations = 1000
 
     @classmethod
     def extract_evidences(cls, train_set, graph, trees, **kwargs):
@@ -945,6 +951,8 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
 
 class LongMEMMModel(NodeMEMMModel):
     method = Method.LONG_MEMM
+
+    # TODO: Try other max iteration numbers.
 
     @staticmethod
     def get_memm_instance():
