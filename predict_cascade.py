@@ -52,9 +52,9 @@ def handle(args):
     model = tester.train()
 
     if args.threshold:
-        tester.test([cascade_id], args.threshold, args.initial_depth, args.max_depth, model=model)
+        tester.test([cascade_id], model, args.threshold, args.initial_depth, args.max_depth)
     else:
-        thr = tester.validate([cascade_id], thresholds, args.initial_depth, args.max_depth, model=model)
+        best_thr, best_f1 = tester.validate([cascade_id], model, thresholds, args.initial_depth, args.max_depth)
 
 
 if __name__ == '__main__':

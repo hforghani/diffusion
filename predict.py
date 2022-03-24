@@ -2,6 +2,8 @@ import argparse
 # from profilehooks import timecall, profile
 from numbers import Number
 
+import numpy as np
+
 from cascade.metric import Metric
 from cascade.models import Project
 import settings
@@ -25,22 +27,15 @@ def get_def_thr(method):
         return 0, 1
 
 
-def run_predict(method_name: str, project_name: str, validation: bool, criterion: Criterion, min_threshold: Number,
-                max_threshold: Number, thresholds_count: int, initial_depth: int, max_depth: int, iterations: int,
-                multi_processed: bool, eco: bool) -> Metric:
+def run_predict(method_name: str, project_name: str, validation: bool, criterion: Criterion, initial_depth: int,
+                max_depth: int, iterations: int, multi_processed: bool, eco: bool, param: list) -> Metric:
     project = Project(project_name)
     method = Method(method_name)
+    logger.debug('param = %s', param)
+    param = extract_param(param, validation)
 
-    if validation:
-        default_thr = get_def_thr(method)
-        thr_min = min_threshold if min_threshold else default_thr[0]
-        thr_max = max_threshold if max_threshold else default_thr[1]
-        if thr_max < thr_min:
-            raise ValueError('the min threshold is greater than the max threshold')
-        step = (thr_max - thr_min) / (thresholds_count - 1)
-        thresholds = [step * i + thr_min for i in range(thresholds_count)]
-    else:
-        thresholds = [min_threshold]
+    threshold = param['threshold']
+    del param['threshold']
 
     # Log the test configuration.
     logger.info('{0} DB : {1} {0}'.format('=' * 20, project.db))
@@ -48,7 +43,7 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
     logger.info('{0} METHOD : {1} {0}'.format('=' * 20, method_name))
     logger.info('{0} INITIAL DEPTH : {1} {0}'.format('=' * 20, initial_depth))
     logger.info('{0} MAX DEPTH : {1} {0}'.format('=' * 20, max_depth))
-    logger.info('{0} TESTING ON THRESHOLD(S) : {1} {0}'.format('=' * 20, thresholds))
+    logger.info('{0} TESTING ON THRESHOLD(S) : {1} {0}'.format('=' * 20, threshold))
 
     if multi_processed:
         tester = MultiProcTester(project, method, criterion, eco)
@@ -56,18 +51,32 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
         tester = DefaultTester(project, method, criterion, eco)
 
     if validation:
-        return tester.run_validation_test(thresholds, initial_depth, max_depth, iterations=iterations)
+        return tester.run_validation_test(threshold, initial_depth, max_depth, **param)
     else:
-        if min_threshold is None:
-            raise ValueError('must specify the threshold via -t option when --validation option is not given')
-        return tester.run_test(min_threshold, initial_depth, max_depth, iterations=iterations)
+        return tester.run_test(threshold, initial_depth, max_depth, iterations=iterations, **param)
+
+
+def extract_param(param, validation):
+    new_param = {}
+    for items in param:
+        if validation:
+            if len(items) != 4:
+                raise ValueError('4 arguments must be given to option "param" in validation mode')
+            param_name, start, end, step = items
+            start, end, step = float(start), float(end), float(step)
+            new_param[param_name] = np.arange(start, end, step).tolist()
+            new_param[param_name].append(end)
+        else:
+            if len(items) != 2:
+                raise ValueError('2 arguments must be given to option "param" in test mode')
+            new_param[items[0]] = float(items[1])
+    return new_param
 
 
 @time_measure('info')
 def handle(args):
-    res = run_predict(args.method, args.project, args.validation, Criterion(args.criterion), args.min_threshold,
-                      args.max_threshold, args.thresholds_count, args.initial_depth, args.max_depth, args.iterations,
-                      args.multi_processed, args.eco)
+    res = run_predict(args.method, args.project, args.validation, Criterion(args.criterion), args.initial_depth,
+                      args.max_depth, args.iterations, args.multi_processed, args.eco, args.param)
 
     if res is not None:
         logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', res.precision(), res.recall(),
@@ -81,15 +90,8 @@ def main():
                         help="the method by which we want to test")
     parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
                         help="the criterion on which the evaluation is done")
-    parser.add_argument("-t", "--min_threshold", type=float,
-                        help="minimum threshold to apply on the method")
-    parser.add_argument("-T", "--max_threshold", type=float,
-                        help="maximum threshold to apply on the method")
     parser.add_argument("-v", "--validation", action='store_true', default=False,
                         help="learn the best threshold in validation stage")
-    parser.add_argument("-c", "--thresh-count", type=int, dest="thresholds_count", default=10,
-                        help="in the case the argument --validation is given, this argument specifies the number "
-                             "of thresholds to test between min and max thresholds in validation stage")
     parser.add_argument("-i", "--init-depth", type=int, dest="initial_depth", default=0,
                         help="the maximum depth of the initial nodes")
     parser.add_argument("-d", "--max-depth", type=int, dest="max_depth",
@@ -101,8 +103,16 @@ def main():
                              "is decreased and data is stored in DB and loaded everytime needed instead of storing in "
                              "RAM. Otherwise, no data is stored in DB.")
     parser.add_argument("--iterations", type=int, help="the maximum learning iterations")
+    parser.add_argument("--param", nargs="+", action='append',
+                        help="additional parameters given to the method. In the validation mode use in the format "
+                             "[--param <param_name> <from_value> <to_value> <step>] and in the test mode use in the "
+                             "format [--param <param_name> <value>]")
 
     args = parser.parse_args()
+
+    if all(item[0] != 'threshold' for item in args.param):
+        parser.error('parameter "threshold" must be given by param option')
+
     handle(args)
 
 

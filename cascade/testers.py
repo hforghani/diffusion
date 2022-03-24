@@ -1,3 +1,4 @@
+import itertools
 import numbers
 import os
 from multiprocessing import Pool
@@ -5,6 +6,7 @@ from typing import Union, Any
 
 import typing
 
+import numpy as np
 from bson import ObjectId
 from matplotlib import pyplot
 from sklearn.metrics import f1_score
@@ -32,21 +34,25 @@ class ProjectTester(abc.ABC):
         self.criterion = criterion
         self.eco = eco
 
-    def run_validation_test(self, thresholds: Union[list, numbers.Number], initial_depth: int, max_depth: int, **kwargs) \
-            -> Metric:
+    def run_validation_test(self, thresholds: list, initial_depth: int, max_depth: int, **kwargs) -> Metric:
         """ Run the training, validation, and test stages for the project """
-        if self.model is None:
-            self.model = self.train(**kwargs)
+        tunables = {key: kwargs[key] for key in kwargs if key != 'iterations' and isinstance(kwargs[key], list)}
+        nontunables = {key: kwargs[key] for key in kwargs if key not in tunables}
+        _, val_set, test_set = self.project.load_sets()
 
-        with Timer('validation & test'):
-            _, val_set, test_set = self.project.load_sets()
+        if self.model is None and tunables:
+            best_thr, self.model = self._tune_params(thresholds, initial_depth, max_depth, tunables, nontunables)
+        else:
+            if self.model is None:
+                self.model = self.train(**kwargs)
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
-            thr = self.validate(val_set, thresholds, initial_depth, max_depth, model=self.model)
-            if isinstance(thr, numbers.Number):
-                logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), thr)
-            else:
-                logger.info('{0} TEST {0}'.format('=' * 20))
-            return self.test(test_set, thr, initial_depth, max_depth, model=self.model)
+            best_thr, best_f1 = self.validate(val_set, self.model, thresholds, initial_depth, max_depth)
+
+        if isinstance(best_thr, numbers.Number):
+            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), best_thr)
+        else:
+            logger.info('{0} TEST {0}'.format('=' * 20))
+        return self.test(test_set, self.model, best_thr, initial_depth, max_depth)
 
     def run_test(self, threshold: numbers.Number, initial_depth: int, max_depth: int, **kwargs) -> Metric:
         """ Run the training, and test stages for the project """
@@ -56,7 +62,7 @@ class ProjectTester(abc.ABC):
         with Timer('test'):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
-            return self.test(test_set, threshold, initial_depth, max_depth, model=self.model)
+            return self.test(test_set, self.model, threshold, initial_depth, max_depth)
 
     def train(self, **kwargs):
         with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
@@ -86,8 +92,8 @@ class ProjectTester(abc.ABC):
                 raise Exception('invalid method "%s"' % self.method.value)
             return model
 
-    @time_measure(level='debug')
-    def validate(self, val_set, thresholds, initial_depth=0, max_depth=None, model=None):
+    @time_measure(level='info')
+    def validate(self, val_set, model, thresholds, initial_depth=0, max_depth=None):
         """
         :param model: trained model, if None the model is trained in test method
         :param val_set: validation set. list of cascade id's
@@ -96,7 +102,7 @@ class ProjectTester(abc.ABC):
         :param max_depth: maximum depth of tree to which we want to predict
         :return:
         """
-        results = self.test(val_set, thresholds, initial_depth, max_depth, model)
+        results = self.test(val_set, model, thresholds, initial_depth, max_depth)
         if results is None:
             return None
 
@@ -104,10 +110,11 @@ class ProjectTester(abc.ABC):
         best_f1 = results[best_thr].f1()
         logger.info(f'F1 max = {best_f1} in threshold = {best_thr}')
         self.__save_charts(best_thr, results, thresholds, initial_depth, max_depth)
-        return best_thr
+        return best_thr, best_f1
 
-    def test(self, test_set: list, thr: Any, initial_depth: int = 0, max_depth: int = None,
-             model=None) -> typing.Union[Metric, dict, None]:
+    @time_measure('debug')
+    def test(self, test_set: list, model: Any, thr: Any, initial_depth: int = 0, max_depth: int = None) \
+            -> typing.Union[Metric, dict, None]:
         """
         Test on test set by the threshold(s) given.
         :param test_set: list of cascade ids to test
@@ -134,7 +141,7 @@ class ProjectTester(abc.ABC):
         if isinstance(thr, numbers.Number):  # It is on test stage.
             thr = [thr]
 
-        results = self._do_test(test_set, thr, graph, trees, initial_depth, max_depth, model)
+        results = self._do_test(test_set, model, thr, graph, trees, initial_depth, max_depth)
 
         if len(results) == 1:  # It is on test stage. Set the results as the list of metrics.
             results = next(iter(results.values()))
@@ -149,9 +156,28 @@ class ProjectTester(abc.ABC):
 
         return mean_res
 
+    def _tune_params(self, thresholds, initial_depth, max_depth, tunables, nontunables):
+        tunable_params = list(tunables.keys())
+        combinations = itertools.product(*[tunables[param] for param in tunable_params])
+        best_thr, best_params, best_f1, best_model = None, None, -1, None
+
+        for comb in combinations:
+            params = dict(zip(tunable_params, comb))
+            params.update(nontunables)
+            logger.info('{0} TRAINING with params {1} {0}'.format('=' * 20, params))
+            model = self.train(**params)
+            _, val_set, test_set = self.project.load_sets()
+            logger.info('{0} VALIDATION {0}'.format('=' * 20))
+            thr, f1 = self.validate(val_set, model, thresholds, initial_depth, max_depth)
+            if f1 > best_f1:
+                best_thr, best_params, best_f1, best_model = thr, params, f1, model
+
+        logger.info('best parameters: %s', best_params)
+        return best_thr, best_model
+
     @abc.abstractmethod
-    def _do_test(self, test_set: list, thresholds: Any, graph: DiGraph, trees: dict, initial_depth: int = 0,
-                 max_depth: int = None, model=None, ) -> typing.Union[dict, list]:
+    def _do_test(self, test_set: list, model, thresholds, graph: DiGraph, trees: dict, initial_depth: int = 0,
+                 max_depth: int = None) -> typing.Union[dict, list]:
         pass
 
     def _get_mean_results_dict(self, results: dict) -> dict:
@@ -266,7 +292,7 @@ class ProjectTester(abc.ABC):
 
 
 class DefaultTester(ProjectTester):
-    def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
+    def _do_test(self, test_set, model, thresholds, graph, trees, initial_depth=0, max_depth=None):
         return test_cascades(test_set, self.method, model, thresholds, initial_depth, max_depth, self.criterion, trees,
                              graph)
 
@@ -279,7 +305,7 @@ class DefaultTester(ProjectTester):
 
 
 class MultiProcTester(ProjectTester):
-    def _do_test(self, test_set, thresholds, graph, trees, initial_depth=0, max_depth=None, model=None):
+    def _do_test(self, test_set, model, thresholds, graph, trees, initial_depth=0, max_depth=None):
         """
         Create a process pool to distribute the prediction.
         """
@@ -290,7 +316,7 @@ class MultiProcTester(ProjectTester):
         for j in range(0, len(test_set), step):
             cascade_ids = test_set[j: j + step]
             res = pool.apply_async(test_cascades,
-                                   (cascade_ids, self.method, self.model, thresholds, initial_depth, max_depth,
+                                   (cascade_ids, self.method, model, thresholds, initial_depth, max_depth,
                                     self.criterion, trees, graph))
             results.append(res)
 

@@ -1,5 +1,6 @@
 import abc
 import pprint
+import typing
 from abc import ABC
 from functools import reduce
 import numpy as np
@@ -115,12 +116,10 @@ class MEMM(abc.ABC):
         # if timers is None:
         #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
 
-        # with timers[0]:
         obs = obs[:, self.orig_indexes]
         if np.count_nonzero(obs) == 0:
             return 0
-        observations = [obs] * len(all_states)
-        f, _ = self._calc_features(observations, np.array(all_states))
+        f, _ = self._calc_features(obs, np.array(all_states))
         dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         s_value = dots[all_states.index(state)]
         prob = float(1 / np.sum(np.array([np.exp(dots[i] - s_value) for i in range(len(all_states))])))
@@ -160,8 +159,17 @@ class MEMM(abc.ABC):
         states = np.array(states)
         return observations, states
 
+    def _calc_features(self, obs: typing.Union[list, np.ndarray], states: np.ndarray) -> np.ndarray:
+        if isinstance(obs, list):
+            return self._calc_multi_obs_features(obs, states)
+        else:
+            return self._calc_obs_features(obs, states)
+
+    def _calc_obs_features(self, obs: np.ndarray, states: np.ndarray) -> np.ndarray:
+        return self._calc_multi_obs_features([obs] * len(states), states)
+
     @abc.abstractmethod
-    def _calc_features(self, observations: list, states: np.ndarray) -> np.ndarray:
+    def _calc_multi_obs_features(self, observations: list, states: np.ndarray) -> np.ndarray:
         pass
 
     def __build_tpm(self, features: list, Lambda: np.ndarray):
@@ -248,30 +256,46 @@ class MEMM(abc.ABC):
 
 
 class LongMEMM(MEMM):
-    def _calc_features(self, observations, states):
+    def __init__(self, td_param=0.7):
+        super().__init__()
+        self.td_param = td_param
+
+    def _calc_obs_features(self, obs, states):
+        obs_dim = obs.shape[1]
+        feat_dim = self.feat_dim if self.feat_dim else obs.shape[0] * obs_dim + 1
+        if np.any(states):
+            features = np.zeros((states.size, feat_dim - 1))
+            mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
+            mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
+            flat_obs = np.multiply(mults, obs).flatten()[:feat_dim - 1]
+            nonzero_indexes = np.nonzero(states)[0]
+            features[nonzero_indexes, :flat_obs.size] = np.tile(flat_obs, (nonzero_indexes.size, 1))
+        else:
+            features = np.zeros((states.size, feat_dim - 1))
+
+        C = obs_dim + 1
+        feat_sum = np.sum(features, axis=1)
+        last_feat = np.ones((states.size, 1)) * C - np.reshape(feat_sum, (states.size, 1))
+        features = np.concatenate((features, last_feat), axis=1)
+        # logger.debug('features = \n%s', two_d_arr_to_str(features))
+        return features, C
+
+    def _calc_multi_obs_features(self, observations, states):
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
         obs_dim = observations[0].shape[1]
         feat_dim = self.feat_dim if self.feat_dim else max(obs.shape[0] for obs in observations) * obs_dim + 1
         features = np.zeros((obs_num, feat_dim - 1))
-        # logger.debug('obs_num = %s', obs_num)
-        # logger.debug('obs_dim = %s', obs_dim)
-        # logger.debug('feat_dim = %s', feat_dim)
-        # logger.debug('states = %s', arr_to_str(states))
 
         for ind in range(obs_num):
             if states[ind]:
                 obs = observations[ind]
-                # TODO: Define time decay parameter and select it in validation.
-                mults = np.array([0.7 ** i for i in range(obs.shape[0])])
+                mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
                 mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
                 flat_obs = np.multiply(mults, obs).flatten()[:feat_dim - 1]
                 # flat_obs = obs.flatten()[:feat_dim - 1]
                 features[ind, :flat_obs.size] = flat_obs
-                # logger.debug('obs = \n%s', obs_to_str(obs))
-                # logger.debug('mults = \n%s', two_d_arr_to_str(mults))
-                # logger.debug('flat_obs = %s', arr_to_str(flat_obs))
 
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
@@ -282,7 +306,7 @@ class LongMEMM(MEMM):
 
 
 class BinMEMM(MEMM):
-    def _calc_features(self, observations, states):
+    def _calc_multi_obs_features(self, observations, states):
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
@@ -300,15 +324,18 @@ class BinMEMM(MEMM):
 
 
 class TDMEMM(MEMM):
-    def _calc_features(self, observations, states):
+    def __init__(self, td_param=0.7):
+        super().__init__()
+        self.td_param = td_param
+
+    def _calc_multi_obs_features(self, observations, states):
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
         obs_dim = observations[0].shape[1]
         features = []
         for obs in observations:
-            # TODO: Define time decay parameter and select it in validation.
-            mults = np.array([0.5 ** i for i in range(obs.shape[0])])
+            mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
             mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
             features.append(np.sum(np.multiply(mults, obs), axis=0))
         features = np.array(features)
@@ -323,8 +350,11 @@ class TDMEMM(MEMM):
 
 
 class ParentTDMEMM(TDMEMM):
+    def __init__(self, td_param=0.7):
+        super().__init__()
+        self.td_param = td_param
 
-    def _calc_features(self, observations, states):
+    def _calc_multi_obs_features(self, observations, states):
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
@@ -352,8 +382,11 @@ class ParentTDMEMM(TDMEMM):
 
 
 class LongParentTDMEMM(TDMEMM):
+    def __init__(self, td_param=0.7):
+        super().__init__()
+        self.td_param = td_param
 
-    def _calc_features(self, observations, states):
+    def _calc_multi_obs_features(self, observations, states):
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
