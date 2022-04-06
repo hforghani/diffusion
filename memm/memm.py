@@ -147,6 +147,8 @@ class MEMM(abc.ABC):
         probs = np.zeros((len(observations), len(all_states)))
         for i in range(len(observations)):
             probs[i, :] = np.array(self.get_probs(observations[i], all_states))
+        # logger.debug('observations = \n%s', observations)
+        # logger.debug('probs = \n%s', probs)
         return probs
 
     def get_all_obs(self, sequences):

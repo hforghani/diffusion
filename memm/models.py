@@ -6,6 +6,7 @@ import traceback
 from multiprocessing.pool import Pool
 
 import psutil
+from bson import ObjectId
 from networkx import DiGraph
 from pympler.asizeof import asizeof
 
@@ -164,7 +165,9 @@ class MEMMModel(abc.ABC):
             logger.debug('training MEMM %d (user id: %s, dimensions: %d) ...', count, key, ev['dimension'])
 
             states = cls.get_states(key, graph)
+            logger.debug('td_param = %s', td_param)
             memm = cls.get_memm_instance(td_param)
+            logger.debug('type(memm) = %s', type(memm))
 
             try:
                 memm.fit(ev, states, iterations)
@@ -292,13 +295,13 @@ class MEMMModel(abc.ABC):
         """
         train_set, _, _ = self.project.load_sets()
         manager = self._get_memm_manager(self.project)
-        if td_param:
-            logger.info('TD parameter = %f', td_param)
 
         # If it is in economical mode, train the MEMMs only if they are not saved in DB.
         if not eco or not manager.db_exists():
             if eco and not manager.db_exists():
                 logger.info('MEMMs do not exist in db.')
+            if td_param:
+                logger.info('TD parameter = %f', td_param)
             self._memms = self._fit_by_evidences(train_set, iterations, td_param, multi_processed, eco)
 
         if eco:
@@ -505,7 +508,7 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
                 memm = self.get_memm(child_id)
 
                 if memm is not None:
-                    # logger.debugv('testing reshare to %s ...', child_id)
+                    logger.debugv('testing reshare to %s ...', child_id)
                     parents = list(graph.predecessors(child_id))
                     parents_map = {parents[i]: i for i in range(len(parents))}
 
@@ -517,12 +520,15 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
                         if obs is not None:
                             observations[child_id] = obs
                             logger.debugv('obs = \n%s', obs_to_str(obs))
-                            logger.debugv('threshold %f ...', thr)
-                            node_id = self._predict_by_obs(obs, thr, memm, tree, parents)
-                            if node_id:
-                                tree.add_node(child_id, parent_id=node_id)
-                                active_ids.add(child_id)
-                                next_step.add(child_id)
+                            prob = memm.get_prob(obs, self.active_state(), self.get_states())
+                            logger.debugv('prob = %f', prob)
+                            if prob >= thr:
+                                node_id = self._get_predicted_node_id(obs, memm, tree, parents)
+                                if node_id:
+                                    logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
+                                    tree.add_node(child_id, parent_id=node_id)
+                                    active_ids.add(child_id)
+                                    next_step.add(child_id)
                     else:
                         logger.debugv('user %s is already activated', child_id)
 
@@ -685,7 +691,6 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
         observations = {}
         cur_step = initial_tree.roots
         max_depth_node_ids = set(node.user_id for node in max_depth_nodes)
-        all_nodes = list(graph.nodes())
         # logger.debugv('max_depth_node_ids = %s', pprint.pformat(max_depth_node_ids))
         # logger.debugv('extracting initial observations ...')
 

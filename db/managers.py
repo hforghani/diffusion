@@ -275,8 +275,10 @@ class MEMMManager:
     def _get_doc(self, memm):
         doc = {
             'orig_indexes': memm.orig_indexes,
-            'lambda': memm.Lambda.tolist()
+            'lambda': memm.Lambda.tolist(),
         }
+        if hasattr(memm, 'td_param'):
+            doc['td_param'] = memm.td_param
         return doc
 
     def _doc_to_memm(self, doc):
@@ -295,6 +297,8 @@ class MEMMManager:
         orig_indexes = memm_data['orig_indexes']
         Lambda = np.fromiter(memm_data['lambda'], np.float64)
         memm.set_params(Lambda, orig_indexes)
+        if 'td_param' in memm_data:
+            memm.td_param = memm_data['td_param']
         return memm
 
 

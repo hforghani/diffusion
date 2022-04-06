@@ -59,17 +59,20 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
 def extract_param(param, validation):
     new_param = {}
     for items in param:
-        if validation:
-            if len(items) != 4:
-                raise ValueError('4 arguments must be given to option "param" in validation mode')
+        if len(items) == 4:
             param_name, start, end, step = items
             start, end, step = float(start), float(end), float(step)
             new_param[param_name] = np.arange(start, end, step).tolist()
             new_param[param_name].append(end)
-        else:
-            if len(items) != 2:
-                raise ValueError('2 arguments must be given to option "param" in test mode')
+        elif len(items) == 2:
             new_param[items[0]] = float(items[1])
+        else:
+            raise ValueError('invalid format for params option')
+    if not validation and any(isinstance(value, list) for value in new_param.values()):
+        raise ValueError('2 arguments must be given to option "param" in test mode')
+    if validation and all(isinstance(value, float) for value in new_param.values()):
+        raise ValueError('At least one --param option with 4 arguments must be given in validation mode')
+
     return new_param
 
 
