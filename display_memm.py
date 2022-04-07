@@ -16,8 +16,9 @@ def print_info(key, evidences, memm, graph, method):
     dim_users = get_dim_users(key, graph, method)
 
     print_lambda(memm)
-    # print('\nActivation probability of observations:')
-    # all_obs, _ = memm.get_all_obs(new_sequences)
+    print('\nOriginal indexes:')
+    pprint.pprint(memm.orig_indexes)
+    print()
     print_probs(evidences['sequences'], memm, dim_users)
     print('\nEvidences:')
     pprint.pprint(str_sequences)

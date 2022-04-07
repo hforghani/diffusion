@@ -342,8 +342,8 @@ class TDMEMM(MEMM):
             features.append(np.sum(np.multiply(mults, obs), axis=0))
         features = np.array(features)
         zero_state_indexes = np.where(np.logical_not(states))
-        features[zero_state_indexes, :] = 1 - features[zero_state_indexes, :]
-        # features[zero_state_indexes, :] = 0
+        # features[zero_state_indexes, :] = 1 - features[zero_state_indexes, :]
+        features[zero_state_indexes, :] = 0
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
