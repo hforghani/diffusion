@@ -258,7 +258,7 @@ class MEMM(abc.ABC):
 
 
 class LongMEMM(MEMM):
-    def __init__(self, td_param=0.7):
+    def __init__(self, td_param=0.65):
         super().__init__()
         self.td_param = td_param
 
@@ -326,7 +326,7 @@ class BinMEMM(MEMM):
 
 
 class TDMEMM(MEMM):
-    def __init__(self, td_param=0.7):
+    def __init__(self, td_param=0.5):
         super().__init__()
         self.td_param = td_param
 
@@ -352,7 +352,7 @@ class TDMEMM(MEMM):
 
 
 class ParentTDMEMM(TDMEMM):
-    def __init__(self, td_param=0.7):
+    def __init__(self, td_param=0.5):
         super().__init__()
         self.td_param = td_param
 
@@ -384,7 +384,7 @@ class ParentTDMEMM(TDMEMM):
 
 
 class LongParentTDMEMM(TDMEMM):
-    def __init__(self, td_param=0.7):
+    def __init__(self, td_param=0.5):
         super().__init__()
         self.td_param = td_param
 

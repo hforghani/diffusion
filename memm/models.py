@@ -1028,7 +1028,7 @@ class LongMEMMModel(NodeMEMMModel):
 
     @staticmethod
     def get_memm_instance(td_param=None):
-        return LongMEMM(td_param)
+        return LongMEMM(td_param) if td_param is not None else LongMEMM()
 
     def _get_predicted_node_id(self, obs, memm, tree, obs_node_ids):
         # Set the parent with the maximum value of Lambda which is also activated at the current step as the
@@ -1065,7 +1065,7 @@ class TDMEMMModel(NodeMEMMModel):
 
     @staticmethod
     def get_memm_instance(td_param=None):
-        return TDMEMM(td_param)
+        return TDMEMM(td_param) if td_param is not None else TDMEMM()
 
 
 class ParentSensTDMEMMModel(TDMEMMModel):
@@ -1090,7 +1090,7 @@ class ParentSensTDMEMMModel(TDMEMMModel):
 
     @staticmethod
     def get_memm_instance(td_param=None):
-        return ParentTDMEMM(td_param)
+        return ParentTDMEMM(td_param) if td_param is not None else ParentTDMEMM()
 
     def _get_evid_manager(self):
         return ParentSensEvidManager(self.project)
@@ -1129,7 +1129,7 @@ class LongParentSensTDMEMMModel(ParentSensTDMEMMModel):
 
     @staticmethod
     def get_memm_instance(td_param=None):
-        return LongParentTDMEMM(td_param)
+        return LongParentTDMEMM(td_param) if td_param is not None else LongParentTDMEMM()
 
 
 class FullTDMEMMModel(TDMEMMModel):
@@ -1141,7 +1141,7 @@ class TDEdgeMEMMModel(EdgeMEMMModel):
 
     @staticmethod
     def get_memm_instance(td_param=None):
-        return TDMEMM(td_param)
+        return TDMEMM(td_param) if td_param is not None else TDMEMM()
 
 
 def extract_evidences(cls, train_set, graph, trees, **kwargs):
