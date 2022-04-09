@@ -82,7 +82,7 @@ def handle():
     project = Project(args.project)
     if args.user_id:
         manager = MEMMManager(project, method)
-        if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM]:
+        if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM, Method.MULTI_STATE_TD_MEMM]:
             evid_manager = ParentSensEvidManager(project)
         else:
             evid_manager = EvidenceManager(project)

@@ -245,7 +245,7 @@ def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, c_set1
     try:
         r_values = []
 
-        logger.info('\tcalculating values ...')
+        logger.debug('\tcalculating values ...')
         i = 0
         t0 = time.time()
 
@@ -315,7 +315,7 @@ class AsLT(LT):
         graph, sequences = self.project.load_or_extract_graph_seq()
 
         # Create maps from users and cascades db id's to their matrix id's.
-        logger.info('creating user and cascade id maps ...')
+        logger.debug('creating user and cascade id maps ...')
         user_ids = sorted(graph.nodes())
         user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
         cascade_map = {str(train_set[i]): i for i in range(len(train_set))}
@@ -351,9 +351,9 @@ class AsLT(LT):
                 del g
                 if eco:
                     phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)
-                    logger.info('phi_h loaded')
+                    logger.debug('phi_h loaded')
 
-                logger.info('estimating r ...')
+                logger.debug('estimating r ...')
                 last_r = r
                 r_multi_processed = multi_processed and len(user_ids) < 2 * 10 ** 7
                 r = self.__calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, cascade_map, user_map,
@@ -361,9 +361,9 @@ class AsLT(LT):
 
                 if eco:
                     phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
-                    logger.info('phi_g loaded')
+                    logger.debug('phi_g loaded')
 
-                logger.info('estimating w ...')
+                logger.debug('estimating w ...')
                 last_w = w
                 w = self.__calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, cascade_map)
 
@@ -404,12 +404,12 @@ class AsLT(LT):
         if eco:
             try:
                 psi = self.project.load_param('psi', ParamTypes.SPARSE_LIST)
-                logger.info('psi loaded')
+                logger.debug('psi loaded')
                 data_loaded = True
             except FileNotFoundError:
                 pass
         if not data_loaded:
-            logger.info('calculating psi ...')
+            logger.debug('calculating psi ...')
             psi = self.__calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
@@ -424,7 +424,7 @@ class AsLT(LT):
             except FileNotFoundError:
                 pass
         if not data_loaded:
-            logger.info('calculating phi_g ...')
+            logger.debug('calculating phi_g ...')
             phi_g = self.__calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
@@ -439,7 +439,7 @@ class AsLT(LT):
             except FileNotFoundError:
                 pass
         if not data_loaded:
-            logger.info('calculating phi_h ...')
+            logger.debug('calculating phi_h ...')
             phi_h = self.__calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
@@ -450,12 +450,12 @@ class AsLT(LT):
         if eco:
             try:
                 g = self.project.load_param('g', ParamTypes.SPARSE)
-                logger.info('g loaded')
+                logger.debug('g loaded')
                 data_loaded = True
             except FileNotFoundError:
                 pass
         if not data_loaded:
-            logger.info('calculating g ...')
+            logger.debug('calculating g ...')
             g = self.__calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(g, 'g', ParamTypes.SPARSE)
@@ -466,12 +466,12 @@ class AsLT(LT):
         if eco:
             try:
                 h = self.project.load_param('h', ParamTypes.SPARSE)
-                logger.info('h loaded')
+                logger.debug('h loaded')
                 data_loaded = True
             except FileNotFoundError:
                 pass
         if not data_loaded:
-            logger.info('calculating h ...')
+            logger.debug('calculating h ...')
             h = self.__calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
             if eco:
                 self.project.save_param(h, 'h', ParamTypes.SPARSE)
@@ -483,12 +483,12 @@ class AsLT(LT):
             try:
                 w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
                 r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
-                logger.info('w and r loaded')
+                logger.debug('w and r loaded')
                 data_loaded = True
             except FileNotFoundError:
                 pass
         if not data_loaded:
-            logger.info('initializing parameters ...')
+            logger.debug('initializing parameters ...')
             w, r = self.__set_initial_values(graph, user_ids, user_map)
             if eco:
                 self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
@@ -518,13 +518,13 @@ class AsLT(LT):
                 cols.append(v_i)
             i += 1
             if i % (u_count // 10) == 0:
-                logger.info('%d%% done' % (i * 100 // u_count))
+                logger.debug('%d%% done' % (i * 100 // u_count))
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
         r = np.ones(u_count, np.float32) / 30  # approximately 1 day
         return w, r
 
-    @time_measure()
+    @time_measure('debug')
     def __calc_h_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map, multi_processed):
         u_count = len(user_map)
         c_count = len(cascade_ids)
@@ -561,7 +561,7 @@ class AsLT(LT):
         logger.debug('number of zero h: %d', np.count_nonzero(h.data == 0))
         return h
 
-    @time_measure()
+    @time_measure('debug')
     def __calc_g_mp(self, data, graph, w, r, cascade_ids, cascade_map, user_map, multi_processed):
         u_count = len(user_map)
         c_count = len(cascade_ids)
@@ -596,7 +596,7 @@ class AsLT(LT):
         g = sparse.csc_matrix((values, [rows, cols]), shape=(c_count, u_count), dtype=np.float32)
         return g
 
-    @time_measure()
+    @time_measure('debug')
     def __calc_phi_h_mp(self, data, graph, w, r, h, cascade_ids, cascade_map, user_map, multi_processed):
         c_count = len(cascade_ids)
 
@@ -628,7 +628,7 @@ class AsLT(LT):
             phi_h[cindex] = mat
         return phi_h
 
-    @time_measure()
+    @time_measure('debug')
     def __calc_phi_g_mp(self, data, graph, w, g, cascade_ids, cascade_map, user_map, multi_processed):
         c_count = len(cascade_ids)
 
@@ -661,7 +661,7 @@ class AsLT(LT):
 
         return phi_g
 
-    @time_measure()
+    @time_measure('debug')
     def __calc_psi_mp(self, data, graph, w, r, g, cascade_ids, cascade_map, user_map, multi_processed):
         c_count = len(cascade_ids)
 
@@ -694,7 +694,7 @@ class AsLT(LT):
 
         return psi
 
-    @time_measure()
+    @time_measure('debug')
     def __calc_r_mp(self, data, graph, phi_h, psi, user_ids, cascade_ids, cascade_map, user_map, multi_processed):
         u_count = len(user_ids)
         c_count = len(cascade_ids)
@@ -748,7 +748,7 @@ class AsLT(LT):
 
         return r
 
-    @time_measure()
+    @time_measure('debug')
     def __calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, cascade_ids, cascade_map):
         u_count = len(user_ids)
 
@@ -769,7 +769,7 @@ class AsLT(LT):
                 for u in cascade.get_active_parents(v, graph):
                     muv_set3[(u, v)].append(m)
 
-        logger.info('\tcalculating values ...')
+        logger.debug('\tcalculating values ...')
         values = []
         rows = []
         cols = []
@@ -817,7 +817,7 @@ class AsLT(LT):
 
         w = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype='d')
 
-        logger.info('\tnormalizing w ...')
+        logger.debug('\tnormalizing w ...')
         w = normalize(w, axis=0, copy=False)
         w = sparse.csc_matrix((w.data, w.indices, w.indptr), shape=w.shape, dtype=np.float32)
 

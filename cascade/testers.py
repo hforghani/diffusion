@@ -75,9 +75,11 @@ class ProjectTester(abc.ABC):
                 Method.LONG_MEMM: LongMEMMModel,
                 Method.BIN_MEMM: BinMEMMModel,
                 Method.TD_MEMM: TDMEMMModel,
+                Method.MULTI_STATE_LONG_MEMM: MultiStateLongMEMMModel,
+                Method.MULTI_STATE_BIN_MEMM: MultiStateBinMEMMModel,
+                Method.MULTI_STATE_TD_MEMM: MultiStateTDMEMMModel,
                 Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
                 Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
-                Method.FULL_TD_MEMM: FullTDMEMMModel,
                 Method.TD_EDGE_MEMM: TDEdgeMEMMModel,
             }
             # Create and train the model if needed.

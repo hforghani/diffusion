@@ -28,7 +28,7 @@ def get_def_thr(method):
 
 
 def run_predict(method_name: str, project_name: str, validation: bool, criterion: Criterion, initial_depth: int,
-                max_depth: int, iterations: int, multi_processed: bool, eco: bool, param: list) -> Metric:
+                max_depth: int, multi_processed: bool, eco: bool, param: list) -> Metric:
     project = Project(project_name)
     method = Method(method_name)
     logger.debug('param = %s', param)
@@ -53,7 +53,7 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
     if validation:
         return tester.run_validation_test(threshold, initial_depth, max_depth, **param)
     else:
-        return tester.run_test(threshold, initial_depth, max_depth, iterations=iterations, **param)
+        return tester.run_test(threshold, initial_depth, max_depth, **param)
 
 
 def extract_param(param, validation):
@@ -79,7 +79,7 @@ def extract_param(param, validation):
 @time_measure('info')
 def handle(args):
     res = run_predict(args.method, args.project, args.validation, Criterion(args.criterion), args.initial_depth,
-                      args.max_depth, args.iterations, args.multi_processed, args.eco, args.param)
+                      args.max_depth, args.multi_processed, args.eco, args.param)
 
     if res is not None:
         logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', res.precision(), res.recall(),
@@ -105,7 +105,6 @@ def main():
                         help="If this option is given, the prediction is done in economical mode e.t. Memory consumption "
                              "is decreased and data is stored in DB and loaded everytime needed instead of storing in "
                              "RAM. Otherwise, no data is stored in DB.")
-    parser.add_argument("--iterations", type=int, help="the maximum learning iterations")
     parser.add_argument("--param", nargs="+", action='append',
                         help="additional parameters given to the method. In the validation mode use in the format "
                              "[--param <param_name> <from_value> <to_value> <step>] and in the test mode use in the "

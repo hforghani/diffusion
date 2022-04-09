@@ -105,6 +105,7 @@ class MEMM(abc.ABC):
         self.orig_indexes = orig_indexes
         self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
         self.feat_dim = Lambda.size
+        logger.debug('self.feat_dim set to %d', self.feat_dim)
 
     def get_prob(self, obs: np.ndarray, state: int, all_states: list, timers: list = None) -> float:
         """
@@ -265,6 +266,8 @@ class LongMEMM(MEMM):
     def _calc_obs_features(self, obs, states):
         obs_dim = obs.shape[1]
         feat_dim = self.feat_dim if self.feat_dim else obs.shape[0] * obs_dim + 1
+        features = np.zeros((states.size, feat_dim - 1))
+
         if np.any(states):
             features = np.zeros((states.size, feat_dim - 1))
             mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
@@ -272,8 +275,6 @@ class LongMEMM(MEMM):
             flat_obs = np.multiply(mults, obs).flatten()[:feat_dim - 1]
             nonzero_indexes = np.nonzero(states)[0]
             features[nonzero_indexes, :flat_obs.size] = np.tile(flat_obs, (nonzero_indexes.size, 1))
-        else:
-            features = np.zeros((states.size, feat_dim - 1))
 
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
@@ -308,6 +309,21 @@ class LongMEMM(MEMM):
 
 
 class BinMEMM(MEMM):
+    def _calc_obs_features(self, obs, states):
+        obs_dim = obs.shape[1]
+        features = np.zeros((states.size, obs_dim))
+
+        if np.any(states):
+            feat = np.any(obs, axis=0)
+            nonzero_indexes = np.nonzero(states)[0]
+            features[nonzero_indexes, :] = np.tile(feat, (nonzero_indexes.size, 1))
+
+        C = obs_dim + 1
+        feat_sum = np.sum(features, axis=1)
+        last_feat = np.ones((states.size, 1)) * C - np.reshape(feat_sum, (states.size, 1))
+        features = np.concatenate((features, last_feat), axis=1)
+        return features, C
+
     def _calc_multi_obs_features(self, observations, states):
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
@@ -330,20 +346,37 @@ class TDMEMM(MEMM):
         super().__init__()
         self.td_param = td_param
 
+    def _calc_obs_features(self, obs, states):
+        obs_dim = obs.shape[1]
+        features = np.zeros((states.size, obs_dim))
+
+        if np.any(states):
+            mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
+            mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
+            feat = np.sum(np.multiply(mults, obs), axis=0)
+            nonzero_indexes = np.nonzero(states)[0]
+            features[nonzero_indexes, :] = np.tile(feat, (nonzero_indexes.size, 1))
+
+        C = obs_dim + 1
+        feat_sum = np.sum(features, axis=1)
+        last_feat = np.ones((states.size, 1)) * C - np.reshape(feat_sum, (states.size, 1))
+        features = np.concatenate((features, last_feat), axis=1)
+        return features, C
+
     def _calc_multi_obs_features(self, observations, states):
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
         obs_dim = observations[0].shape[1]
-        features = []
-        for obs in observations:
-            mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
-            mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
-            features.append(np.sum(np.multiply(mults, obs), axis=0))
-        features = np.array(features)
-        zero_state_indexes = np.where(np.logical_not(states))
-        # features[zero_state_indexes, :] = 1 - features[zero_state_indexes, :]
-        features[zero_state_indexes, :] = 0
+        features = np.zeros((obs_num, obs_dim))
+
+        for ind in range(obs_num):
+            if states[ind]:
+                obs = observations[ind]
+                mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
+                mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
+                features[ind, :] = np.sum(np.multiply(mults, obs), axis=0)
+
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
@@ -361,7 +394,9 @@ class ParentTDMEMM(TDMEMM):
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
         obs_dim = observations[0].shape[1]
-        td_features, _ = super()._calc_features(observations, states != 0)
+        td_features, _ = super()._calc_multi_obs_features(observations, states != 0)
+        # for obs in observations:
+        #     logger.debug('obs = \n%s', obs_to_str(obs))
         # logger.debug('states = %s', states)
         features = np.zeros((obs_num, 2 * obs_dim))
 
@@ -379,7 +414,7 @@ class ParentTDMEMM(TDMEMM):
         feat_sum = np.sum(features, axis=1)
         last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
         features = np.concatenate((features, last_feat), axis=1)
-        # logger.debug('features = \n%s', two_d_arr_to_str(features[i, :]))
+        # logger.debug('features = \n%s', two_d_arr_to_str(features))
         return features, C
 
 
@@ -393,7 +428,7 @@ class LongParentTDMEMM(TDMEMM):
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
         obs_dim = observations[0].shape[1]
-        td_features, _ = super()._calc_features(observations, states != 0)
+        td_features, _ = super()._calc_multi_obs_features(observations, states != 0)
         # logger.debugv('obs_mat, state_mat =\n%s',
         #               np.concatenate((obs_mat, state_mat.reshape(state_mat.shape[0], 1)), axis=1))
         # logger.debugv('states =\n%s', states)

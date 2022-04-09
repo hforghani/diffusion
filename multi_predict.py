@@ -44,11 +44,16 @@ def main():
     project = Project(args.project)
     training, validation, test = project.load_sets()
     trees = project.load_trees()
+
+    max_val_depth = max(trees[cid].depth for cid in validation)
     max_test_depth = max(trees[cid].depth for cid in test)
+    # The depth will not be greater than 3 since has always few data and zero results.
+    max_depth = min(max_val_depth, max_test_depth, 3)
+
     methods = [Method(met) for met in args.methods]
 
-    one_step_depths = [(i, i + 1) for i in range(max_test_depth)]
-    thorough_depths = [(i, None) for i in range(max_test_depth)]
+    one_step_depths = [(i, i + 1) for i in range(max_depth)]
+    thorough_depths = [(i, None) for i in range(max_depth)]
     depth_settings = one_step_depths + thorough_depths
     results = multiple_run(methods, depth_settings, args.project, args.multi_processed, Criterion(args.criterion))
 

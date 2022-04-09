@@ -370,8 +370,8 @@ class CTIC(IC):
                     logger.info('Stop condition met: r dif + k dif < 1e-6')
                     break
 
-        self.k = k.toarray()
-        self.r = r.toarray()
+        self.k = k.tocsr()
+        self.r = r.tocsr()
 
     @time_measure('debug')
     def __set_initial_values(self, graph, user_ids, user_map):

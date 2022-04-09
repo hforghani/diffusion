@@ -205,18 +205,6 @@ class EdgeEvidenceManager(EvidenceManager):
             if i % 10000 == 0:
                 logger.info('%d documents inserted', i)
 
-    def _sequences_to_str(self, sequences):
-        if self.method == Method.BIN_MEMM:
-            return str([[(obs.astype(int).tolist(), state) for obs, state in seq] for seq in sequences])
-        else:
-            return str([[(obs.tolist(), state) for obs, state in seq] for seq in sequences])
-
-    def _str_to_sequences(self, seq_str):
-        if self.method == Method.BIN_MEMM:
-            return [[(np.fromiter(obs, bool), state) for obs, state in seq] for seq in eval(seq_str)]
-        else:
-            return [[(np.fromiter(obs, np.float64), state) for obs, state in seq] for seq in eval(seq_str)]
-
     def create_index(self):
         """
         Create index on 'user_id' key of MEMM evidences collection of the given project if does not exist.
@@ -284,9 +272,9 @@ class MEMMManager:
     def _doc_to_memm(self, doc):
         data = doc.read()
         memm_data = eval(data)
-        if self.method == Method.LONG_MEMM:
+        if self.method in [Method.LONG_MEMM, Method.MULTI_STATE_LONG_MEMM]:
             memm = LongMEMM()
-        elif self.method == Method.BIN_MEMM:
+        elif self.method in [Method.BIN_MEMM, Method.MULTI_STATE_BIN_MEMM]:
             memm = BinMEMM()
         elif self.method == Method.PARENT_SENS_TD_MEMM:
             memm = ParentTDMEMM()

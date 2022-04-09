@@ -21,6 +21,13 @@ from settings import logger
 from utils.time_utils import Timer, time_measure
 
 
+class Prediction:
+    def __init__(self, obs, prob, state=True):
+        self.obs = obs
+        self.prob = prob
+        self.state = state
+
+
 class MEMMModel(abc.ABC):
     method = None  # Define in the subclasses.
     max_iterations = 500
@@ -157,7 +164,7 @@ class MEMMModel(abc.ABC):
         count = 0
         manager = cls._get_memm_manager(project) if save_in_db else None
         graph = None
-        if issubclass(cls, ParentSensTDMEMMModel):
+        if issubclass(cls, MultiStateMEMMModel):
             graph = project.load_or_extract_graph()
 
         for key, ev in evidences.items():
@@ -288,7 +295,7 @@ class MEMMModel(abc.ABC):
         logger.debug('\n'.join(logs))
 
     @time_measure(level='debug')
-    def fit(self, iterations=None, td_param=None, multi_processed=False, eco=False):
+    def fit(self, multi_processed=False, eco=False, iterations=None, td_param=None):
         """
         Load MEMM's from DB if exist, otherwise train a MEMM for each user in the training set.
         :return: self
@@ -520,15 +527,12 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
                         if obs is not None:
                             observations[child_id] = obs
                             logger.debugv('obs = \n%s', obs_to_str(obs))
-                            prob = memm.get_prob(obs, self.active_state(), self.get_states())
-                            logger.debugv('prob = %f', prob)
-                            if prob >= thr:
-                                node_id = self._get_predicted_node_id(obs, memm, tree, parents)
-                                if node_id:
-                                    logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
-                                    tree.add_node(child_id, parent_id=node_id)
-                                    active_ids.add(child_id)
-                                    next_step.add(child_id)
+                            node_id, _ = self._predict_by_obs(obs, thr, memm, tree, parents)
+                            if node_id:
+                                tree.add_node(child_id, parent_id=node_id)
+                                active_ids.add(child_id)
+                                next_step.add(child_id)
+
                     else:
                         logger.debugv('user %s is already activated', child_id)
 
@@ -604,8 +608,7 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
                         parents = list(graph.predecessors(child_id))
                         parents_map = {parents[i]: i for i in range(len(parents))}
                     activated = False
-                    self._last_prob = None
-                    self._last_obs = None
+                    last_pred = None
 
                     for thr in thresholds:
                         thr_active_ids = active_ids[thr]
@@ -619,7 +622,8 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
                                 if not np.array_equal(obs, self._last_obs):
                                     logger.debugv('obs = \n%s', obs_to_str(obs))
                                 logger.debugv('threshold %f ...', thr)
-                                node_id = self._predict_by_obs(obs, thr, memm, trees[thr], parents)
+                                node_id, pred = self._predict_by_obs(obs, thr, memm, trees[thr], parents, last_pred)
+                                last_pred = pred
                                 if node_id:
                                     trees[thr].add_node(child_id, parent_id=node_id)
                                     thr_active_ids.add(child_id)
@@ -660,7 +664,7 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
             logger.debugv('the newly active nodes are not available in the training data')
         return
 
-    def _predict_by_obs(self, obs, thr, memm, tree, obs_node_ids):
+    def _predict_by_obs(self, obs, thr, memm, tree, obs_node_ids, last_pred=None):
         """
 
         :param obs: observation
@@ -670,22 +674,22 @@ class NodeMEMMModel(MEMMModel, abc.ABC):
         :param obs_node_ids: list of node ids related to observation dimensions.
         :return: The parent id is returned if the diffusion is predicted, otherwise None.
         """
-        if np.array_equal(obs, self._last_obs):
-            prob = self._last_prob
+        if last_pred is not None and np.array_equal(obs, last_pred.obs):
+            prob = last_pred.prob
         else:
             prob = memm.get_prob(obs, self.active_state(), self.get_states())
             logger.debugv('prob = %f', prob)
             if prob == np.nan:
                 logger.warning('activation prob. of obs. %s is nan', obs)
-            self._last_obs, self._last_prob = obs, prob
+        pred = Prediction(obs, prob)
 
         if prob >= thr:
             node_id = self._get_predicted_node_id(obs, memm, tree, obs_node_ids)
             if node_id:
                 logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
-            return node_id
+            return node_id, pred
 
-        return None
+        return None, pred
 
     def _get_initial_observations(self, initial_tree, max_depth_nodes, graph):
         observations = {}
@@ -887,8 +891,7 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                         logger.debugv('testing reshare from %s to %s ...', node_id, child_id)
 
                         activated = False
-                        self._last_prob = None
-                        self._last_obs = None
+                        last_prob, last_obs = None, None
 
                         for thr in thresholds:
                             thr_active_ids = active_ids[thr]
@@ -900,10 +903,12 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
 
                                 if obs is not None:
                                     observations[thr][edge] = obs
-                                    if not np.array_equal(obs, self._last_obs):
+                                    if not np.array_equal(obs, last_obs):
                                         logger.debugv('obs = %s', obs_to_str(obs))
                                     logger.debugv('threshold %f ...', thr)
-                                    res = self._predict_by_obs(obs, edge, thr, memm, trees[thr])
+                                    res, prob = self._predict_by_obs(obs, edge, thr, memm, trees[thr], last_obs,
+                                                                     last_prob)
+                                    last_obs, last_prob = obs, prob
                                     if res:
                                         trees[thr].add_node(child_id, parent_id=node_id)
                                         thr_active_ids.add(child_id)
@@ -994,24 +999,23 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
             obs = self._update_obs(obs, cur_step_ids, index_map)
             observations[edge] = obs
 
-    def _predict_by_obs(self, obs, edge, thr, memm, tree):
-        if np.array_equal(obs, self._last_obs):
-            prob = self._last_prob
+    def _predict_by_obs(self, obs, edge, thr, memm, tree, last_obs=None, last_prob=None):
+        if last_obs is not None and np.array_equal(obs, last_obs):
+            prob = last_prob
         else:
             prob = memm.get_prob(obs, True, [False, True])
             logger.debugv('prob = %f', prob)
             if prob == np.nan:
                 logger.warning('activation prob. of obs. %s is nan', obs)
-            self._last_obs, self._last_prob = obs, prob
 
         if prob >= thr:
             if tree.get_node(edge[0]):
                 logger.debugv('a reshare predicted %f >= %f', prob, thr)
-                return edge[0]
+                return edge[0], prob
             else:
                 logger.warning('parent node %s does not exist', edge[0])
 
-        return None
+        return None, prob
 
     def _get_evid_manager(self):
         return EdgeEvidenceManager(self.project)
@@ -1019,6 +1023,53 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
     @classmethod
     def _get_memm_manager(cls, project):
         return EdgeMEMMManager(project, cls.method)
+
+
+class MultiStateMEMMModel(NodeMEMMModel, abc.ABC):
+    @staticmethod
+    def inactive_state():
+        return 0
+
+    @staticmethod
+    def active_state(node=None, graph=None):
+        parents = list(graph.predecessors(node.user_id))
+        index = parents.index(node.parent_id)
+        return index + 1
+
+    @staticmethod
+    def get_states(key=None, graph=None):
+        return list(range(graph.in_degree(key) + 1))
+
+    def _get_evid_manager(self):
+        return ParentSensEvidManager(self.project)
+
+    def _predict_by_obs(self, obs, thr, memm, tree, obs_node_ids, last_pred=None):
+        if last_pred is not None and np.array_equal(obs, last_pred.obs):
+            state, prob = last_pred.state, last_pred.prob
+        else:
+            all_states = list(range(len(obs_node_ids) + 1))
+            probs = memm.get_probs(obs, all_states)
+            new_act_indexes = np.nonzero(obs[0, :])[0]
+            if new_act_indexes.any():
+                active_states = new_act_indexes + 1
+                inactive_prob = probs[0]
+                active_prob = 1 - inactive_prob
+                active_probs = [probs[1 + i] for i in new_act_indexes]
+                i = np.argmax(active_probs)
+                state, prob = active_states[i], active_prob
+            else:
+                state, prob = 0, 0
+        pred = Prediction(obs, prob, state)
+
+        if state > 0 and prob >= thr:
+            node_id = obs_node_ids[state - 1]
+            if tree.get_node(node_id):
+                logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
+                return node_id, pred
+            else:
+                logger.warning('parent node %s does not exist', node_id)
+
+        return None, pred
 
 
 class LongMEMMModel(NodeMEMMModel):
@@ -1049,12 +1100,20 @@ class LongMEMMModel(NodeMEMMModel):
         return None
 
 
+class MultiStateLongMEMMModel(LongMEMMModel, MultiStateMEMMModel):
+    method = Method.MULTI_STATE_LONG_MEMM
+
+
 class BinMEMMModel(NodeMEMMModel):
     method = Method.BIN_MEMM
 
     @staticmethod
     def get_memm_instance(td_param=None):
         return BinMEMM()
+
+
+class MultiStateBinMEMMModel(BinMEMMModel, MultiStateMEMMModel):
+    method = Method.MULTI_STATE_BIN_MEMM
 
 
 class TDMEMMModel(NodeMEMMModel):
@@ -1068,72 +1127,31 @@ class TDMEMMModel(NodeMEMMModel):
         return TDMEMM(td_param) if td_param is not None else TDMEMM()
 
 
-class ParentSensTDMEMMModel(TDMEMMModel):
+class MultiStateTDMEMMModel(TDMEMMModel, MultiStateMEMMModel):
+    method = Method.MULTI_STATE_TD_MEMM
+
+    @staticmethod
+    def get_memm_instance(td_param=None):
+        return TDMEMM(td_param) if td_param is not None else TDMEMM()
+
+
+class ParentSensTDMEMMModel(MultiStateMEMMModel):
     """
     Parent-sensitive Time-Decay MEMM model
     """
     method = Method.PARENT_SENS_TD_MEMM
 
     @staticmethod
-    def inactive_state():
-        return 0
-
-    @staticmethod
-    def active_state(node=None, graph=None):
-        parents = list(graph.predecessors(node.user_id))
-        index = parents.index(node.parent_id)
-        return index + 1
-
-    @staticmethod
-    def get_states(key=None, graph=None):
-        return list(range(graph.in_degree(key) + 1))
-
-    @staticmethod
     def get_memm_instance(td_param=None):
         return ParentTDMEMM(td_param) if td_param is not None else ParentTDMEMM()
 
-    def _get_evid_manager(self):
-        return ParentSensEvidManager(self.project)
 
-    def _predict_by_obs(self, obs, thr, memm, tree, obs_node_ids):
-        if np.array_equal(obs, self._last_obs):
-            state, prob = self._last_state, self._last_prob
-        else:
-            all_states = list(range(len(obs_node_ids) + 1))
-            probs = memm.get_probs(obs, all_states)
-            new_act_indexes = np.nonzero(obs[0, :])[0]
-            if new_act_indexes.any():
-                active_states = new_act_indexes + 1
-                inactive_prob = probs[0]
-                active_prob = 1 - inactive_prob
-                active_probs = [probs[1 + i] for i in new_act_indexes]
-                i = np.argmax(active_probs)
-                state, prob = active_states[i], active_prob
-                self._last_obs, self._last_prob, self._last_state = obs, prob, state
-            else:
-                state, prob = 0, 0
-
-        if state > 0 and prob >= thr:
-            node_id = obs_node_ids[state - 1]
-            if tree.get_node(node_id):
-                logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
-                return node_id
-            else:
-                logger.warning('parent node %s does not exist', node_id)
-
-        return None
-
-
-class LongParentSensTDMEMMModel(ParentSensTDMEMMModel):
+class LongParentSensTDMEMMModel(MultiStateMEMMModel):
     method = Method.LONG_PARENT_SENS_TD_MEMM
 
     @staticmethod
     def get_memm_instance(td_param=None):
         return LongParentTDMEMM(td_param) if td_param is not None else LongParentTDMEMM()
-
-
-class FullTDMEMMModel(TDMEMMModel):
-    method = Method.FULL_TD_MEMM
 
 
 class TDEdgeMEMMModel(EdgeMEMMModel):
