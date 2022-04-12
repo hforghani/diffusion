@@ -322,7 +322,7 @@ class CTIC(IC):
         graph, sequences = self.project.load_or_extract_graph_seq()
 
         # Create maps from users and cascades db id's to their matrix id's.
-        logger.info('creating user and cascade id maps ...')
+        logger.debug('creating user and cascade id maps ...')
         user_ids = sorted(graph.nodes())
         user_map = {user_ids[i]: i for i in range(len(user_ids))}
         logger.info('train set size = %d', len(train_set))
@@ -340,14 +340,14 @@ class CTIC(IC):
             with Timer('iteration time'):
                 logger.info('#%d' % (i + 1))
 
-                logger.info('calculating alpha ...')
+                logger.debug('calculating alpha ...')
                 alpha = self.__calc_alpha_mp(sequences, graph, k, r, train_set, user_map, multi_processed)
-                logger.info('calculating beta ...')
+                logger.debug('calculating beta ...')
                 beta = self.__calc_beta_mp(sequences, graph, k, r, train_set, user_map, multi_processed)
-                logger.info('estimating r ...')
+                logger.debug('estimating r ...')
                 last_r = r
                 r = self.__calc_r_mp(sequences, graph, alpha, beta, user_map, edge_pos_cascades, multi_processed)
-                logger.info('estimating k ...')
+                logger.debug('estimating k ...')
                 last_k = k
                 k = self.__calc_k_mp(graph, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts, multi_processed)
 
@@ -362,7 +362,7 @@ class CTIC(IC):
                 k_dif = k - last_k
                 k_dif = np.sqrt(k_dif.multiply(k_dif).sum())
                 logger.info('r dif = %s, k dif = %s' % (r_dif, k_dif))
-                logger.info('r nnz = %d, k nnz = %d' % (r.nnz, k.nnz))
+                logger.debug('r nnz = %d, k nnz = %d' % (r.nnz, k.nnz))
                 del last_r
                 del last_k
 
@@ -392,7 +392,7 @@ class CTIC(IC):
                 cols.extend(ch_indexes)
             i += 1
             if i % (u_count // 10) == 0:
-                logger.info('%d%% done' % (i * 100 // u_count))
+                logger.debug('%d%% done' % (i * 100 // u_count))
 
         k = sparse.csc_matrix((k_values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)
         r = sparse.csc_matrix((r_values, [rows, cols]), shape=(u_count, u_count), dtype=np.float32)

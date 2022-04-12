@@ -699,7 +699,7 @@ class AsLT(LT):
         u_count = len(user_ids)
         c_count = len(cascade_ids)
 
-        logger.info('\textracting sigma domains ...')
+        logger.debug('\textracting sigma domains ...')
         c_set1 = {v: [] for v in user_ids}
         c_set2 = {v: [] for v in user_ids}
         uid_set = set(user_ids)
@@ -710,7 +710,7 @@ class AsLT(LT):
                 c_set2[v].append(c)
 
         if multi_processed:
-            logger.info('\tcreating processes to calculate values ...')
+            logger.debug('\tcreating processes to calculate values ...')
             process_count = min(settings.PROCESS_COUNT, u_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(u_count / process_count))
@@ -752,7 +752,7 @@ class AsLT(LT):
     def __calc_w(self, data, graph, phi_h, phi_g, psi, user_ids, user_map, cascade_ids, cascade_map):
         u_count = len(user_ids)
 
-        logger.info('\textracting sigma domains ...')
+        logger.debug('\textracting sigma domains ...')
         mv_set2 = {v: [] for v in graph.nodes()}
         muv_set1 = {edge: [] for edge in graph.edges()}
         muv_set2 = {edge: [] for edge in graph.edges()}

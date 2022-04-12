@@ -1,5 +1,6 @@
 import logging
 import math
+import pprint
 import sys
 from multiprocessing import Pool
 from typing import Dict, List, Set
@@ -114,11 +115,14 @@ def hierarchical(mat, clust_num):
     dendrogram = paris.fit_transform(mat)
     clusters = {i: [i] for i in range(mat.shape[0])}
     new_clust_index = len(clusters)
+    # logger.debug('len(clusters) = \n%s', len(clusters))
+    # logger.debug('dendrogram = \n%s', dendrogram)
 
     for i, j, dist, size in dendrogram:
         if len(clusters) <= clust_num:
             break
         i, j = int(i), int(j)
+        # logger.debug('merging %d and %d into %d', i, j, new_clust_index)
         clusters[new_clust_index] = clusters[i] + clusters[j]
         new_clust_index += 1
         del clusters[i]
@@ -131,7 +135,7 @@ def hierarchical(mat, clust_num):
     for label, indexes in clusters.items():
         labels[indexes] = label
 
-    logger.debug('labels = %s', labels)
+    logger.debug('labels = \n%s', labels)
 
     return labels
 
