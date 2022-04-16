@@ -16,3 +16,4 @@ pymongo
 anytree
 pympler
 scikit-network
+sklearn-crfsuite

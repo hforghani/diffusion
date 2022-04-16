@@ -3,7 +3,7 @@ import argparse
 from cascade.models import Project
 from db.managers import EvidenceManager
 from display_memm import print_info
-from memm.memm import MEMM
+from seq_labeling.pgm import MEMM
 
 # import pydevd_pycharm
 #
@@ -19,5 +19,5 @@ if __name__ == '__main__':
     m = EvidenceManager(project)
     evidences = m.get_one(args.user_id)
     memm = MEMM()
-    memm.fit(evidences)
+    memm.fit(evidences, ), None
     print_info(args.user_id, evidences, memm)

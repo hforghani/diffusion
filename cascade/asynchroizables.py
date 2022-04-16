@@ -8,7 +8,7 @@ import settings
 from cascade.metric import Metric
 from diffusion.enum import Method, Criterion
 from log_levels import DEBUG_LEVELV_NUM
-from memm.models import TDEdgeMEMMModel
+from seq_labeling.memm_models import TDEdgeMEMMModel
 from settings import logger
 from utils.time_utils import Timer
 

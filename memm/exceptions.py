@@ -1,2 +1,0 @@
-class MemmException(Exception):
-    pass

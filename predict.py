@@ -1,5 +1,6 @@
 import argparse
 # from profilehooks import timecall, profile
+import pprint
 from numbers import Number
 
 import numpy as np
@@ -31,19 +32,19 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
                 max_depth: int, multi_processed: bool, eco: bool, param: list) -> Metric:
     project = Project(project_name)
     method = Method(method_name)
-    logger.debug('param = %s', param)
     param = extract_param(param, validation)
-
     threshold = param['threshold']
     del param['threshold']
 
     # Log the test configuration.
-    logger.info('{0} DB : {1} {0}'.format('=' * 20, project.db))
-    logger.info('{0} PROJECT : {1} {0}'.format('=' * 20, project_name))
-    logger.info('{0} METHOD : {1} {0}'.format('=' * 20, method_name))
-    logger.info('{0} INITIAL DEPTH : {1} {0}'.format('=' * 20, initial_depth))
-    logger.info('{0} MAX DEPTH : {1} {0}'.format('=' * 20, max_depth))
-    logger.info('{0} TESTING ON THRESHOLD(S) : {1} {0}'.format('=' * 20, threshold))
+    logger.info(f'{"db":<20}| {project.db}')
+    logger.info(f'{"project":<20}| {project_name}')
+    logger.info(f'{"method":<20}| {method_name}')
+    logger.info(f'{"initial depth":<20}| {initial_depth}')
+    logger.info(f'{"max depth":<20}| {max_depth}')
+    logger.info(f'{"threshold":<20}| {threshold}')
+    for key, value in param.items():
+        logger.info(f'{key:<20}| {value}')
 
     if multi_processed:
         tester = MultiProcTester(project, method, criterion, eco)
@@ -65,7 +66,13 @@ def extract_param(param, validation):
             new_param[param_name] = np.arange(start, end, step).tolist()
             new_param[param_name].append(end)
         elif len(items) == 2:
-            new_param[items[0]] = float(items[1])
+            try:
+                new_param[items[0]] = int(items[1])
+            except ValueError:
+                try:
+                    new_param[items[0]] = float(items[1])
+                except ValueError:
+                    new_param[items[0]] = items[1]
         else:
             raise ValueError('invalid format for params option')
     if not validation and any(isinstance(value, list) for value in new_param.values()):

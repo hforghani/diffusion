@@ -1,4 +1,5 @@
 import itertools
+import math
 import numbers
 import os
 from multiprocessing import Pool
@@ -9,6 +10,7 @@ import typing
 import numpy as np
 from bson import ObjectId
 from matplotlib import pyplot
+from networkx import DiGraph
 from sklearn.metrics import f1_score
 
 from cascade.asynchroizables import test_cascades
@@ -19,7 +21,8 @@ from diffusion.avg import LTAvg
 from diffusion.ctic import CTIC
 from diffusion.enum import Criterion
 from diffusion.ic_models import DAIC, EMIC
-from memm.models import *
+from seq_labeling.crf_models import CRFModel
+from seq_labeling.memm_models import *
 from mln.file_generators import FileCreator
 from mln.models import MLN
 from settings import logger
@@ -81,6 +84,7 @@ class ProjectTester(abc.ABC):
                 Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
                 Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
                 Method.TD_EDGE_MEMM: TDEdgeMEMMModel,
+                Method.CRF: CRFModel,
             }
             # Create and train the model if needed.
             if self.method == Method.MLN_PRAC:

@@ -1,9 +1,11 @@
+import pickle
+
 import gridfs
 import pymongo
 from bson import ObjectId
 
 from db.exceptions import DataDoesNotExist
-from memm.memm import *
+from seq_labeling.pgm import *
 from diffusion.enum import Method
 from settings import logger, MONGO_URL
 
@@ -214,7 +216,7 @@ class EdgeEvidenceManager(EvidenceManager):
         collection.create_index([('src', pymongo.ASCENDING), ('dst', pymongo.ASCENDING)])
 
 
-class MEMMManager:
+class SeqLabelDBManager:
     def __init__(self, project, method):
         self.project = project
         self.client = pymongo.MongoClient(MONGO_URL)
@@ -290,7 +292,7 @@ class MEMMManager:
         return memm
 
 
-class EdgeMEMMManager(MEMMManager):
+class EdgeMEMMManager(SeqLabelDBManager):
     def insert(self, memms):
         fs = gridfs.GridFS(self.db)
 
@@ -322,3 +324,9 @@ class EdgeMEMMManager(MEMMManager):
             return None
         memm = self._doc_to_memm(doc)
         return memm
+
+
+class CRFManager(SeqLabelDBManager):
+    def _get_doc(self, crf):
+        crf_str = pickle.dumps(crf)
+        return {'crf': crf_str}

@@ -5,10 +5,11 @@ from functools import reduce
 from bson import ObjectId
 import numpy as np
 
-from db.managers import EvidenceManager, MEMMManager, EdgeMEMMManager, EdgeEvidenceManager, ParentSensEvidManager
+from db.managers import EvidenceManager, SeqLabelDBManager, EdgeMEMMManager, EdgeEvidenceManager, ParentSensEvidManager
 from cascade.models import Project
 from diffusion.enum import Method
-from memm.memm import obs_to_str, ParentTDMEMM, arr_to_str
+from seq_labeling.pgm import ParentTDMEMM
+from seq_labeling.utils import obs_to_str, arr_to_str
 
 
 def print_info(key, evidences, memm, graph, method):
@@ -81,7 +82,7 @@ def handle():
     method = methods[args.method]
     project = Project(args.project)
     if args.user_id:
-        manager = MEMMManager(project, method)
+        manager = SeqLabelDBManager(project, method)
         if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM, Method.MULTI_STATE_TD_MEMM]:
             evid_manager = ParentSensEvidManager(project)
         else:

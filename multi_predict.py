@@ -1,10 +1,19 @@
 import argparse
 
+import settings
 from diffusion.enum import Method, Criterion
 from cascade.models import Project
 from cascade.testers import DefaultTester, MultiProcTester
 from settings import logger
 from utils.time_utils import time_measure
+
+
+def get_params(project_name, method):
+    if method in settings.PARAM:
+        params = settings.PARAM[method]
+        if project_name in params:
+            return params[project_name]
+    return {}
 
 
 def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_processed: bool,
@@ -13,9 +22,11 @@ def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_
     results = {}
 
     if multi_processed:
-        testers = {method: MultiProcTester(project, method, criterion, eco=True) for method in methods}
+        # testers = {method: MultiProcTester(project, method, criterion, eco=True) for method in methods}
+        testers = {method: MultiProcTester(project, method, criterion, eco=False) for method in methods}
     else:
-        testers = {method: DefaultTester(project, method, criterion, eco=True) for method in methods}
+        # testers = {method: DefaultTester(project, method, criterion, eco=True) for method in methods}
+        testers = {method: DefaultTester(project, method, criterion, eco=False) for method in methods}
 
     for initial_depth, max_depth in depth_settings:
         cur_results = {}
@@ -23,7 +34,9 @@ def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_
             logger.info('running prediction from depth %d to %s using method %s ...', initial_depth,
                         max_depth if max_depth is not None else 'end', method.value)
             thresholds = [i / 100 for i in range(101)]
-            mean_res = testers[method].run_validation_test(thresholds, initial_depth, max_depth)
+            params = get_params(project_name, method)
+            logger.info('params = %s', params)
+            mean_res = testers[method].run_validation_test(thresholds, initial_depth, max_depth, **params)
             cur_results[method] = mean_res.f1()
         results[(initial_depth, max_depth)] = cur_results
     return results

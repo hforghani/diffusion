@@ -1,45 +1,21 @@
 import abc
 import pprint
 import typing
-from abc import ABC
 from functools import reduce
 import numpy as np
+import sklearn_crfsuite
 
-from memm.exceptions import MemmException
 from settings import logger
-from utils.time_utils import Timer, TimeUnit, time_measure
+from utils.time_utils import time_measure
 
 
-def obs_to_str(arr: np.array) -> str:
-    rows = []
-    for row in arr:
-        if row.dtype == bool:
-            rows.append(''.join(str(int(d)) for d in row))
-        else:
-            rows.append(str(row.tolist()))
-    return '\n'.join(rows)
-
-
-def arr_to_str(arr: np.array) -> str:
-    if arr.dtype == bool:
-        return ''.join(str(int(d)) for d in arr)
-    else:
-        return str(arr.tolist())
-
-
-def two_d_arr_to_str(arr: np.array) -> str:
-    return '\n'.join(arr_to_str(arr[i, :]) for i in range(arr.shape[0]))
-
-
-class MEMM(abc.ABC):
+class SeqLabelModel(abc.ABC):
     def __init__(self):
         self.orig_indexes = []
         self.orig_indexes_map = {}
-        self.Lambda = None
-        self.feat_dim = None
 
     @time_measure(level='debug')
-    def fit(self, evidence: dict, states: list, iterations: int):
+    def fit(self, evidence: dict, iterations: int, states: list = None, **kwargs):
         """
         Learn MEMM lambdas and transition probabilities for previous state of 0.
         :param evidence:   dictionary of sequences in the format {'dimension': int, 'sequences': list}
@@ -53,24 +29,78 @@ class MEMM(abc.ABC):
         self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
 
         if new_dim == 0:
-            raise MemmException('Cannot train MEMM with all observations given zero')
+            raise ValueError('Cannot train seq labeling model with all observations given zero')
 
+        self._train(new_sequences, iterations, states, **kwargs)
+
+        return self
+
+    @abc.abstractmethod
+    def _train(self, sequences, iterations, all_states=None, **kwargs):
+        pass
+
+    def get_all_obs(self, sequences):
+        observations = []
+        states = []
+        for seq in sequences:
+            for obs, state in seq:
+                observations.append(obs)
+                states.append(state)
+        states = np.array(states)
+        return observations, states
+
+    def decrease_dim(self, sequences):
+        """
+        Decrease dimensions of observations in sequences. Remove the dimensions related to the parents
+        which has no activation (e.t. has no digit 1) in any observation.
+        :param sequences:   list of sequences of (obs, state)
+        :return:            new sequences, map of new indexes to the old ones; with one difference that
+                            the observation is numpy array in tuple (obs, state)
+        """
+        dim = sequences[0][0][0].shape[1]
+        stacked = np.vstack(list(reduce(lambda li1, li2: li1 + li2, [[pair[0] for pair in seq] for seq in sequences])))
+        union = stacked.any(axis=0)
+        orig_indexes = list(np.nonzero(union)[0])
+        new_dim = len(orig_indexes)
+
+        if new_dim == dim:
+            return sequences, list(range(dim))
+
+        # Decrease the dimensions and create the new sequences.
+        new_sequences = [[(obs[:, orig_indexes], state) for obs, state in seq] for seq in sequences]
+
+        return new_sequences, orig_indexes
+
+
+class MEMM(SeqLabelModel, abc.ABC):
+    def __init__(self):
+        super().__init__()
+        self.Lambda = None
+        self.feat_dim = None
+
+    def set_params(self, Lambda, orig_indexes):
+        self.Lambda = Lambda
+        self.orig_indexes = orig_indexes
+        self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
+        self.feat_dim = Lambda.size
+        logger.debug('self.feat_dim set to %d', self.feat_dim)
+
+    def _train(self, sequences, iterations, all_states=None, **kwargs):
         # Get all observations and states of which previous state is zero.
-        all_obs, state_mat = self.get_all_obs(new_sequences)
+        all_obs, state_mat = self.get_all_obs(sequences)
         logger.debugv('all_obs =\n%s', all_obs)
         logger.debugv('state_mat =\n%s', state_mat)
-        logger.debugv('all possible states = %s', states)
+        logger.debugv('all possible states = %s', all_states)
 
         # Calculate features for observation-state pairs. Shape of features is obs_num * (obs_dim+1)
         features, C = self._calc_features(all_obs, state_mat)
         self.feat_dim = features.shape[1]
         logger.debugv('features =\n%s', features)
-
         obs_num = len(all_obs)
-        features_for_all_states = [self._calc_features(all_obs, np.ones(obs_num, dtype=type(states[0])) * s)[0] for s in
-                                   states]
+        features_for_all_states = [self._calc_features(all_obs, np.ones(obs_num, dtype=type(all_states[0])) * s)[0] for
+                                   s in
+                                   all_states]
         # logger.debugv('features_for_all_states =\n%s', pprint.pformat(features_for_all_states))
-
         # Calculate the training data average for each feature.
         F = np.mean(features, axis=0).T
         logger.debugv('F =\n%s', F)
@@ -97,15 +127,6 @@ class MEMM(abc.ABC):
             if diff < epsilon or iter_count >= iterations:
                 logger.debug('GIS iterations = %d, diff = %s', iter_count, diff)
                 break
-
-        return self
-
-    def set_params(self, Lambda, orig_indexes):
-        self.Lambda = Lambda
-        self.orig_indexes = orig_indexes
-        self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
-        self.feat_dim = Lambda.size
-        logger.debug('self.feat_dim set to %d', self.feat_dim)
 
     def get_prob(self, obs: np.ndarray, state: int, all_states: list, timers: list = None) -> float:
         """
@@ -151,16 +172,6 @@ class MEMM(abc.ABC):
         # logger.debug('observations = \n%s', observations)
         # logger.debug('probs = \n%s', probs)
         return probs
-
-    def get_all_obs(self, sequences):
-        observations = []
-        states = []
-        for seq in sequences:
-            for obs, state in seq:
-                observations.append(obs)
-                states.append(state)
-        states = np.array(states)
-        return observations, states
 
     def _calc_features(self, obs: typing.Union[list, np.ndarray], states: np.ndarray) -> np.ndarray:
         if isinstance(obs, list):
@@ -228,28 +239,6 @@ class MEMM(abc.ABC):
         Lambda += (np.log(fcopy) - np.log(ecopy)) / C
         # Lambda[F == 0] = 0
         return Lambda
-
-    def decrease_dim(self, sequences):
-        """
-        Decrease dimensions of observations in sequences. Remove the dimensions related to the parents
-        which has no activation (e.t. has no digit 1) in any observation.
-        :param sequences:   list of sequences of (obs, state)
-        :return:            new sequences, map of new indexes to the old ones; with one difference that
-                            the observation is numpy array in tuple (obs, state)
-        """
-        dim = sequences[0][0][0].shape[1]
-        stacked = np.vstack(list(reduce(lambda li1, li2: li1 + li2, [[pair[0] for pair in seq] for seq in sequences])))
-        union = stacked.any(axis=0)
-        orig_indexes = list(np.nonzero(union)[0])
-        new_dim = len(orig_indexes)
-
-        if new_dim == dim:
-            return sequences, list(range(dim))
-
-        # Decrease the dimensions and create the new sequences.
-        new_sequences = [[(obs[:, orig_indexes], state) for obs, state in seq] for seq in sequences]
-
-        return new_sequences, orig_indexes
 
     def sequences_to_feat_states(self, sequences):
         new_sequences, orig_indexes = self.decrease_dim(sequences)
@@ -452,3 +441,61 @@ class LongParentTDMEMM(TDMEMM):
         features = np.concatenate((features, last_feat), axis=1)
         # logger.debugv('features =\n%s', features)
         return features, C
+
+
+class CRF(SeqLabelModel):
+    def _train(self, sequences, iterations, all_states=None, **kwargs):
+        alg = kwargs.get('algorithm', 'lbfgs')
+        params = {
+            'lbfgs': ['c1', 'c2', 'linesearch'],
+            'l2sgd': ['c2', 'calibration_rate'],
+            'ap': [],
+            'pa': ['pa_type', 'c', 'error_sensitive', 'averaging'],
+            'arow': ['variance', 'gamma'],
+        }
+        crf_params = {param: kwargs[param] for param in params[alg] if param in kwargs}
+        crf = sklearn_crfsuite.CRF(algorithm=alg, max_iterations=iterations, **crf_params)
+        features, states = self._calc_features(sequences)
+
+        crf.fit(features, states)
+        # logger.debugv('attributes_:\n%s', crf.attributes_)
+        # logger.debugv('state_features_:\n%s', pprint.pformat(crf.state_features_))
+        # logger.debugv('transition_features_:\n%s', pprint.pformat(crf.transition_features_))
+
+        self.crf = crf
+
+    def __state_to_str(self, state):
+        return '1' if state else '0'
+
+    def _calc_features(self, sequences):
+        features = [[self._obs_feature(obs) for obs, state in seq] for seq in sequences]
+        states = [[self.__state_to_str(state) for obs, state in seq] for seq in sequences]
+        logger.debugv('features = \n%s', pprint.pformat(features))
+        logger.debugv('states = \n%s', pprint.pformat(states))
+
+        return features, states
+
+    def _obs_feat_sequence(self, obs):
+        features = []
+        for i in range(obs.shape[0]):
+            features.append(self._obs_feature(obs[:i + 1, :]))
+        return features
+
+    def _obs_feature(self, obs):
+        return {f'{-i}:{j}': obs[i, j] for i in range(obs.shape[0]) for j in range(obs.shape[1])}
+
+    def get_prob(self, obs: np.ndarray, state, all_states: list, timers: list = None) -> float:
+        """
+        Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
+        :param obs:     current observation
+        :param state:   the state
+        :param all_states:  list of all possible states
+        """
+        # if timers is None:
+        #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
+
+        features = self._obs_feat_sequence(obs)
+        probs = self.crf.predict_marginals_single(features)
+        logger.debug('features = \n%s', features)
+        logger.debug('probs = \n%s', probs)
+        return probs[-1][self.__state_to_str(state)]
