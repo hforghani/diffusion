@@ -3,30 +3,45 @@ import math
 import numbers
 import os
 from multiprocessing import Pool
-from typing import Union, Any
 
-import typing
-
-import numpy as np
 from bson import ObjectId
 from matplotlib import pyplot
 from networkx import DiGraph
-from sklearn.metrics import f1_score
 
 from cascade.asynchroizables import test_cascades
 from cascade.metric import Metric
-from cascade.models import Project, ParamTypes
+from cascade.models import Project
 from diffusion.aslt import AsLT
 from diffusion.avg import LTAvg
 from diffusion.ctic import CTIC
 from diffusion.enum import Criterion
 from diffusion.ic_models import DAIC, EMIC
-from seq_labeling.crf_models import CRFModel
+from seq_labeling.crf_models import *
 from seq_labeling.memm_models import *
 from mln.file_generators import FileCreator
 from mln.models import MLN
 from settings import logger
 from utils.time_utils import time_measure, Timer, TimeUnit
+
+METHOD_MODEL_MAP = {
+    Method.ASLT: AsLT,
+    Method.CTIC: CTIC,
+    Method.AVG: LTAvg,
+    Method.EMIC: EMIC,
+    Method.DAIC: DAIC,
+    Method.LONG_MEMM: LongMEMMModel,
+    Method.BIN_MEMM: BinMEMMModel,
+    Method.TD_MEMM: TDMEMMModel,
+    Method.MULTI_STATE_LONG_MEMM: MultiStateLongMEMMModel,
+    Method.MULTI_STATE_BIN_MEMM: MultiStateBinMEMMModel,
+    Method.MULTI_STATE_TD_MEMM: MultiStateTDMEMMModel,
+    Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
+    Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
+    Method.TD_EDGE_MEMM: TDEdgeMEMMModel,
+    Method.LONG_CRF: CRFModel,
+    Method.BIN_CRF: BinCRFModel,
+    Method.TD_CRF: TDCRFModel,
+}
 
 
 class ProjectTester(abc.ABC):
@@ -37,7 +52,8 @@ class ProjectTester(abc.ABC):
         self.criterion = criterion
         self.eco = eco
 
-    def run_validation_test(self, thresholds: list, initial_depth: int, max_depth: int, **kwargs) -> Metric:
+    def run_validation_test(self, thresholds: list, initial_depth: int, max_depth: int, **kwargs) \
+            -> typing.Tuple[Metric, dict]:
         """ Run the training, validation, and test stages for the project """
         tunables = {key: kwargs[key] for key in kwargs if key != 'iterations' and isinstance(kwargs[key], list)}
         nontunables = {key: kwargs[key] for key in kwargs if key not in tunables}
@@ -55,7 +71,8 @@ class ProjectTester(abc.ABC):
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), best_thr)
         else:
             logger.info('{0} TEST {0}'.format('=' * 20))
-        return self.test(test_set, self.model, best_thr, initial_depth, max_depth)
+        mean_res, res = self.test(test_set, self.model, best_thr, initial_depth, max_depth)
+        return mean_res, res
 
     def run_test(self, threshold: numbers.Number, initial_depth: int, max_depth: int, **kwargs) -> Metric:
         """ Run the training, and test stages for the project """
@@ -65,34 +82,18 @@ class ProjectTester(abc.ABC):
         with Timer('test'):
             _, val_set, test_set = self.project.load_sets()
             logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
-            return self.test(test_set, self.model, threshold, initial_depth, max_depth)
+            mean_res, res = self.test(test_set, self.model, threshold, initial_depth, max_depth)
+            return mean_res
 
     def train(self, **kwargs):
         with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
-            model_classes = {
-                Method.ASLT: AsLT,
-                Method.CTIC: CTIC,
-                Method.AVG: LTAvg,
-                Method.EMIC: EMIC,
-                Method.DAIC: DAIC,
-                Method.LONG_MEMM: LongMEMMModel,
-                Method.BIN_MEMM: BinMEMMModel,
-                Method.TD_MEMM: TDMEMMModel,
-                Method.MULTI_STATE_LONG_MEMM: MultiStateLongMEMMModel,
-                Method.MULTI_STATE_BIN_MEMM: MultiStateBinMEMMModel,
-                Method.MULTI_STATE_TD_MEMM: MultiStateTDMEMMModel,
-                Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
-                Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
-                Method.TD_EDGE_MEMM: TDEdgeMEMMModel,
-                Method.CRF: CRFModel,
-            }
             # Create and train the model if needed.
             if self.method == Method.MLN_PRAC:
                 model = MLN(self.project, method='edge', format=FileCreator.FORMAT_PRACMLN)
             elif self.method == Method.MLN_ALCH:
                 model = MLN(self.project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
-            elif self.method in model_classes:
-                model_clazz = model_classes[self.method]
+            elif self.method in METHOD_MODEL_MAP:
+                model_clazz = METHOD_MODEL_MAP[self.method]
                 model = model_clazz(self.project).fit(multi_processed=self.multi_processed, eco=self.eco, **kwargs)
             else:
                 raise Exception('invalid method "%s"' % self.method.value)
@@ -108,19 +109,19 @@ class ProjectTester(abc.ABC):
         :param max_depth: maximum depth of tree to which we want to predict
         :return:
         """
-        results = self.test(val_set, model, thresholds, initial_depth, max_depth)
-        if results is None:
+        mean_res, res = self.test(val_set, model, thresholds, initial_depth, max_depth)
+        if mean_res is None:
             return None
 
-        best_thr = max(results, key=lambda thr: results[thr].f1())
-        best_f1 = results[best_thr].f1()
+        best_thr = max(mean_res, key=lambda thr: mean_res[thr].f1())
+        best_f1 = mean_res[best_thr].f1()
         logger.info(f'F1 max = {best_f1} in threshold = {best_thr}')
-        self.__save_charts(best_thr, results, thresholds, initial_depth, max_depth)
+        self.__save_charts(best_thr, mean_res, thresholds, initial_depth, max_depth)
         return best_thr, best_f1
 
     @time_measure('debug')
-    def test(self, test_set: list, model: Any, thr: Any, initial_depth: int = 0, max_depth: int = None) \
-            -> typing.Union[Metric, dict, None]:
+    def test(self, test_set: list, model: typing.Any, thr: typing.Any, initial_depth: int = 0, max_depth: int = None) \
+            -> tuple:
         """
         Test on test set by the threshold(s) given.
         :param test_set: list of cascade ids to test
@@ -130,8 +131,8 @@ class ProjectTester(abc.ABC):
         :param initial_depth: the depth to which the nodes considered as initial nodes.
         :param max_depth: the depth to which the prediction will be done.
         :param model: the prediction model instance (an instance of MEMMModel, AsLT, or ...)
-        :return: if the threshold is a number, returns tuple of precision, recall, f1, FPR. If a list of thresholds
-            is given, it returns tuple of list of precisions, list of recalls, etc. related to the thresholds.
+        :return: if the threshold is a number, returns Metric instance. If a list of thresholds
+            is given, it returns a dict of thresholds to list of Metric instances related to the thresholds.
         """
         # Load cascade trees and graph.
         trees = self.project.load_trees()
@@ -152,15 +153,15 @@ class ProjectTester(abc.ABC):
         if len(results) == 1:  # It is on test stage. Set the results as the list of metrics.
             results = next(iter(results.values()))
 
-        if isinstance(results, list):  # It is in test stage
+        if isinstance(results, list):  # It is on test stage
             self._log_cascades_results(test_set, results)
 
-        if isinstance(results, list):  # It is in test stage
+        if isinstance(results, list):  # It is on test stage
             mean_res = self._get_mean_results(results)
         else:  # It is on validation stage and results is a dict.
             mean_res = self._get_mean_results_dict(results)
 
-        return mean_res
+        return mean_res, results
 
     def _tune_params(self, thresholds, initial_depth, max_depth, tunables, nontunables):
         tunable_params = list(tunables.keys())

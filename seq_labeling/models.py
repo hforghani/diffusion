@@ -320,22 +320,30 @@ class SeqLabelDifModel(abc.ABC):
         """
 
     @classmethod
-    def _update_obs(cls, obs: np.ndarray, cur_step_ids: collections.Iterable, obs_user_indexes: dict) -> np.ndarray:
+    def _update_obs(cls, obs: np.ndarray, cur_step_ids: collections.Iterable, obs_node_ids: list,
+                    timers=None) -> np.ndarray:
         """
         Add a row to obs as the first row specifying current step active nodes.
         :param obs: current observation. None observation means there is no observation available.
         :param cur_step_ids: current step node ids
-        :param obs_user_indexes: dictionary of node id to its column index in the observation array
+        :param obs_node_ids: list of node ids related to the observation dimensions
         :return: a boolean showing whether an update is done, and the new observation array
         """
-        new_active_indexes = [obs_user_indexes.get(uid) for uid in cur_step_ids]
-        new_active_indexes = list(filter(lambda x: x is not None, new_active_indexes))
-        dim = len(obs_user_indexes)
+        # if timers is None:
+        #     timers = [Timer(f'code {i}', level='debug') for i in range(10)]
+        if not isinstance(cur_step_ids, set):
+            cur_step_ids = set(cur_step_ids)
+        # with timers[4]:
+        new_active_indexes = [i for i in range(len(obs_node_ids)) if obs_node_ids[i] in cur_step_ids]
+        dim = len(obs_node_ids)
+        # with timers[5]:
         first_row = np.zeros(dim, dtype=bool)
         if obs is None and not new_active_indexes:
             return None
         else:
+            # with timers[6]:
             first_row[new_active_indexes] = 1
+            # with timers[7]:
             new_obs = np.vstack((first_row, obs)) if obs is not None else first_row.reshape((1, dim))
             return new_obs
 
@@ -444,8 +452,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                         if child_id not in activated and child_id in graph:
                             obs = observations.get(child_id)
                             parents = list(graph.predecessors(child_id))
-                            parent_indexes = {parents[i]: i for i in range(len(parents))}
-                            new_obs = cls._update_obs(obs, cur_step_ids, parent_indexes)
+                            new_obs = cls._update_obs(obs, cur_step_ids, parents)
                             observations[child_id] = new_obs
                             state = cls.inactive_state()
                             cascade_seqs.setdefault(child_id, [])
@@ -515,12 +522,11 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                 if model is not None:
                     logger.debugv('testing reshare to %s ...', child_id)
                     parents = list(graph.predecessors(child_id))
-                    parents_map = {parents[i]: i for i in range(len(parents))}
 
                     if child_id not in active_ids:
                         new_active_ids = cur_step & active_ids
                         obs = observations.get(child_id)
-                        obs = self._update_obs(obs, new_active_ids, parents_map)
+                        obs = self._update_obs(obs, new_active_ids, parents)
 
                         if obs is not None:
                             observations[child_id] = obs
@@ -581,7 +587,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
         # logger.debugv('initial observations:\n%s', pprint.pformat(obs_dic))
         observations = {thr: obs_dic.copy() for thr in thresholds}
 
-        timers = [Timer(f'code {i}', level='debug', silent=True) for i in range(10)]
+        # timers = [Timer(f'code {i}', level='debug', silent=True) for i in range(10)]
 
         # Predict the cascade tree.
         # At each iteration find newly activated nodes based on the probabilities and add them to the tree.
@@ -597,30 +603,32 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
             j = 0
             for child_id in all_children:
 
-                # if child_id not in active_ids:
+                # with timers[0]:
                 model = self.get_model(child_id)
 
                 if model is not None:
                     logger.debugv('testing reshare to %s ...', child_id)
-                    with timers[1]:
-                        parents = list(graph.predecessors(child_id))
-                        parents_map = {parents[i]: i for i in range(len(parents))}
+                    parents = list(graph.predecessors(child_id))
                     activated = False
                     last_pred = None
 
                     for thr in thresholds:
                         thr_active_ids = active_ids[thr]
                         if child_id not in thr_active_ids:
+                            # with timers[1]:
                             new_active_ids = cur_step & thr_active_ids
                             obs = observations[thr].get(child_id)
-                            obs = self._update_obs(obs, new_active_ids, parents_map)
+                            # with timers[2]:
+                            obs = self._update_obs(obs, new_active_ids, parents)
 
                             if obs is not None:
                                 observations[thr][child_id] = obs
-                                if last_pred is None or not np.array_equal(obs, last_pred.obs):
-                                    logger.debugv('obs = \n%s', obs_to_str(obs))
+                                # if last_pred is None or not np.array_equal(obs, last_pred.obs):
+                                #     logger.debugv('obs = \n%s', obs_to_str(obs))
                                 logger.debugv('threshold %f ...', thr)
-                                node_id, pred = self._predict_by_obs(obs, thr, model, trees[thr], parents, last_pred)
+                                # with timers[3]:
+                                node_id, pred = self._predict_by_obs(obs, thr, model, trees[thr], parents,
+                                                                     last_pred)
                                 last_pred = pred
                                 if node_id:
                                     trees[thr].add_node(child_id, parent_id=node_id)
@@ -676,7 +684,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
             prob = last_pred.prob
         else:
             prob = model.get_prob(obs, self.active_state(), self.get_states())
-            logger.debug('prob = %f', prob)
+            logger.debugv('prob = %f', prob)
             if prob == np.nan:
                 logger.warning('activation prob. of obs. %s is nan', obs)
         pred = Prediction(obs, prob)
@@ -715,9 +723,8 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                     if model is not None:
                         # Update the observation of this child.
                         parents = parents_dic[child_id]
-                        parents_map = {parents[i]: i for i in range(len(parents))}
                         obs = observations.get(child_id)
-                        obs = self._update_obs(obs, cur_step_ids, parents_map)
+                        obs = self._update_obs(obs, cur_step_ids, parents)
                         observations[child_id] = obs
                         # logger.debugv('obs set: %s', observations[child_id])
 

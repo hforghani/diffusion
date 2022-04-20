@@ -46,9 +46,9 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                         {'dimension': dimension, 'sequences': list_of_sequences} '''
         logger.debug('EdgeMEMMModel extract_memm_evidences started')
         try:
-            dim_user_indexes_map = kwargs['dim_user_indexes_map']
+            obs_nodes_ids_map = kwargs['obs_nodes_ids_map']
         except KeyError:
-            raise ValueError('Keyword argument dim_user_indexes_map must be given')
+            raise ValueError('Keyword argument obs_nodes_ids_map must be given')
         evidences = {}
         cascade_num = 1
         # timers = [Timer(f'predict part {i}', level='debug', unit=TimeUnit.SECONDS, silent=True) for i in range(10)]
@@ -90,9 +90,9 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                 # i = 0
                 logger.debug('number of related edges to the current step: %d', len(related_edges))
                 for edge in related_edges:
-                    dim_users_map = dim_user_indexes_map[edge]
+                    obs_node_is = obs_nodes_ids_map[edge]
                     obs = observations.get(edge)
-                    new_obs = cls._update_obs(obs, cur_step_ids, dim_users_map)
+                    new_obs = cls._update_obs(obs, cur_step_ids, obs_node_is)
                     if new_obs:
                         observations[edge] = new_obs
                         cascade_seqs.setdefault(edge, [])
@@ -120,7 +120,7 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                     # Add current sequence of pairs (observation, state) to the MEMM evidences.
                     logger.debug('adding sequences of current cascade ...')
                     for edge in cascade_seqs:
-                        dim = len(dim_user_indexes_map[edge])
+                        dim = len(obs_nodes_ids_map[edge])
                     evidences.setdefault(edge, {
                         'dimension': dim,
                         'sequences': []
@@ -130,12 +130,12 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                     logger.info('evidences extracted from %d cascades', len(train_set))
         return evidences
 
-    def predict(self, initial_tree, graph, thresholds, max_step=None, dim_user_indexes_map=None):
+    def predict(self, initial_tree, graph, thresholds, max_step=None, obs_node_ids_map=None):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return: dictionary of thresholds to their predicted trees
         """
-        if dim_user_indexes_map is None:
+        if obs_node_ids_map is None:
             raise ValueError('dim_user_indexes_map is required')
 
         # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
@@ -149,7 +149,7 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
         active_ids = {thr: init_nodes.copy() for thr in thresholds}
         step_num = 1
 
-        obs_dic = self._get_initial_observations(initial_tree, cur_step_nodes, graph, dim_user_indexes_map)
+        obs_dic = self._get_initial_observations(initial_tree, cur_step_nodes, graph, obs_node_ids_map)
         """
             Create dictionary of current observations of the nodes for each threshold:
             observations = {
@@ -192,10 +192,10 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                         for thr in thresholds:
                             thr_active_ids = active_ids[thr]
                             if child_id not in thr_active_ids:
-                                index_map = dim_user_indexes_map[edge]
+                                obs_node_ids = obs_node_ids_map[edge]
                                 new_active_ids = cur_step & thr_active_ids
                                 obs = observations[thr].get(edge)
-                                obs = self._update_obs(obs, new_active_ids, index_map)
+                                obs = self._update_obs(obs, new_active_ids, obs_node_ids)
 
                                 if obs is not None:
                                     observations[thr][edge] = obs
@@ -226,7 +226,7 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
 
         return trees
 
-    def _get_initial_observations(self, initial_tree, max_depth_nodes, graph, dim_user_indexes_map):
+    def _get_initial_observations(self, initial_tree, max_depth_nodes, graph, obs_node_ids_map):
         observations = {}
         cur_step = initial_tree.roots
         max_depth_node_ids = {node.user_id for node in max_depth_nodes}
@@ -252,9 +252,9 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
 
             for edge in related_edges:
                 logger.debugv('edge (%s, %s)', edge[0], edge[1])
-                index_map = dim_user_indexes_map[edge]
+                obs_node_ids = obs_node_ids_map[edge]
                 obs = observations[edge]
-                new_obs = self._update_obs(obs, cur_step_ids, index_map)
+                new_obs = self._update_obs(obs, cur_step_ids, obs_node_ids)
                 observations[edge] = new_obs
 
             next_step = reduce(lambda x, y: x + y, [node.children for node in cur_step], [])
@@ -266,34 +266,17 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
         return observations
 
     def _more_args(self, graph):
-        return dict(dim_user_indexes_map=self.extract_dim_user_indexes_map(graph))
+        return dict(obs_node_ids_map=self.extract_obs_node_ids_map(graph))
 
     @staticmethod
-    def extract_dim_user_indexes_map(graph):
+    def extract_obs_node_ids_map(graph):
         logger.info('extracting edge dimension users ...')
-        edge_dim_users = {}
+        obs_nodes_ids_map = {}
         for edge in graph.edges():
             src_children = graph.successors(edge[0])
             dest_parents = graph.predecessors(edge[1])
-            edge_dim_users[edge] = sorted(set(src_children) | set(dest_parents) - {edge[1]})
-        dim_user_indexes_map = {edge: {dim_users[i]: i for i in range(len(dim_users))} for edge, dim_users in
-                                edge_dim_users.items()}
-        return dim_user_indexes_map
-
-    def __update_cur_step_obs(self, observations, cur_step_ids, graph, dim_user_indexes_map):
-        # Extract the siblings and spouse edges of all nodes in the current step. The observations of these
-        # nodes must be updated.
-        sibling_edges = {(i, j) for uid in cur_step_ids for i in graph.predecessors(uid) for j in
-                         graph.successors(i) if i != j}
-        spouse_edges = {(i, j) for uid in cur_step_ids for j in graph.successors(uid) for i in
-                        graph.predecessors(j) if i != j}
-        related_edges = list(sibling_edges | spouse_edges)
-
-        for edge in related_edges:
-            index_map = dim_user_indexes_map[edge]
-            obs = observations[edge]
-            obs = self._update_obs(obs, cur_step_ids, index_map)
-            observations[edge] = obs
+            obs_nodes_ids_map[edge] = sorted(set(src_children) | set(dest_parents) - {edge[1]})
+        return obs_nodes_ids_map
 
     def _predict_by_obs(self, obs, edge, thr, memm, tree, last_obs=None, last_prob=None):
         if last_obs is not None and np.array_equal(obs, last_obs):

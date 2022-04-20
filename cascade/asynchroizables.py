@@ -76,9 +76,9 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: Any, ini
         count = 1
 
         if method == Method.TD_EDGE_MEMM:
-            dim_user_indexes_map = TDEdgeMEMMModel.extract_dim_user_indexes_map(graph)
+            obs_nodes_ids_map = TDEdgeMEMMModel.extract_obs_node_ids_map(graph)
         else:
-            dim_user_indexes_map = None
+            obs_nodes_ids_map = None
 
         for cid in cascade_ids:
             tree = trees[cid]
@@ -104,7 +104,7 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: Any, ini
                         res_trees = model.predict(cid, initial_tree, threshold=thresholds)
                     elif method == Method.TD_EDGE_MEMM:
                         res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step,
-                                                  dim_user_indexes_map=dim_user_indexes_map)
+                                                  obs_node_ids_map=obs_nodes_ids_map)
                     else:
                         res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step)
 

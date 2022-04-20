@@ -20,13 +20,13 @@ def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_
                  criterion: Criterion) -> dict:
     project = Project(project_name)
     results = {}
+    # eco = True
+    eco = False
 
     if multi_processed:
-        # testers = {method: MultiProcTester(project, method, criterion, eco=True) for method in methods}
-        testers = {method: MultiProcTester(project, method, criterion, eco=False) for method in methods}
+        testers = {method: MultiProcTester(project, method, criterion, eco=eco) for method in methods}
     else:
-        # testers = {method: DefaultTester(project, method, criterion, eco=True) for method in methods}
-        testers = {method: DefaultTester(project, method, criterion, eco=False) for method in methods}
+        testers = {method: DefaultTester(project, method, criterion, eco=eco) for method in methods}
 
     for initial_depth, max_depth in depth_settings:
         cur_results = {}

@@ -39,6 +39,15 @@ class SeqLabelModel(abc.ABC):
     def _train(self, sequences, iterations, all_states=None, **kwargs):
         pass
 
+    @abc.abstractmethod
+    def get_prob(self, obs: np.ndarray, state: int, all_states: list, timers: list = None) -> float:
+        """
+        Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
+        :param obs:     current observation
+        :param state:   the state
+        :param all_states:  list of all possible states
+        """
+
     def get_all_obs(self, sequences):
         observations = []
         states = []
@@ -128,13 +137,7 @@ class MEMM(SeqLabelModel, abc.ABC):
                 logger.debug('GIS iterations = %d, diff = %s', iter_count, diff)
                 break
 
-    def get_prob(self, obs: np.ndarray, state: int, all_states: list, timers: list = None) -> float:
-        """
-        Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
-        :param obs:     current observation
-        :param state:   the state
-        :param all_states:  list of all possible states
-        """
+    def get_prob(self, obs, state, all_states, timers=None):
         # if timers is None:
         #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
 
@@ -455,10 +458,15 @@ class CRF(SeqLabelModel):
         }
         crf_params = {param: kwargs[param] for param in params[alg] if param in kwargs}
         crf = sklearn_crfsuite.CRF(algorithm=alg, max_iterations=iterations, **crf_params)
-        features, states = self._calc_features(sequences)
+
+        features = [self._obs_feat_sequence([obs for obs, state in seq]) for seq in sequences]
+        states = [[self.__state_to_str(0)] + [self.__state_to_str(state) for obs, state in seq] for seq in sequences]
+        # logger.debugv('sequences = \n%s', pprint.pformat(sequences))
+        # logger.debugv('features = \n%s', pprint.pformat(features))
+        # logger.debugv('states = \n%s', pprint.pformat(states))
 
         crf.fit(features, states)
-        # logger.debugv('attributes_:\n%s', crf.attributes_)
+        logger.debugv('attributes_:\n%s', crf.attributes_)
         # logger.debugv('state_features_:\n%s', pprint.pformat(crf.state_features_))
         # logger.debugv('transition_features_:\n%s', pprint.pformat(crf.transition_features_))
 
@@ -467,35 +475,40 @@ class CRF(SeqLabelModel):
     def __state_to_str(self, state):
         return '1' if state else '0'
 
-    def _calc_features(self, sequences):
-        features = [[self._obs_feature(obs) for obs, state in seq] for seq in sequences]
-        states = [[self.__state_to_str(state) for obs, state in seq] for seq in sequences]
-        logger.debugv('features = \n%s', pprint.pformat(features))
-        logger.debugv('states = \n%s', pprint.pformat(states))
-
-        return features, states
-
-    def _obs_feat_sequence(self, obs):
-        features = []
-        for i in range(obs.shape[0]):
-            features.append(self._obs_feature(obs[:i + 1, :]))
-        return features
+    def _obs_feat_sequence(self, observations):
+        dim = observations[0].shape[1]
+        zero_obs = np.zeros((1, dim), dtype=bool)
+        zero_feat = self._obs_feature(zero_obs)
+        return [zero_feat] + [self._obs_feature(obs) for obs in observations]
 
     def _obs_feature(self, obs):
         return {f'{-i}:{j}': obs[i, j] for i in range(obs.shape[0]) for j in range(obs.shape[1])}
 
-    def get_prob(self, obs: np.ndarray, state, all_states: list, timers: list = None) -> float:
-        """
-        Get the probability of state=1 conditioned on the given observation and the previous state = 0 (inactivated).
-        :param obs:     current observation
-        :param state:   the state
-        :param all_states:  list of all possible states
-        """
+    def get_prob(self, obs, state, all_states, timers=None):
         # if timers is None:
         #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
 
-        features = self._obs_feat_sequence(obs)
+        observations = [obs[:i + 1, :] for i in range(obs.shape[0])]
+        features = self._obs_feat_sequence(observations)
         probs = self.crf.predict_marginals_single(features)
-        logger.debug('features = \n%s', features)
-        logger.debug('probs = \n%s', probs)
+        logger.debugv('features = \n%s', features)
+        logger.debugv('probs = \n%s', probs)
         return probs[-1][self.__state_to_str(state)]
+
+
+class BinCRF(CRF):
+    def _obs_feature(self, obs):
+        bin_feat = np.any(obs, axis=0)
+        return {str(i): bin_feat[i] for i in range(bin_feat.size)}
+
+
+class TDCRF(CRF):
+    def __init__(self, td_param=0.5):
+        super().__init__()
+        self.td_param = td_param
+
+    def _obs_feature(self, obs):
+        mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
+        mults = np.tile(mults.reshape(obs.shape[0], 1), obs.shape[1])
+        td_feat = np.sum(np.multiply(mults, obs), axis=0)
+        return {str(i): td_feat[i] for i in range(td_feat.size)}

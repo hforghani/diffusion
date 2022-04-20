@@ -18,7 +18,9 @@ class Method(Enum):
     LONG_PARENT_SENS_TD_MEMM = 'lptdmemm'
     FULL_TD_MEMM = 'ftdmemm'
     TD_EDGE_MEMM = 'tdememm'
-    CRF = 'crf'
+    LONG_CRF = 'lcrf'
+    BIN_CRF = 'bcrf'
+    TD_CRF = 'tdcrf'
     AVG = 'avg'
 
 

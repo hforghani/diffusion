@@ -1,31 +1,23 @@
 import argparse
-# from profilehooks import timecall, profile
-import pprint
-from numbers import Number
+import itertools
 
 import numpy as np
 
 from cascade.metric import Metric
 from cascade.models import Project
-import settings
 from cascade.testers import MultiProcTester, DefaultTester
 from diffusion.enum import Method, Criterion
 from settings import logger
 from utils.time_utils import time_measure
 
 
-# import pydevd_pycharm
-#
-# pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
-
-
-def run_predict(method_name: str, project_name: str, validation: bool, criterion: Criterion, initial_depth: int,
-                max_depth: int, multi_processed: bool, eco: bool, param: list) -> Metric:
+def run_predict(method_name: str, project_name: str, criterion: Criterion, initial_depth: int,
+                max_depth: int, multi_processed: bool, eco: bool, params: list):
     project = Project(project_name)
     method = Method(method_name)
-    param = extract_param(param, validation)
-    threshold = param['threshold']
-    del param['threshold']
+    params = extract_param(params)
+    threshold = params['threshold']
+    del params['threshold']
 
     # Log the test configuration.
     logger.info(f'{"db":<20}| {project.db}')
@@ -34,28 +26,43 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
     logger.info(f'{"initial depth":<20}| {initial_depth}')
     logger.info(f'{"max depth":<20}| {max_depth}')
     logger.info(f'{"threshold":<20}| {threshold}')
-    for key, value in param.items():
+    for key, value in params.items():
         logger.info(f'{key:<20}| {value}')
 
-    if multi_processed:
-        tester = MultiProcTester(project, method, criterion, eco)
-    else:
-        tester = DefaultTester(project, method, criterion, eco)
+    tunables = {key: params[key] for key in params if key != 'iterations' and isinstance(params[key], list)}
+    nontunables = {key: params[key] for key in params if key not in tunables}
+    _, val_set, test_set = project.load_sets()
 
-    if validation:
-        return tester.run_validation_test(threshold, initial_depth, max_depth, **param)
-    else:
-        return tester.run_test(threshold, initial_depth, max_depth, **param)
+    tunable_params = list(tunables.keys())
+    combinations = itertools.product(*[tunables[param] for param in tunable_params])
+    best_params, best_f1 = None, -1
+
+    for comb in combinations:
+        cur_param = dict(zip(tunable_params, comb))
+        cur_param.update(nontunables)
+        logger.info('{0} running with params {1} {0}'.format('=' * 20, cur_param))
+
+        if multi_processed:
+            tester = MultiProcTester(project, method, criterion, eco)
+        else:
+            tester = DefaultTester(project, method, criterion, eco)
+        mean_res, res = tester.run_validation_test(threshold, initial_depth, max_depth, **cur_param)
+        if mean_res.f1() > best_f1:
+            best_params, best_f1 = cur_param, mean_res.f1()
+
+    return best_params, best_f1
 
 
-def extract_param(param, validation):
+def extract_param(param):
     new_param = {}
     for items in param:
         if len(items) == 4:
             param_name, start, end, step = items
             start, end, step = float(start), float(end), float(step)
-            new_param[param_name] = np.arange(start, end, step).tolist()
-            new_param[param_name].append(end)
+            values = [round(val, 5) for val in np.arange(start, end, step)]
+            if end not in values:
+                values.append(end)
+            new_param[param_name] = values
         elif len(items) == 2:
             try:
                 new_param[items[0]] = int(items[1])
@@ -66,9 +73,7 @@ def extract_param(param, validation):
                     new_param[items[0]] = items[1]
         else:
             raise ValueError('invalid format for params option')
-    if not validation and any(isinstance(value, list) for value in new_param.values()):
-        raise ValueError('2 arguments must be given to option "param" in test mode')
-    if validation and all(isinstance(value, float) for value in new_param.values()):
+    if all(isinstance(value, float) for value in new_param.values()):
         raise ValueError('At least one --param option with 4 arguments must be given in validation mode')
 
     return new_param
@@ -76,12 +81,10 @@ def extract_param(param, validation):
 
 @time_measure('info')
 def handle(args):
-    res = run_predict(args.method, args.project, args.validation, Criterion(args.criterion), args.initial_depth,
-                      args.max_depth, args.multi_processed, args.eco, args.param)
+    best_params, best_f1 = run_predict(args.method, args.project, Criterion(args.criterion),
+                                       args.initial_depth, args.max_depth, args.multi_processed, args.eco, args.param)
 
-    if res is not None:
-        logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', res.precision(), res.recall(),
-                    res.f1(), res.fpr())
+    logger.info('best F1 = %f with parameters %s', best_f1, best_params)
 
 
 def main():
