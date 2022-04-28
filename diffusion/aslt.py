@@ -10,6 +10,7 @@ from sklearn.preprocessing import normalize
 
 import settings
 from cascade.models import ParamTypes
+from diffusion.enum import Method
 from diffusion.models import LT
 from settings import logger
 from utils.time_utils import Timer, time_measure
@@ -302,17 +303,19 @@ def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, c_set1
 
 
 class AsLT(LT):
-    def __init__(self, project):
-        super(AsLT, self).__init__(project)
+    method = Method.ASLT
+    max_iterations = 20
+
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold)
         self.w_param_name = 'w-aslt'
         self.r_param_name = 'r-aslt'
-        self.max_iterations = 20
 
-    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
-        iterations = kwargs.get('iterations', self.max_iterations)
+    def calc_parameters(self, train_set, project, multi_processed, eco, iterations=None, **kwargs):
         if iterations is None:
             iterations = self.max_iterations
-        graph, sequences = self.project.load_or_extract_graph_seq()
+
+        graph, sequences = project.load_or_extract_graph_seq(train_set)
 
         # Create maps from users and cascades db id's to their matrix id's.
         logger.debug('creating user and cascade id maps ...')
@@ -323,7 +326,7 @@ class AsLT(LT):
         logger.info('user space size = %d', len(user_map))
 
         # Set initial values of w and r.
-        w, r = self.__initialize(user_ids, user_map, graph, eco)
+        w, r = self.__initialize(user_ids, user_map, graph, project, eco)
 
         # Run EM algorithm.
         logger.info('running algorithm ...')
@@ -331,26 +334,28 @@ class AsLT(LT):
             with Timer('iteration time'):
                 logger.info('#%d' % (i + 1))
 
-                h = self._load_or_calc_h(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco)
-                phi_h = self.__load_or_calc_phi_h(sequences, graph, w, r, h, train_set, cascade_map, user_map,
+                h = self._load_or_calc_h(sequences, graph, w, r, train_set, cascade_map, user_map, project,
+                                         multi_processed, eco)
+                phi_h = self.__load_or_calc_phi_h(sequences, graph, w, r, h, train_set, cascade_map, user_map, project,
                                                   multi_processed, eco)
                 if eco:
                     del phi_h, h
 
-                g = self.__load_or_calc_g(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed,
+                g = self.__load_or_calc_g(sequences, graph, w, r, train_set, cascade_map, user_map, project,
+                                          multi_processed,
                                           eco)
-                phi_g = self.__load_or_calc_phi_g(sequences, graph, w, g, train_set, cascade_map, user_map,
+                phi_g = self.__load_or_calc_phi_g(sequences, graph, w, g, train_set, cascade_map, user_map, project,
                                                   multi_processed, eco)
 
                 if eco:
                     del phi_g
 
-                psi = self.__load_or_calc_psi(sequences, graph, w, r, g, train_set, cascade_map, user_map,
+                psi = self.__load_or_calc_psi(sequences, graph, w, r, g, train_set, cascade_map, user_map, project,
                                               multi_processed, eco)
 
                 del g
                 if eco:
-                    phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)
+                    phi_h = project.load_param('phi_h', ParamTypes.SPARSE_LIST)
                     logger.debug('phi_h loaded')
 
                 logger.debug('estimating r ...')
@@ -360,7 +365,7 @@ class AsLT(LT):
                                      r_multi_processed)
 
                 if eco:
-                    phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)
+                    phi_g = project.load_param('phi_g', ParamTypes.SPARSE_LIST)
                     logger.debug('phi_g loaded')
 
                 logger.debug('estimating w ...')
@@ -373,15 +378,15 @@ class AsLT(LT):
 
                 if eco:
                     # Save r and w.
-                    self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
-                    self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
+                    project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
+                    project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
 
                     # Delete all except w and r.
-                    self.project.delete_param('h', ParamTypes.SPARSE)
-                    self.project.delete_param('g', ParamTypes.SPARSE)
-                    self.project.delete_param('phi_h', ParamTypes.SPARSE_LIST)
-                    self.project.delete_param('phi_g', ParamTypes.SPARSE_LIST)
-                    self.project.delete_param('psi', ParamTypes.SPARSE_LIST)
+                    project.delete_param('h', ParamTypes.SPARSE)
+                    project.delete_param('g', ParamTypes.SPARSE)
+                    project.delete_param('phi_h', ParamTypes.SPARSE_LIST)
+                    project.delete_param('phi_g', ParamTypes.SPARSE_LIST)
+                    project.delete_param('psi', ParamTypes.SPARSE_LIST)
 
                 # Calculate and report delta r and delta w.
                 r_dif = np.linalg.norm(r - last_r)
@@ -399,11 +404,12 @@ class AsLT(LT):
         self.w = w.toarray()
         self.r = r
 
-    def __load_or_calc_psi(self, sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed, eco):
+    def __load_or_calc_psi(self, sequences, graph, w, r, g, train_set, cascade_map, user_map, project, multi_processed,
+                           eco):
         data_loaded = False
         if eco:
             try:
-                psi = self.project.load_param('psi', ParamTypes.SPARSE_LIST)
+                psi = project.load_param('psi', ParamTypes.SPARSE_LIST)
                 logger.debug('psi loaded')
                 data_loaded = True
             except FileNotFoundError:
@@ -412,14 +418,15 @@ class AsLT(LT):
             logger.debug('calculating psi ...')
             psi = self.__calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed)
             if eco:
-                self.project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
+                project.save_param(psi, 'psi', ParamTypes.SPARSE_LIST)
         return psi
 
-    def __load_or_calc_phi_g(self, sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed, eco):
+    def __load_or_calc_phi_g(self, sequences, graph, w, g, train_set, cascade_map, user_map, project, multi_processed,
+                             eco):
         data_loaded = False
         if eco:
             try:
-                phi_g = self.project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
+                phi_g = project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
                 data_loaded = True
             except FileNotFoundError:
                 pass
@@ -427,14 +434,15 @@ class AsLT(LT):
             logger.debug('calculating phi_g ...')
             phi_g = self.__calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed)
             if eco:
-                self.project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
+                project.save_param(phi_g, 'phi_g', ParamTypes.SPARSE_LIST)
         return phi_g
 
-    def __load_or_calc_phi_h(self, sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed, eco):
+    def __load_or_calc_phi_h(self, sequences, graph, w, r, h, train_set, cascade_map, user_map, project,
+                             multi_processed, eco):
         data_loaded = False
         if eco:
             try:
-                phi_h = self.project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
+                phi_h = project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
                 data_loaded = True
             except FileNotFoundError:
                 pass
@@ -442,14 +450,14 @@ class AsLT(LT):
             logger.debug('calculating phi_h ...')
             phi_h = self.__calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed)
             if eco:
-                self.project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
+                project.save_param(phi_h, 'phi_h', ParamTypes.SPARSE_LIST)
         return phi_h
 
-    def __load_or_calc_g(self, sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco):
+    def __load_or_calc_g(self, sequences, graph, w, r, train_set, cascade_map, user_map, project, multi_processed, eco):
         data_loaded = False
         if eco:
             try:
-                g = self.project.load_param('g', ParamTypes.SPARSE)
+                g = project.load_param('g', ParamTypes.SPARSE)
                 logger.debug('g loaded')
                 data_loaded = True
             except FileNotFoundError:
@@ -458,14 +466,14 @@ class AsLT(LT):
             logger.debug('calculating g ...')
             g = self.__calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
             if eco:
-                self.project.save_param(g, 'g', ParamTypes.SPARSE)
+                project.save_param(g, 'g', ParamTypes.SPARSE)
         return g
 
-    def _load_or_calc_h(self, sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed, eco):
+    def _load_or_calc_h(self, sequences, graph, w, r, train_set, cascade_map, user_map, project, multi_processed, eco):
         data_loaded = False
         if eco:
             try:
-                h = self.project.load_param('h', ParamTypes.SPARSE)
+                h = project.load_param('h', ParamTypes.SPARSE)
                 logger.debug('h loaded')
                 data_loaded = True
             except FileNotFoundError:
@@ -474,15 +482,15 @@ class AsLT(LT):
             logger.debug('calculating h ...')
             h = self.__calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
             if eco:
-                self.project.save_param(h, 'h', ParamTypes.SPARSE)
+                project.save_param(h, 'h', ParamTypes.SPARSE)
         return h
 
-    def __initialize(self, user_ids, user_map, graph, eco):
+    def __initialize(self, user_ids, user_map, graph, project, eco):
         data_loaded = False
         if eco:
             try:
-                w = self.project.load_param(self.w_param_name, ParamTypes.SPARSE)
-                r = self.project.load_param(self.r_param_name, ParamTypes.ARRAY)
+                w = project.load_param(self.w_param_name, ParamTypes.SPARSE)
+                r = project.load_param(self.r_param_name, ParamTypes.ARRAY)
                 logger.debug('w and r loaded')
                 data_loaded = True
             except FileNotFoundError:
@@ -491,8 +499,8 @@ class AsLT(LT):
             logger.debug('initializing parameters ...')
             w, r = self.__set_initial_values(graph, user_ids, user_map)
             if eco:
-                self.project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
-                self.project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
+                project.save_param(w, self.w_param_name, ParamTypes.SPARSE)
+                project.save_param(r, self.r_param_name, ParamTypes.ARRAY)
         return w, r
 
     @time_measure('debug')

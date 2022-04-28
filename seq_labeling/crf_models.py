@@ -12,6 +12,12 @@ from settings import logger
 class CRFModel(NodeSeqLabelModel):
     method = Method.LONG_CRF
 
+    def __init__(self, algorithm='lbfgs', c1=0, c2=1, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold, **kwargs)
+        self.algorithm = algorithm
+        self.c1 = c1
+        self.c2 = c2
+
     @classmethod
     def _train_model(cls, evidence, iterations, key, graph, **kwargs):
         crf = cls.get_crf_instance(**kwargs)
@@ -101,9 +107,12 @@ class BinCRFModel(SmallFeatCRFModel):
 
 
 class TDCRFModel(SmallFeatCRFModel):
+    def __init__(self, td_param=0.5, **kwargs):
+        super().__init__(**kwargs)
+        self.td_param = td_param
+
     method = Method.TD_CRF
 
     @classmethod
-    def get_crf_instance(cls, **kwargs):
-        td_param = kwargs.get('td_param')
-        return TDCRF(td_param) if td_param else TDCRF()
+    def get_crf_instance(cls, td_param, **kwargs):
+        return TDCRF(td_param)

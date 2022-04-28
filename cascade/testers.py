@@ -2,13 +2,20 @@ import itertools
 import math
 import numbers
 import os
+import random
+import typing
 from multiprocessing import Pool
 
+import scipy
 from bson import ObjectId
 from matplotlib import pyplot
 from networkx import DiGraph
+from sklearn.metrics import make_scorer
+from sklearn.model_selection import GridSearchCV
+from sklearn_crfsuite import metrics
 
-from cascade.asynchroizables import test_cascades
+import settings
+from cascade.asynchroizables import test_cascades, evaluate_nodes, evaluate_edges
 from cascade.metric import Metric
 from cascade.models import Project
 from diffusion.aslt import AsLT
@@ -16,6 +23,7 @@ from diffusion.avg import LTAvg
 from diffusion.ctic import CTIC
 from diffusion.enum import Criterion
 from diffusion.ic_models import DAIC, EMIC
+from diffusion.models import DiffusionModel
 from seq_labeling.crf_models import *
 from seq_labeling.memm_models import *
 from mln.file_generators import FileCreator
@@ -44,6 +52,26 @@ METHOD_MODEL_MAP = {
 }
 
 
+def trees_f1_scorer(true_trees, pred_trees, initial_depth, max_depth, graph, criterion=Criterion.NODES):
+    f1_values = []
+
+    for i in range(len(true_trees)):
+        true_tree = true_trees[i]
+        pred_tree = pred_trees[i]
+        initial_tree = true_tree.copy(initial_depth)
+
+        if criterion == Criterion.NODES:
+            all_node_ids = list(graph.nodes())
+            meas, _, _ = evaluate_nodes(initial_tree, pred_tree, true_tree, all_node_ids, max_depth)
+        else:
+            all_edges = set(graph.edges())
+            meas, _, _ = evaluate_edges(initial_tree, pred_tree, true_tree, all_edges, max_depth)
+        f1_values.append(meas.f1())
+
+    f1 = np.mean(np.array(f1_values))
+    return f1
+
+
 class ProjectTester(abc.ABC):
     def __init__(self, project: Project, method: Method, criterion: Criterion = Criterion.NODES, eco: bool = False):
         self.project = project
@@ -52,82 +80,65 @@ class ProjectTester(abc.ABC):
         self.criterion = criterion
         self.eco = eco
 
-    def run_validation_test(self, thresholds: list, initial_depth: int, max_depth: int, **kwargs) \
+    def run_validation_test(self, initial_depth: int, max_depth: int, **kwargs) \
             -> typing.Tuple[Metric, dict]:
-        """ Run the training, validation, and test stages for the project """
-        tunables = {key: kwargs[key] for key in kwargs if key != 'iterations' and isinstance(kwargs[key], list)}
+        """ Run cross-validation for the project """
+        tunables = {key: kwargs[key] for key in kwargs if isinstance(kwargs[key], list)}
         nontunables = {key: kwargs[key] for key in kwargs if key not in tunables}
-        _, val_set, test_set = self.project.load_sets()
+        logger.debug('tunables = %s', tunables)
+        logger.debug('nontunables = %s', nontunables)
+        train_set, test_set = self.project.load_sets()
 
-        if self.model is None and tunables:
-            best_thr, self.model = self._tune_params(thresholds, initial_depth, max_depth, tunables, nontunables)
+        if tunables:
+            if list(tunables.keys()) == ['threshold']:  # There is just one hyperparameter "threshold" to tune.
+                logger.info('{0} VALIDATION {0}'.format('=' * 20))
+                best_params = self._tune_threshold(initial_depth, max_depth, **kwargs)
+            else:
+                best_params = self._tune_params(initial_depth, max_depth, tunables, nontunables)
         else:
-            if self.model is None:
-                self.model = self.train(**kwargs)
-            logger.info('{0} VALIDATION {0}'.format('=' * 20))
-            best_thr, best_f1 = self.validate(val_set, self.model, thresholds, initial_depth, max_depth)
+            best_params = kwargs
 
-        if isinstance(best_thr, numbers.Number):
-            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), best_thr)
-        else:
-            logger.info('{0} TEST {0}'.format('=' * 20))
-        mean_res, res = self.test(test_set, self.model, best_thr, initial_depth, max_depth)
+        logger.info('best_params = %s', best_params)
+        logger.info('{0} TRAINING WITH THE BEST PARAMETERS {0}'.format('=' * 20))
+        self.model = self.train(train_set, **best_params)
+        logger.info('{0} TEST {0}'.format('=' * 20))
+        graph = self.project.load_or_extract_graph()
+        mean_res, res = self.test(test_set, self.model, graph, initial_depth, max_depth, **best_params)
+        logger.debug('type(mean_res) = %s', type(mean_res))
         return mean_res, res
 
-    def run_test(self, threshold: numbers.Number, initial_depth: int, max_depth: int, **kwargs) -> Metric:
-        """ Run the training, and test stages for the project """
-        if self.model is None:
-            self.model = self.train(**kwargs)
+    def _get_model(self, initial_depth=0, max_depth=None, **params):
+        max_step = max_depth - initial_depth if max_depth else None
+        if self.method == Method.MLN_PRAC:
+            model = MLN(initial_depth=initial_depth, max_step=max_step, method='edge',
+                        format=FileCreator.FORMAT_PRACMLN,
+                        **params)  # TODO: Implement fit method.
+        elif self.method == Method.MLN_ALCH:
+            model = MLN(initial_depth=initial_depth, max_step=max_step, method='edge',
+                        format=FileCreator.FORMAT_ALCHEMY2, **params)
+        elif self.method in METHOD_MODEL_MAP:
+            model_clazz = METHOD_MODEL_MAP[self.method]
+            model = model_clazz(initial_depth=initial_depth, max_step=max_step, **params)
+        else:
+            raise Exception('invalid method "%s"' % self.method.value)
+        return model
 
-        with Timer('test'):
-            _, val_set, test_set = self.project.load_sets()
-            logger.info('{0} TEST (threshold = %f) {0}'.format('=' * 20), threshold)
-            mean_res, res = self.test(test_set, self.model, threshold, initial_depth, max_depth)
-            return mean_res
-
-    def train(self, **kwargs):
+    def train(self, train_set, **kwargs):
+        model = self._get_model()
+        trees = self.project.load_trees()
+        # TODO: Is is necessary to apply initial_depth and max_depth to trees?
+        train_trees = [trees[cid] for cid in train_set]
         with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
-            # Create and train the model if needed.
-            if self.method == Method.MLN_PRAC:
-                model = MLN(self.project, method='edge', format=FileCreator.FORMAT_PRACMLN)
-            elif self.method == Method.MLN_ALCH:
-                model = MLN(self.project, method='edge', format=FileCreator.FORMAT_ALCHEMY2)
-            elif self.method in METHOD_MODEL_MAP:
-                model_clazz = METHOD_MODEL_MAP[self.method]
-                model = model_clazz(self.project).fit(multi_processed=self.multi_processed, eco=self.eco, **kwargs)
-            else:
-                raise Exception('invalid method "%s"' % self.method.value)
+            model.fit(train_set, train_trees, self.project, multi_processed=self.multi_processed, eco=self.eco,
+                      **kwargs)
             return model
 
-    @time_measure(level='info')
-    def validate(self, val_set, model, thresholds, initial_depth=0, max_depth=None):
-        """
-        :param model: trained model, if None the model is trained in test method
-        :param val_set: validation set. list of cascade id's
-        :param thresholds: list of validation thresholds
-        :param initial_depth: depth of initial nodes of tree
-        :param max_depth: maximum depth of tree to which we want to predict
-        :return:
-        """
-        mean_res, res = self.test(val_set, model, thresholds, initial_depth, max_depth)
-        if mean_res is None:
-            return None
-
-        best_thr = max(mean_res, key=lambda thr: mean_res[thr].f1())
-        best_f1 = mean_res[best_thr].f1()
-        logger.info(f'F1 max = {best_f1} in threshold = {best_thr}')
-        self.__save_charts(best_thr, mean_res, thresholds, initial_depth, max_depth)
-        return best_thr, best_f1
-
     @time_measure('debug')
-    def test(self, test_set: list, model: typing.Any, thr: typing.Any, initial_depth: int = 0, max_depth: int = None) \
-            -> tuple:
+    def test(self, test_set: list, model: DiffusionModel, graph: DiGraph, initial_depth: int = 0, max_depth: int = None,
+             **params) -> tuple:
         """
         Test on test set by the threshold(s) given.
         :param test_set: list of cascade ids to test
-        :param thr: If it is a number, it is the activation threshold. If it is a list then it is
-            considered as list of thresholds. In this case the method returns a list of precisions, recals,
-            f1s, FPRs.
         :param initial_depth: the depth to which the nodes considered as initial nodes.
         :param max_depth: the depth to which the prediction will be done.
         :param model: the prediction model instance (an instance of MEMMModel, AsLT, or ...)
@@ -136,7 +147,6 @@ class ProjectTester(abc.ABC):
         """
         # Load cascade trees and graph.
         trees = self.project.load_trees()
-        graph = self.project.load_or_extract_graph()
 
         logger.info('number of cascades : %d' % len(test_set))
 
@@ -145,17 +155,15 @@ class ProjectTester(abc.ABC):
                 'no average results since the initial depth is more than or equal to the depths of all trees')
             return None
 
-        if isinstance(thr, numbers.Number):  # It is on test stage.
-            thr = [thr]
+        results = self._do_test(test_set, model, graph, trees, initial_depth, max_depth, **params)
 
-        results = self._do_test(test_set, model, thr, graph, trees, initial_depth, max_depth)
-
-        if len(results) == 1:  # It is on test stage. Set the results as the list of metrics.
-            results = next(iter(results.values()))
+        # if len(results) == 1:  # It is on test stage. Set the results as the list of metrics.
+        #     results = next(iter(results.values()))
 
         if isinstance(results, list):  # It is on test stage
             self._log_cascades_results(test_set, results)
 
+        logger.debug('type(results) = %s', type(results))
         if isinstance(results, list):  # It is on test stage
             mean_res = self._get_mean_results(results)
         else:  # It is on validation stage and results is a dict.
@@ -163,28 +171,72 @@ class ProjectTester(abc.ABC):
 
         return mean_res, results
 
-    def _tune_params(self, thresholds, initial_depth, max_depth, tunables, nontunables):
-        tunable_params = list(tunables.keys())
-        combinations = itertools.product(*[tunables[param] for param in tunable_params])
-        best_thr, best_params, best_f1, best_model = None, None, -1, None
+    @time_measure(level='info')
+    def _tune_threshold(self, initial_depth, max_depth, threshold, **params):
+        """
+        The tunable parameters are related to the test step (indeed they are hyperparameters and are not used
+        in the training step).
+        :param initial_depth: depth of initial nodes of tree
+        :param max_depth: maximum depth of tree to which we want to predict
+        :return:
+        """
+        folds_num = 3
+        folds = self.get_cross_val_folds(folds_num)
+        results = {}
 
-        for comb in combinations:
-            params = dict(zip(tunable_params, comb))
-            params.update(nontunables)
-            logger.info('{0} TRAINING with params {1} {0}'.format('=' * 20, params))
-            model = self.train(**params)
-            _, val_set, test_set = self.project.load_sets()
+        # for each fold, train on the others and test on that fold.
+        for i in range(folds_num):
+            val_set = folds[i]
+            train_set = reduce(lambda x, y: x + y, folds[:i] + folds[i + 1:], [])
+            logger.info('{0} TRAINING on fold {1} {0}'.format('=' * 20, i + 1))
+            model = self.train(train_set, threshold=threshold, **params)
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
-            thr, f1 = self.validate(val_set, model, thresholds, initial_depth, max_depth)
-            if f1 > best_f1:
-                best_thr, best_params, best_f1, best_model = thr, params, f1, model
+            graph = self.project.load_or_extract_graph(train_set)
+            fold_res, _ = self.test(val_set, model, graph, initial_depth, max_depth, threshold=threshold, **params)
+            for thr in threshold:
+                results.setdefault(thr, [])
+                results[thr].append(fold_res[thr].f1())
 
-        logger.info('best parameters: %s', best_params)
-        return best_thr, best_model
+        logger.debug('results = %s', results)
+        mean_res = {thr: np.mean(np.array(results[thr])) for thr in results}
+        logger.debug('mean_res = %s', mean_res)
+        best_thr = max(mean_res, key=lambda thr: mean_res[thr])
+        best_params = params.copy()
+        best_params['threshold'] = best_thr
+        return best_params
+
+    def _tune_params(self, initial_depth, max_depth, tunables, nontunables):
+        graph = self.project.load_or_extract_graph()
+        f1_scorer = make_scorer(trees_f1_scorer,
+                                initial_depth=initial_depth,
+                                max_depth=max_depth,
+                                graph=graph,
+                                criterion=self.criterion)
+
+        model = self._get_model(initial_depth, max_depth, **nontunables)
+
+        # search
+        folds_num = 3
+        n_jobs = settings.PROCESS_COUNT if self.multi_processed else 1
+        gs = GridSearchCV(model, tunables, cv=folds_num, verbose=1, n_jobs=n_jobs, scoring=f1_scorer)
+
+        train_set, test_set = self.project.load_sets()
+        trees = self.project.load_trees()
+        # TODO: Is is necessary to apply initial_depth and max_depth to trees?
+        train_trees = [trees[cid] for cid in train_set]
+        gs.fit(train_set, train_trees, project=self.project)
+
+        return gs.best_params_
+
+    def get_cross_val_folds(self, folds_num):
+        train_set, test_set = self.project.load_sets()
+        fold_size = math.ceil(len(train_set) / folds_num)
+        folds = [train_set[i: i + fold_size] for i in range(0, len(train_set), fold_size)]
+        return folds
 
     @abc.abstractmethod
-    def _do_test(self, test_set: list, model, thresholds, graph: DiGraph, trees: dict, initial_depth: int = 0,
-                 max_depth: int = None) -> typing.Union[dict, list]:
+    def _do_test(self, test_set: list, model, graph: DiGraph, trees: dict, initial_depth: int = 0,
+                 max_depth: int = None, **params) -> typing.Union[dict, list]:
         pass
 
     def _get_mean_results_dict(self, results: dict) -> dict:
@@ -299,9 +351,9 @@ class ProjectTester(abc.ABC):
 
 
 class DefaultTester(ProjectTester):
-    def _do_test(self, test_set, model, thresholds, graph, trees, initial_depth=0, max_depth=None):
-        return test_cascades(test_set, self.method, model, thresholds, initial_depth, max_depth, self.criterion, trees,
-                             graph)
+    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params):
+        return test_cascades(test_set, self.method, model, initial_depth, max_depth, self.criterion, trees,
+                             graph, **params)
 
     def _get_validate_n_jobs(self):
         return None
@@ -312,7 +364,7 @@ class DefaultTester(ProjectTester):
 
 
 class MultiProcTester(ProjectTester):
-    def _do_test(self, test_set, model, thresholds, graph, trees, initial_depth=0, max_depth=None):
+    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params):
         """
         Create a process pool to distribute the prediction.
         """
@@ -323,23 +375,21 @@ class MultiProcTester(ProjectTester):
         for j in range(0, len(test_set), step):
             cascade_ids = test_set[j: j + step]
             res = pool.apply_async(test_cascades,
-                                   (cascade_ids, self.method, model, thresholds, initial_depth, max_depth,
-                                    self.criterion, trees, graph))
+                                   (
+                                       cascade_ids, self.method, model, initial_depth, max_depth, self.criterion, trees,
+                                       graph
+                                   ),
+                                   params)
             results.append(res)
 
         pool.close()
         pool.join()
 
-        test_res = {thr: [] for thr in thresholds} if isinstance(thresholds, list) else []
-
-        # Collect results of the processes.
-        for res in results:
-            cur_res = res.get()
-            if isinstance(thresholds, list):
-                for thr in thresholds:
-                    test_res[thr].extend(cur_res[thr])
-            else:
-                test_res.extend(cur_res)
+        got_results = [res.get() for res in results]
+        if isinstance(got_results[0], list):  # It is on test stage.
+            test_res = reduce(lambda x, y: x + y, got_results, [])
+        else:  # It is on validation stage.
+            test_res = reduce(lambda x, y: {key: x.get(key, []) + y[key] for key in y}, got_results, {})
 
         return test_res
 

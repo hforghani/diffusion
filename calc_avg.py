@@ -62,7 +62,7 @@ class Command():
             project = Project(project_name)
 
             lt_avg = LTAvg(project)
-            lt_avg.calc_parameters(args.weight, args.delay, args.continu)
+            lt_avg.calc_parameters(args.weight, args.delay,,
 
             logger.info('command done in %f min' % ((time.time() - start) / 60))
         except:

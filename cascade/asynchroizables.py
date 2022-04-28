@@ -1,3 +1,4 @@
+import numbers
 import traceback
 import typing
 from typing import Tuple, Any
@@ -68,17 +69,18 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
                                                     res_tree_render[i] if i < len(res_tree_render) else ''))
 
 
-def test_cascades(cascade_ids: list, method: Method, model, thresholds: Any, initial_depth: int, max_depth: int,
-                  criterion: Criterion, trees: dict, graph: DiGraph) -> typing.Union[dict, list]:
+def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, max_depth: int, criterion: Criterion,
+                  trees: dict, graph: DiGraph, threshold: typing.Union[list, numbers.Number], **params) \
+        -> typing.Union[dict, list]:
     try:
-        results = {thr: [] for thr in thresholds} if isinstance(thresholds, list) else []
+        logger.debug('type(threshold) = %s', type(threshold))
+        results = {thr: [] for thr in threshold} if isinstance(threshold, list) else []
         max_step = max_depth - initial_depth if max_depth is not None else None
         count = 1
 
         if method == Method.TD_EDGE_MEMM:
             obs_nodes_ids_map = TDEdgeMEMMModel.extract_obs_node_ids_map(graph)
-        else:
-            obs_nodes_ids_map = None
+            params['obs_nodes_ids_map'] = obs_nodes_ids_map
 
         for cid in cascade_ids:
             tree = trees[cid]
@@ -86,8 +88,8 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: Any, ini
             if initial_depth >= tree.depth:
                 count += 1
                 logger.info('cascade <%s> ignored since the initial depth is more than or equal to the tree depth', cid)
-                if isinstance(thresholds, list):
-                    for thr in thresholds:
+                if isinstance(threshold, list):
+                    for thr in threshold:
                         results[thr].append(None)
                 else:
                     results.append(None)
@@ -101,41 +103,38 @@ def test_cascades(cascade_ids: list, method: Method, model, thresholds: Any, ini
                 with Timer('prediction', level='debug'):
                     # TODO: apply max_depth for all methods.
                     if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
-                        res_trees = model.predict(cid, initial_tree, threshold=thresholds)
-                    elif method == Method.TD_EDGE_MEMM:
-                        res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step,
-                                                  obs_node_ids_map=obs_nodes_ids_map)
+                        res_tree = model.predict_one_sample(cid, threshold=threshold, **params)
                     else:
-                        res_trees = model.predict(initial_tree, graph, thresholds=thresholds, max_step=max_step)
+                        res_tree = model.predict_one_sample(initial_tree, threshold, graph, max_step)
 
                 # Evaluate the results.
                 with Timer('evaluating results', level='debug'):
-                    if isinstance(thresholds, list):
+                    if isinstance(threshold, list):
                         logs = [f'{"threshold":>10}{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
-                        for thr in thresholds:
-                            res_tree = res_trees[thr]
-                            meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
-                                                                     graph)
+                        for thr in threshold:
+                            meas, res_output, true_output = evaluate(initial_tree, res_tree[thr], tree, max_depth,
+                                                                     criterion, graph)
                             results[thr].append(meas)
                             logs.append(
                                 f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{meas.precision():10.3f}'
                                 f'{meas.recall():10.3f}{meas.f1():10.3f}')
                     else:
-                        # res_trees is an instance of CascadeTree
+                        # res_tree is an instance of CascadeTree
                         logs = [f'{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
-                        meas, res_output, true_output = evaluate(initial_tree, res_trees, tree, max_depth, criterion,
+                        meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
                                                                  graph)
                         results.append(meas)
                         logs.append(
                             f'{len(res_output):10}{len(true_output):10}{meas.precision():10.3f}{meas.recall():10.3f}'
                             f'{meas.f1():10.3f}')
 
-                    # log_trees(tree, res_trees, max_depth)
+                    # log_trees(tree, res_tree, max_depth)
                     logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
 
             count += 1
 
         logger.info('done')
+        logger.debug('type(results) = %s', type(results))
         return results
 
     except:

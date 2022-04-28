@@ -16,7 +16,7 @@ def get_params(project_name, method):
     return {}
 
 
-def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_processed: bool,
+def multiple_run(methods: list, depth_settings: list, project_name: str, multi_processed: bool,
                  criterion: Criterion) -> dict:
     project = Project(project_name)
     results = {}
@@ -36,7 +36,7 @@ def multiple_run(methods: list, depth_settings: tuple, project_name: str, multi_
             thresholds = [i / 100 for i in range(101)]
             params = get_params(project_name, method)
             logger.info('params = %s', params)
-            mean_res = testers[method].run_validation_test(thresholds, initial_depth, max_depth, **params)
+            mean_res, res = testers[method].run_validation_test(thresholds, initial_depth, max_depth, **params)
             cur_results[method] = mean_res.f1()
         results[(initial_depth, max_depth)] = cur_results
     return results
@@ -65,9 +65,10 @@ def main():
 
     methods = [Method(met) for met in args.methods]
 
-    one_step_depths = [(i, i + 1) for i in range(max_depth)]
-    thorough_depths = [(i, None) for i in range(max_depth)]
-    depth_settings = one_step_depths + thorough_depths
+    # one_step_depths = [(i, i + 1) for i in range(max_depth)]
+    # thorough_depths = [(i, None) for i in range(max_depth)]
+    # depth_settings = one_step_depths + thorough_depths
+    depth_settings = [(0, None)]
     results = multiple_run(methods, depth_settings, args.project, args.multi_processed, Criterion(args.criterion))
 
     logs = [f'{"from depth":<15}{"to depth":<15}' + ''.join(f'{method.value:<15}' for method in methods)]

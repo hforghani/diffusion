@@ -323,12 +323,14 @@ class Project:
             data = json.load(open(sample_set_path))
             train_cascades, val_cascades, test_cascades = data['training'], data['validation'], data['test']
             self.training = [ObjectId(_id) for _id in train_cascades]
-            self.validation = [ObjectId(_id) for _id in val_cascades]
-            self.test = [ObjectId(_id) for _id in test_cascades]
+            # self.validation = [ObjectId(_id) for _id in val_cascades]
+            # self.test = [ObjectId(_id) for _id in test_cascades]
+            self.test = [ObjectId(_id) for _id in val_cascades + test_cascades]
         else:
             raise Exception('Data sample not found. Run sampledata command.')
 
-        return self.training, self.validation, self.test
+        # return self.training, self.validation, self.test
+        return self.training, self.test
 
     @time_measure(level='debug')
     def load_trees(self):
@@ -433,35 +435,55 @@ class Project:
         return CascadeTree(roots)
 
     @time_measure(level='debug')
-    def load_or_extract_graph(self, graph_type=GraphTypes.RESHARES):
+    def load_or_extract_graph(self, train_set=None, post_ids=None):
         """
         Load or extract the graph of cascades in training set.
         :return:
         """
-        graph_fname = 'graph'
-        train_set, _, _ = self.load_sets()
+        if train_set is None:
+            train_set, _ = self.load_sets()
 
+        graph = None
+        graph_info_fname = 'graph_info'
         try:
-            graph = self.load_param(graph_fname, ParamTypes.GRAPH)
-            graph = relabel_nodes(graph, {n: ObjectId(n) for n in graph.nodes()})
+            graph_info = self.load_param(graph_info_fname, ParamTypes.JSON)
+            train_set_strs = {str(cid) for cid in train_set}
+            for fname, cascades in graph_info.items():
+                if set(cascades) == train_set_strs:
+                    try:
+                        graph = self.load_param(fname, ParamTypes.GRAPH)
+                        graph = relabel_nodes(graph, {n: ObjectId(n) for n in graph.nodes()})
+                        break
+                    except FileNotFoundError:  # If graph data does not exist.
+                        pass
+        except FileNotFoundError:
+            graph_info = {}
 
-        except FileNotFoundError:  # If graph data does not exist.
-            post_ids = self.__get_cascades_post_ids(train_set)
-            if graph_type == GraphTypes.RESHARES:
-                graph = self.__extract_reshare_graph(post_ids, train_set, graph_fname)
+        if graph is None:
+            if post_ids is None:
+                post_ids = self.__get_cascades_post_ids(train_set)
+            if not graph_info:
+                fname = 'graph1'
             else:
-                graph = self.__extract_rel_graph(post_ids, graph_fname)
+                fname = 'graph' + str(max(int(name[5:]) for name in graph_info.keys()) + 1)
+            graph = self.__extract_reshare_graph(post_ids, train_set)
+            logger.info('saving graph ...')
+            self.save_param(graph, fname, ParamTypes.GRAPH)
+            graph_info[fname] = [str(cid) for cid in train_set]
+            self.save_param(graph_info, graph_info_fname, ParamTypes.JSON)
 
         return graph
 
     @time_measure(level='debug')
-    def load_or_extract_act_seq(self):
+    def load_or_extract_act_seq(self, train_set=None, post_ids=None):
         """
         Load or extract list of activation sequences of cascades in training set.
         :return:
         """
         seq_fname = 'sequences'
-        train_set, _, _ = self.load_sets()
+        all_train_set, _ = self.load_sets()
+        if not train_set:
+            train_set = all_train_set
 
         try:
             seq_copy = self.load_param(seq_fname, ParamTypes.JSON)
@@ -471,61 +493,30 @@ class Project:
                 times = [item[1] for item in seq_copy[m]['cascade']]
                 sequences[ObjectId(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
 
-        except Exception as e:  # If graph data does not exist.
-            post_ids = self.__get_cascades_post_ids(train_set)
-            sequences = self.__extract_act_seq(post_ids, train_set)
+        except FileNotFoundError:  # If graph data does not exist.
+            if post_ids is None:
+                post_ids = self.__get_cascades_post_ids(all_train_set)
+            sequences = self.__extract_act_seq(post_ids, all_train_set)
+
+        sequences = {cid: seq for cid, seq in sequences.items() if cid in train_set}
 
         return sequences
 
     @time_measure(level='debug')
-    def load_or_extract_graph_seq(self, graph_type=GraphTypes.RESHARES):
+    def load_or_extract_graph_seq(self, train_set=None):
         """
         Load the graph, and list of activation sequences of the project if saved before.
         Otherwise extract them from the training set and return them.
         :return: tuple of graph, and list of activation sequences
         """
-        graph_fname = 'graph'
-        seq_fname = 'sequences'
-
-        train_set, _, _ = self.load_sets()
-        post_ids = None
-
-        try:
-            graph = self.load_param(graph_fname, ParamTypes.GRAPH)
-            graph = relabel_nodes(graph, {n: ObjectId(n) for n in graph.nodes()})
-
-        except FileNotFoundError:  # If graph does not exist.
-            post_ids = self.__get_cascades_post_ids(train_set)
-            if graph_type == GraphTypes.RESHARES:
-                graph = self.__extract_reshare_graph(post_ids, train_set, graph_fname)
-            else:
-                graph = self.__extract_rel_graph(post_ids, graph_fname)
-
-        try:
-            seq_copy = self.load_param(seq_fname, ParamTypes.JSON)
-            sequences = {}
-            for m in seq_copy:
-                users = [ObjectId(item[0]) for item in seq_copy[m]['cascade']]
-                times = [item[1] for item in seq_copy[m]['cascade']]
-                sequences[ObjectId(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
-
-        except FileNotFoundError:  # If sequence data does not exist.
-            if post_ids is None:
-                post_ids = self.__get_cascades_post_ids(train_set)
-            sequences = self.__extract_act_seq(post_ids, train_set)
-
+        if not train_set:
+            train_set, _ = self.load_sets()
+        post_ids = self.__get_cascades_post_ids(train_set)
+        graph = self.load_or_extract_graph(train_set, post_ids)
+        sequences = self.load_or_extract_act_seq(train_set, post_ids)
         return graph, sequences
 
     @time_measure(level='debug')
-    def __get_cascades_post_ids(self, cascade_ids):
-        logger.info('querying posts ids ...')
-        db = DBManager(self.db).db
-        post_ids = [pm['post_id'] for pm in
-                    db.postcascades.find({'cascade_id': {'$in': cascade_ids}}, {'_id': 0, 'post_id': 1})]
-        logger.debug('%d post ids fetched', len(post_ids))
-        return post_ids
-
-    @time_measure(level='info')
     def __extract_act_seq(self, posts_ids, cascade_ids):
         """
         Extract list of activation sequences from given cascade id's.
@@ -579,6 +570,15 @@ class Project:
 
         return sequences
 
+    @time_measure(level='debug')
+    def __get_cascades_post_ids(self, cascade_ids):
+        logger.info('querying posts ids ...')
+        db = DBManager(self.db).db
+        post_ids = [pm['post_id'] for pm in
+                    db.postcascades.find({'cascade_id': {'$in': cascade_ids}}, {'_id': 0, 'post_id': 1})]
+        logger.debug('%d post ids fetched', len(post_ids))
+        return post_ids
+
     def save_act_sequences(self, sequences):
         seq_copy = {}
         for m in sequences:
@@ -628,13 +628,12 @@ class Project:
             reshares.sort(key=lambda resh: resh['datetime'])
             return reshares
 
-    @time_measure(level='info')
-    def __extract_reshare_graph(self, post_ids, cascade_ids, graph_fname):
+    @time_measure(level='debug')
+    def __extract_reshare_graph(self, post_ids, cascade_ids):
         """
         Extract graph from given cascade id's.
         :param post_ids:    list of the post ids related to the cascades
         :param cascade_ids:    list of the cascade ids
-        :param graph_fname: the file name to save graph data
         :return:            directed graph of all reshares
         """
         logger.info('extracting graph of reshares ...')
@@ -669,9 +668,6 @@ class Project:
         graph = DiGraph()
         graph.add_edges_from(edges)
 
-        logger.info('saving graph ...')
-        self.save_param(graph, graph_fname, ParamTypes.GRAPH)
-
         return graph
 
     def get_all_nodes(self):
@@ -691,22 +687,22 @@ class Project:
         ParamTypes.GRAPH: 'txt'
     }
 
-    def save_param(self, param, name, type):
-        path = os.path.join(self.path, '%s.%s' % (name, self.SUFFIXES[type]))
+    def save_param(self, param, name, param_type):
+        path = os.path.join(self.path, '%s.%s' % (name, self.SUFFIXES[param_type]))
         mkdir_rec(os.path.dirname(path))
 
-        if type == ParamTypes.JSON:
+        if param_type == ParamTypes.JSON:
             json.dump(param, open(path, 'w'), indent=1)
-        elif type == ParamTypes.ARRAY:
+        elif param_type == ParamTypes.ARRAY:
             np.save(path, param)
-        elif type == ParamTypes.SPARSE:
+        elif param_type == ParamTypes.SPARSE:
             save_sparse(path, param)
-        elif type == ParamTypes.SPARSE_LIST:
+        elif param_type == ParamTypes.SPARSE_LIST:
             save_sparse_list(path, param)
-        elif type == ParamTypes.GRAPH:
+        elif param_type == ParamTypes.GRAPH:
             write_adjlist(param, path)
         else:
-            raise Exception('invalid type "%s"' % type)
+            raise Exception('invalid type "%s"' % param_type)
         logger.debug('parameters saved in path %s', path)
 
     def load_param(self, name, type):

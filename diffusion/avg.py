@@ -2,40 +2,43 @@ import numpy as np
 from scipy import sparse
 
 from db.managers import DBManager
+from diffusion.enum import Method
 from settings import logger
 from cascade.models import ParamTypes
 from diffusion.models import LT
 
 
 class LTAvg(LT):
+    method = Method.AVG
+
     def __init__(self, project):
         super(LTAvg, self).__init__(project)
         self.w_param_name = 'w-avg'
         self.r_param_name = 'r-avg'
 
-    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
+    def calc_parameters(self, train_set, project, multi_processed, eco, **kwargs):
         calc_weights = kwargs.get('calc_weights', True)
         calc_delays = kwargs.get('calc_delays', True)
         continue_calc = kwargs.get('continue_calc', True)
 
-        train_set, _, _ = self.project.load_sets()
+        train_set, _, _ = project.load_sets()
         logger.info('querying posts of the cascades ...')
-        db = DBManager(self.project.db).db
+        db = DBManager(project.db).db
         posts_ids = [pc['post_id'] for pc in
                      db.postcascades.find({'cascade_id': {'$in': train_set}}, ['post_id']).sort('datetime')]
         logger.info('getting user ids ...')
-        graph = self.project.load_or_extract_graph()
+        graph = project.load_or_extract_graph(train_set)
         user_ids = sorted(graph.nodes())
         users_count = len(user_ids)
         users_map = {user_ids[i]: i for i in range(users_count)}
         if calc_weights or not calc_delays:
-            self.calc_weights(posts_ids, users_map)
+            self.calc_weights(posts_ids, users_map, project)
         if calc_delays or not calc_weights:
-            self.calc_delays(posts_ids, users_map, continue_calc)
+            self.calc_delays(posts_ids, users_map, continue_calc, project)
 
-    def calc_weights(self, posts_ids, users_map):
+    def calc_weights(self, posts_ids, users_map, project):
         logger.info('counting reshares of users ...')
-        db = DBManager(self.project.db).db
+        db = DBManager(project.db).db
         resh_counts = db.reshares.aggregate([
             {'$match': {'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}}},
             {'$group': {'_id': {'user_id': '$user_id', 'ref_user_id': '$ref_user_id'}, 'count': {'$sum': 1}}},
@@ -80,11 +83,11 @@ class LTAvg(LT):
         weights = sparse.csc_matrix((values, ij), shape=(users_count, users_count))
 
         logger.info('saving w ...')
-        self.project.save_param(weights, self.w_param_name, ParamTypes.SPARSE)
+        project.save_param(weights, self.w_param_name, ParamTypes.SPARSE)
         self.w = weights.tocsr()
         logger.info('w saved')
 
-    def calc_delays(self, posts_ids, users_map, continue_prev):
+    def calc_delays(self, posts_ids, users_map, continue_prev, project):
         u_count = len(users_map)
 
         r_param_name = 'r-avg'
@@ -94,9 +97,9 @@ class LTAvg(LT):
         if continue_prev:
             try:
                 logger.info('loading delay temp data ...')
-                i = self.project.load_param(index_param_name, ParamTypes.JSON)['index']
-                counts = self.project.load_param(counts_param_name, ParamTypes.ARRAY)
-                r = self.project.load_param(r_param_name, ParamTypes.ARRAY)
+                i = project.load_param(index_param_name, ParamTypes.JSON)['index']
+                counts = project.load_param(counts_param_name, ParamTypes.ARRAY)
+                r = project.load_param(r_param_name, ParamTypes.ARRAY)
                 ignoring = True
                 logger.info('ignoring processed reshares ...')
             except:
@@ -109,7 +112,7 @@ class LTAvg(LT):
 
         # Iterate on reshares. Average on the delays of reshares between each pair of users. Save it as diffusion delay
         # between them.
-        db = DBManager(self.project.db).db
+        db = DBManager(project.db).db
         reshares = db.reshares.find({'post_id': {'$in': posts_ids}, 'reshared_post_id': {'$in': posts_ids}},
                                     {'_id': 0, 'datetime': 1, 'ref_datetime': 1, 'user_id': 1})
         j = 0
@@ -139,11 +142,11 @@ class LTAvg(LT):
             # Save to continue in the future.
             if i % (10 ** 6) == 0:
                 logger.info('saving data ...')
-                self.project.save_param({'index': i}, index_param_name, ParamTypes.JSON)
-                self.project.save_param(counts, counts_param_name, ParamTypes.ARRAY)
-                self.project.save_param(r, r_param_name, ParamTypes.ARRAY)
+                project.save_param({'index': i}, index_param_name, ParamTypes.JSON)
+                project.save_param(counts, counts_param_name, ParamTypes.ARRAY)
+                project.save_param(r, r_param_name, ParamTypes.ARRAY)
 
         logger.info('saving r ...')
-        self.project.save_param(r, r_param_name, ParamTypes.ARRAY)
+        project.save_param(r, r_param_name, ParamTypes.ARRAY)
         self.r = r
         logger.info('r saved')

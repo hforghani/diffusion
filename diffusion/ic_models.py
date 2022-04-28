@@ -4,32 +4,34 @@ from functools import reduce
 import numpy as np
 from scipy import sparse
 
+from diffusion.enum import Method
 from diffusion.models import IC
 from settings import logger
 from utils.time_utils import time_measure
 
 
 class EMIC(IC):
-    def __init__(self, project):
-        super(EMIC, self).__init__(project)
+    method = Method.EMIC
+    max_iterations = 20
+
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold)
         # Do not override k_param_name for EMIC since the precision of parameters will be low when saved.
-        self.max_iterations = 20
         self.stop_criterion = 1e-6
 
-    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
-        iterations = kwargs.get('iterations', self.max_iterations)
+    def calc_parameters(self, train_set, project, multi_processed, eco, iterations=None, **kwargs):
         if iterations is None:
             iterations = self.max_iterations
 
-        graph, sequences = self.project.load_or_extract_graph_seq()
-        trees = self.project.load_trees()
+        trees = project.load_trees()
+        graph, sequences = project.load_or_extract_graph_seq(train_set)
 
         user_ids = sorted(graph.nodes())
         u_count = len(user_ids)
         user_map = {user_ids[i]: i for i in range(u_count)}
         cascade_map = {train_set[i]: i for i in range(len(train_set))}
-        logger.info('train set size = %d', len(train_set))
-        logger.info('user space size = %d', len(user_map))
+        logger.debug('train set size = %d', len(train_set))
+        logger.debug('user space size = %d', len(user_map))
 
         logger.info('extracting positive indexes and negative counts ...')
         user_times = self._extract_user_times(train_set, user_ids, cascade_map, user_map, sequences, trees)
@@ -185,9 +187,12 @@ class EMIC(IC):
 
 
 class DAIC(EMIC):
-    def __init__(self, project):
-        super(DAIC, self).__init__(project)
+    method = Method.DAIC
+
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, lambdaa=10, **kwargs):
+        super().__init__(initial_depth, max_step, threshold)
         # Do not override k_param_name for DAIC since the precision of parameters will be low when saved.
+        self.lambdaa = lambdaa
 
     def _extract_user_times(self, cascade_ids, user_ids, cascade_map, user_map, sequences, trees):
         c_count = len(cascade_ids)
@@ -216,7 +221,6 @@ class DAIC(EMIC):
     def _calc_k(self, p, k, user_ids, user_map, graph, pos_indexes, neg_counts):
         u_count = len(user_ids)
         new_k = sparse.lil_matrix((u_count, u_count))
-        lambdaa = 10
         i = 0
         logger.debug('calculating k: iterating on %d edges', graph.number_of_edges())
 
@@ -226,15 +230,17 @@ class DAIC(EMIC):
             v_index = user_map[v]
             pos_indexes_u_v = pos_indexes[(u_index, v_index)]
             neg_count = neg_counts[(u_index, v_index)]
-            beta = pos_indexes_u_v.size + neg_count + lambdaa
+            beta = pos_indexes_u_v.size + neg_count + self.lambdaa
             if np.any(p[pos_indexes_u_v, v_index].toarray() == 0):
                 logger.debug('u_index = %s', u_index)
                 logger.debug('v_index = %s', v_index)
                 logger.debug('pos_indexes_u_v = %s', pos_indexes_u_v)
                 logger.debug('p of pos indexes = %s', p[pos_indexes_u_v, v_index].toarray())
             gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes_u_v, v_index].toarray())
-            delta = beta ** 2 - 4 * lambdaa * gamma
-            val = (beta - math.sqrt(delta)) / (2 * lambdaa)
+            delta = beta ** 2 - 4 * self.lambdaa * gamma
+            if abs(delta) < 10 ** -10:
+                delta = 0
+            val = (beta - math.sqrt(delta)) / (2 * self.lambdaa)
             new_k[u_index, v_index] = val
 
             # logger.debugv('v = %s', v)

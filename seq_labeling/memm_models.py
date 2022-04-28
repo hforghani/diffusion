@@ -20,16 +20,14 @@ class MEMMModel(SeqLabelDifModel, abc.ABC):
     @classmethod
     def _train_model(cls, evidence, iterations, key, graph, **kwargs):
         states = cls.get_states(key, graph)
-        if 'td_param' in kwargs:
-            logger.debug('td_param = %s', kwargs['td_param'])
-        memm = cls.get_memm_instance(kwargs.get('td_param'))
+        memm = cls.get_memm_instance(**kwargs)
         logger.debug('type(memm) = %s', type(memm))
         memm.fit(evidence, iterations, states)
         return memm
 
-    @staticmethod
+    @classmethod
     @abc.abstractmethod
-    def get_memm_instance(td_param):
+    def get_memm_instance(cls, *args, **kwargs):
         pass
 
 
@@ -41,7 +39,7 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
     max_iterations = 1000
 
     @classmethod
-    def extract_evidences(cls, train_set, graph, trees, **kwargs):
+    def extract_evidences(cls, trees, graph, **kwargs):
         ''' evidences: dictionary of tuples of edges (user_id1, user_id2) to dictionaries in the format
                         {'dimension': dimension, 'sequences': list_of_sequences} '''
         logger.debug('EdgeMEMMModel extract_memm_evidences started')
@@ -54,9 +52,8 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
         # timers = [Timer(f'predict part {i}', level='debug', unit=TimeUnit.SECONDS, silent=True) for i in range(10)]
 
         # Iterate each activation sequence and extract sequences of (observation, state) for each user
-        for cascade_id in train_set:
+        for tree in trees:
             cascade_seqs = {}  # dictionary of edges to the sequences of tuples (observation, state) for the current cascade
-            tree = trees[cascade_id]
             observations = {}  # current observation of each edge
             # activated = set()  # set of current activated edges
             logger.debug('cascade %d ...', cascade_num)
@@ -121,16 +118,16 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                     logger.debug('adding sequences of current cascade ...')
                     for edge in cascade_seqs:
                         dim = len(obs_nodes_ids_map[edge])
-                    evidences.setdefault(edge, {
-                        'dimension': dim,
-                        'sequences': []
-                    })
-                    evidences[edge]['sequences'].append(cascade_seqs[edge])
+                        evidences.setdefault(edge, {
+                            'dimension': dim,
+                            'sequences': []
+                        })
+                        evidences[edge]['sequences'].append(cascade_seqs[edge])
 
-                    logger.info('evidences extracted from %d cascades', len(train_set))
+                    logger.info('evidences extracted from %d cascades', len(tree))
         return evidences
 
-    def predict(self, initial_tree, graph, thresholds, max_step=None, obs_node_ids_map=None):
+    def predict_one_sample(self, initial_tree, threshold, graph, max_step=None):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree.
         :return: dictionary of thresholds to their predicted trees
@@ -139,14 +136,14 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
             raise ValueError('dim_user_indexes_map is required')
 
         # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
-        trees = {thr: initial_tree.copy() for thr in thresholds}
+        trees = {thr: initial_tree.copy() for thr in threshold}
 
         # Initialize values.
         max_depth = initial_tree.depth
         cur_step_nodes = initial_tree.nodes_at_depth(max_depth)  # Set the nodes with maximum depth as the initial step.
         cur_step = {node.user_id for node in cur_step_nodes}
         init_nodes = set(initial_tree.node_ids())
-        active_ids = {thr: init_nodes.copy() for thr in thresholds}
+        active_ids = {thr: init_nodes.copy() for thr in threshold}
         step_num = 1
 
         obs_dic = self._get_initial_observations(initial_tree, cur_step_nodes, graph, obs_node_ids_map)
@@ -159,7 +156,7 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                             }
         """
         # logger.debugv('initial observations:\n%s', pprint.pformat(obs_dic))
-        observations = {thr: obs_dic.copy() for thr in thresholds}
+        observations = {thr: obs_dic.copy() for thr in threshold}
 
         # Predict the cascade tree.
         # At each iteration find newly activated nodes based on MEMM probabilities and add them to the tree.
@@ -189,7 +186,7 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
                         activated = False
                         last_prob, last_obs = None, None
 
-                        for thr in thresholds:
+                        for thr in threshold:
                             thr_active_ids = active_ids[thr]
                             if child_id not in thr_active_ids:
                                 obs_node_ids = obs_node_ids_map[edge]
@@ -265,7 +262,7 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
             logger.debugv('initial observations =\n%s', pprint.pformat(observations))
         return observations
 
-    def _more_args(self, graph):
+    def _more_args(self, graph=None):
         return dict(obs_node_ids_map=self.extract_obs_node_ids_map(graph))
 
     @staticmethod
@@ -296,8 +293,8 @@ class EdgeMEMMModel(MEMMModel, abc.ABC):
 
         return None, prob
 
-    def _get_evid_manager(self):
-        return EdgeEvidenceManager(self.project)
+    def _get_evid_manager(self, project):
+        return EdgeEvidenceManager(project)
 
     @classmethod
     def _get_seq_label_manager(cls, project):
@@ -323,8 +320,8 @@ class MultiStateMEMMModel(NodeMEMMModel, abc.ABC):
     def get_states(key=None, graph=None):
         return list(range(graph.in_degree(key) + 1))
 
-    def _get_evid_manager(self):
-        return ParentSensEvidManager(self.project)
+    def _get_evid_manager(self, project):
+        return ParentSensEvidManager(project)
 
     def _predict_by_obs(self, obs, thr, model, tree, obs_node_ids, last_pred=None):
         if last_pred is not None and np.array_equal(obs, last_pred.obs):
@@ -360,9 +357,9 @@ class LongMEMMModel(NodeMEMMModel):
 
     # max_iterations = 1000
 
-    @staticmethod
-    def get_memm_instance(td_param=None):
-        return LongMEMM(td_param) if td_param is not None else LongMEMM()
+    @classmethod
+    def get_memm_instance(cls, td_param, *args, **kwargs):
+        return LongMEMM(td_param)
 
     def _get_predicted_node_id(self, obs, model, tree, obs_node_ids):
         # Set the parent with the maximum value of Lambda which is also activated at the current step as the
@@ -390,8 +387,8 @@ class MultiStateLongMEMMModel(LongMEMMModel, MultiStateMEMMModel):
 class BinMEMMModel(NodeMEMMModel):
     method = Method.BIN_MEMM
 
-    @staticmethod
-    def get_memm_instance(td_param=None):
+    @classmethod
+    def get_memm_instance(cls, *args, **kwargs):
         return BinMEMM()
 
 
@@ -405,17 +402,13 @@ class TDMEMMModel(NodeMEMMModel):
     """
     method = Method.TD_MEMM
 
-    @staticmethod
-    def get_memm_instance(td_param=None):
-        return TDMEMM(td_param) if td_param is not None else TDMEMM()
+    @classmethod
+    def get_memm_instance(cls, td_param, *args, **kwargs):
+        return TDMEMM(td_param)
 
 
 class MultiStateTDMEMMModel(TDMEMMModel, MultiStateMEMMModel):
     method = Method.MULTI_STATE_TD_MEMM
-
-    @staticmethod
-    def get_memm_instance(td_param=None):
-        return TDMEMM(td_param) if td_param is not None else TDMEMM()
 
 
 class ParentSensTDMEMMModel(MultiStateMEMMModel):
@@ -424,22 +417,22 @@ class ParentSensTDMEMMModel(MultiStateMEMMModel):
     """
     method = Method.PARENT_SENS_TD_MEMM
 
-    @staticmethod
-    def get_memm_instance(td_param=None):
-        return ParentTDMEMM(td_param) if td_param is not None else ParentTDMEMM()
+    @classmethod
+    def get_memm_instance(cls, td_param, *args, **kwargs):
+        return ParentTDMEMM(td_param)
 
 
 class LongParentSensTDMEMMModel(MultiStateMEMMModel):
     method = Method.LONG_PARENT_SENS_TD_MEMM
 
-    @staticmethod
-    def get_memm_instance(td_param=None):
-        return LongParentTDMEMM(td_param) if td_param is not None else LongParentTDMEMM()
+    @classmethod
+    def get_memm_instance(cls, td_param, *args, **kwargs):
+        return LongParentTDMEMM(td_param)
 
 
 class TDEdgeMEMMModel(EdgeMEMMModel):
     method = Method.TD_EDGE_MEMM
 
-    @staticmethod
-    def get_memm_instance(td_param=None):
-        return TDMEMM(td_param) if td_param is not None else TDMEMM()
+    @classmethod
+    def get_memm_instance(cls, td_param, *args, **kwargs):
+        return TDMEMM(td_param)

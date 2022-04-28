@@ -252,6 +252,7 @@ class MEMM(SeqLabelModel, abc.ABC):
 
 class LongMEMM(MEMM):
     def __init__(self, td_param=0.65):
+        # TODO: Should I remove td parameter?
         super().__init__()
         self.td_param = td_param
 

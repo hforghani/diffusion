@@ -7,6 +7,7 @@ from cascade.metric import Metric
 from cascade.models import Project
 from cascade.testers import MultiProcTester, DefaultTester
 from diffusion.enum import Method, Criterion
+from predict import extract_param
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -15,7 +16,7 @@ def run_predict(method_name: str, project_name: str, criterion: Criterion, initi
                 max_depth: int, multi_processed: bool, eco: bool, params: list):
     project = Project(project_name)
     method = Method(method_name)
-    params = extract_param(params)
+    params = extract_param(params, True)
     threshold = params['threshold']
     del params['threshold']
 
@@ -51,32 +52,6 @@ def run_predict(method_name: str, project_name: str, criterion: Criterion, initi
             best_params, best_f1 = cur_param, mean_res.f1()
 
     return best_params, best_f1
-
-
-def extract_param(param):
-    new_param = {}
-    for items in param:
-        if len(items) == 4:
-            param_name, start, end, step = items
-            start, end, step = float(start), float(end), float(step)
-            values = [round(val, 5) for val in np.arange(start, end, step)]
-            if end not in values:
-                values.append(end)
-            new_param[param_name] = values
-        elif len(items) == 2:
-            try:
-                new_param[items[0]] = int(items[1])
-            except ValueError:
-                try:
-                    new_param[items[0]] = float(items[1])
-                except ValueError:
-                    new_param[items[0]] = items[1]
-        else:
-            raise ValueError('invalid format for params option')
-    if all(isinstance(value, float) for value in new_param.values()):
-        raise ValueError('At least one --param option with 4 arguments must be given in validation mode')
-
-    return new_param
 
 
 @time_measure('info')

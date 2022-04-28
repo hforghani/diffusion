@@ -4,6 +4,7 @@ import math
 import pprint
 import random
 import traceback
+import typing
 from functools import reduce
 
 import numpy
@@ -13,33 +14,32 @@ from multiprocessing.pool import Pool
 import psutil
 from networkx import DiGraph
 from pympler.asizeof import asizeof
+from sklearn.base import BaseEstimator
 
 import settings
 from cascade.models import CascadeTree
 from db.exceptions import DataDoesNotExist
 from db.managers import EvidenceManager
+from diffusion.models import DiffusionModel
 from log_levels import DEBUG_LEVELV_NUM
 from seq_labeling.utils import obs_to_str
 from settings import logger
 from utils.time_utils import time_measure, Timer
 
 
-class SeqLabelDifModel(abc.ABC):
+class SeqLabelDifModel(DiffusionModel, abc.ABC):
     """
     Sequence labeling diffusion model including HMM, MEMM, and CRF
     """
-    method = None  # Define in the subclasses.
-    max_iterations = None
 
-    def __init__(self, project):
-        self.project = project
-        self.graph = None
+    def __init__(self, initial_depth, max_step, threshold, **kwargs):
+        super().__init__(initial_depth, max_step, threshold, **kwargs)
         ''' self._models : a dictionary which its values are sequence labeling model instances and the keys are user 
         ids for receiver-based methods and tuples of (user_i, user_j) for sender-based methods.'''
         self._models = {}
 
     @time_measure(level='debug')
-    def prepare_evidences(self, train_set, multi_processed=False):
+    def prepare_evidences(self, train_set, train_trees, project, graph, multi_processed=False, eco=False):
         """
         Prepare the sequence of observations and states to train the sequence labeling models.
         :param train_set: list of training cascade id's
@@ -49,17 +49,21 @@ class SeqLabelDifModel(abc.ABC):
                 method is sender-based.
         """
         logger.debug('method = %s', self.method)
-        evid_manager = self._get_evid_manager()
 
-        try:
-            logger.info('loading evidences ...')
-            evidences = evid_manager.get_many()
-        except DataDoesNotExist:
-            logger.info('no evidences found!')
+        must_extract = True
+        evidences = {}
+        if eco:
+            evid_manager = self._get_evid_manager(project)
+            try:
+                logger.info('loading evidences ...')
+                evidences = evid_manager.get_many()
+                must_extract = False
+            except DataDoesNotExist:
+                logger.info('no evidences found!')
+
+        if must_extract:
             logger.info('Evidence extraction started')
             evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
-            graph = self.project.load_or_extract_graph()
-            trees = self.project.load_trees()
             more_args = self._more_args(graph)
 
             logger.info('extracting sequences from %d cascades ...', len(train_set))
@@ -71,7 +75,7 @@ class SeqLabelDifModel(abc.ABC):
                 results = []
                 for j in range(0, len(train_set), step):
                     cascade_ids = train_set[j: j + step]
-                    cur_trees = {cid: tree for cid, tree in trees.items() if cid in cascade_ids}
+                    cur_trees = train_trees[j: j + step]
                     res = pool.apply_async(extract_evidences,
                                            args=(type(self), cascade_ids, graph, cur_trees),
                                            kwds=more_args)
@@ -90,7 +94,7 @@ class SeqLabelDifModel(abc.ABC):
                             evidences[key]['sequences'].extend(process_evidences[key]['sequences'])
 
             else:
-                evidences = self.extract_evidences(train_set, graph, trees, **more_args)
+                evidences = self.extract_evidences(train_trees, graph, **more_args)
 
             # Delete evidences of totally inactive users since they will never be activated.
             inactives = self._get_inactives(evidences)
@@ -102,9 +106,10 @@ class SeqLabelDifModel(abc.ABC):
             # if settings.LOG_LEVEL <= DEBUG_LEVELV_NUM:
             #     logger.debugv('evidences = \n%s', pprint.pformat(evidences))
 
-            logger.info('inserting %d evidences into db and creating indexes ...', len(evidences))
-            evid_manager.insert(evidences)
-            evid_manager.create_index()
+            if eco:
+                logger.info('inserting %d evidences into db and creating indexes ...', len(evidences))
+                evid_manager.insert(evidences)
+                evid_manager.create_index()
 
         return evidences
 
@@ -155,12 +160,11 @@ class SeqLabelDifModel(abc.ABC):
         return large_ev_keys, small_ev_keys
 
     @classmethod
-    def train_models(cls, evidences, iterations, save_in_db=False, project=None, **kwargs):
+    def train_models(cls, evidences, iterations, graph, save_in_db=False, project=None, **kwargs):
         logger.info('training %d seq labeling models ...', len(evidences))
         models = {}
         count = 0
         manager = cls._get_seq_label_manager(project) if save_in_db else None
-        graph = project.load_or_extract_graph()
 
         for key, ev in evidences.items():
             count += 1
@@ -186,7 +190,7 @@ class SeqLabelDifModel(abc.ABC):
         logger.info('done')
         return models
 
-    def _fit_multiproc(self, evidences, iterations, **kwargs):
+    def _fit_multiproc(self, evidences, iterations, project, graph, **kwargs):
         """
         Train the seq labeling models using evidences given in multiprocessing mode.
         Side effect: Clears the evidences' dictionary.
@@ -205,7 +209,8 @@ class SeqLabelDifModel(abc.ABC):
             for key in keys_i:
                 evidences_i[key] = evidences.pop(key)  # to free RAM
 
-            res = pool.apply_async(train_models, (type(self), evidences_i, iterations, False, self.project), kwargs)
+            res = pool.apply_async(train_models, (type(self), evidences_i, iterations, graph, False, project),
+                                   kwargs)
             results.append(res)
 
         del evidences  # to free RAM
@@ -229,36 +234,26 @@ class SeqLabelDifModel(abc.ABC):
     def _train_model(cls, evidence, iterations, key, graph, **kwargs):
         pass
 
-    def _fit_by_evidences(self, train_set, iterations=None, multi_processed=False, eco=False, **kwargs):
-        evidences = self.prepare_evidences(train_set, multi_processed)
+    def _fit_by_evidences(self, train_set, train_trees, project, graph, iterations=None, multi_processed=False,
+                          eco=False, **kwargs):
+        evidences = self.prepare_evidences(train_set, train_trees, project, graph, multi_processed, eco)
         # if settings.LOG_LEVEL <= logging.DEBUG:
         #     self.log_evidences(evidences)
 
         models = {}
         max_iteration = iterations if iterations is not None else self.max_iterations
-        logger.info('max iterations = %s', max_iteration)
         logger.info('training seq labeling models ...')
 
         if multi_processed:
             single_process_ev = {}  # Evidences to train sequentially in a single process.
-            # multi_processed_ev = {}  # Evidences to train simultaneously in multiple processes.
-            #
-            # logger.info('separating large and small evidences ...')
-            # large_ev_keys, small_ev_keys = self._separate_big_ev(evidences)
-            # logger.info('%d large and %d small evidences considered', len(large_ev_keys), len(small_ev_keys))
-            # for key in large_ev_keys:
-            #     single_process_ev[key] = evidences.pop(key)  # to free RAM
-            # for key in small_ev_keys:
-            #     multi_processed_ev[key] = evidences.pop(key)  # to free RAM
-            # del evidences
             multi_processed_ev = evidences
 
-            models = self._fit_multiproc(multi_processed_ev, max_iteration, **kwargs)
+            models = self._fit_multiproc(multi_processed_ev, max_iteration, project, graph, **kwargs)
 
             del multi_processed_ev
             if eco:
                 logger.info('inserting seq labeling models into db ...')
-                manager = self._get_seq_label_manager(self.project)
+                manager = self._get_seq_label_manager(project)
                 manager.insert(models)
                 models = {}
 
@@ -269,8 +264,8 @@ class SeqLabelDifModel(abc.ABC):
             # Train big evidences sequentially in a single process if multi_processed is True and all evidences
             # otherwise.
             logger.info('training %d seq labeling models sequentially ...', len(single_process_ev))
-            single_proc_models = self.train_models(single_process_ev, max_iteration, save_in_db=eco,
-                                                   project=self.project, **kwargs)
+            single_proc_models = self.train_models(single_process_ev, max_iteration, graph, save_in_db=eco,
+                                                   project=project, **kwargs)
             del single_process_ev
             if not eco:
                 models.update(single_proc_models)
@@ -290,19 +285,25 @@ class SeqLabelDifModel(abc.ABC):
         logger.debug('\n'.join(logs))
 
     @time_measure(level='debug')
-    def fit(self, multi_processed=False, eco=False, iterations=None, **kwargs):
+    def fit(self, train_set, train_trees, project, multi_processed=False, eco=False, iterations=None, **kwargs):
         """
         Load models from DB if existed, otherwise train a seq labeling model for each user in the training set.
         :return: self
         """
-        train_set, _, _ = self.project.load_sets()
-        manager = self._get_seq_label_manager(self.project)
+        logger.info('params = %s', self.get_params())
+        self.project = project
+        graph = project.load_or_extract_graph()
+        self.graph = graph
+
+        # train_set, _, _ = self.project.load_sets()
+        manager = self._get_seq_label_manager(project)
 
         # If it is in economical mode, train the models only if they are not saved in DB.
         if not eco or not manager.db_exists():
             if eco and not manager.db_exists():
                 logger.info('Seq labeling models do not exist in db.')
-            self._models = self._fit_by_evidences(train_set, iterations, multi_processed, eco, **kwargs)
+            self._models = self._fit_by_evidences(train_set, train_trees, project, graph, iterations, multi_processed,
+                                                  eco, **kwargs)
 
         if eco:
             logger.info('loading seq labeling models from db ...')
@@ -310,14 +311,6 @@ class SeqLabelDifModel(abc.ABC):
 
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
         return self
-
-    @abc.abstractmethod
-    def predict(self, initial_tree: CascadeTree, graph: DiGraph, thresholds: list, max_step: int = None,
-                **kwargs) -> dict:
-        """
-        Predict activation cascade in the future starting from initial nodes in initial_tree.
-        :return: dictionary of predicted tree for thresholds
-        """
 
     @classmethod
     def _update_obs(cls, obs: np.ndarray, cur_step_ids: collections.Iterable, obs_node_ids: list,
@@ -347,17 +340,11 @@ class SeqLabelDifModel(abc.ABC):
             new_obs = np.vstack((first_row, obs)) if obs is not None else first_row.reshape((1, dim))
             return new_obs
 
-    def get_model(self, key):
-        if self._models:
-            return self._models.get(key, None)
-        else:
-            return self._get_seq_label_manager(self.project).fetch_one(key)
-
-    def _more_args(self, graph):
+    def _more_args(self, graph=None):
         return {}
 
     @abc.abstractmethod
-    def _get_evid_manager(self):
+    def _get_evid_manager(self, project):
         pass
 
     @classmethod
@@ -365,9 +352,9 @@ class SeqLabelDifModel(abc.ABC):
     def _get_seq_label_manager(cls, project):
         pass
 
-    @staticmethod
+    @classmethod
     @abc.abstractmethod
-    def extract_evidences(train_set, graph, trees, **kwargs):
+    def extract_evidences(cls, trees, graph, **kwargs):
         pass
 
     @staticmethod
@@ -383,9 +370,9 @@ class SeqLabelDifModel(abc.ABC):
         return [False, True]
 
 
-def train_models(cls, evidences, iterations, save_in_db=False, project=None, **kwargs):
+def train_models(cls, evidences, iterations, graph, save_in_db=False, project=None, **kwargs):
     try:
-        return cls.train_models(evidences, iterations, save_in_db, project, **kwargs)
+        return cls.train_models(evidences, iterations, graph, save_in_db, project, **kwargs)
     except:
         logger.error(traceback.format_exc())
         raise
@@ -393,7 +380,7 @@ def train_models(cls, evidences, iterations, save_in_db=False, project=None, **k
 
 def extract_evidences(cls, train_set, graph, trees, **kwargs):
     try:
-        return cls.extract_evidences(train_set, graph, trees, **kwargs)
+        return cls.extract_evidences(trees, graph, **kwargs)
     except:
         logger.error(traceback.format_exc())
         raise
@@ -405,7 +392,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
     """
 
     @classmethod
-    def extract_evidences(cls, train_set, graph, trees, **kwargs):
+    def extract_evidences(cls, trees, graph, **kwargs):
         try:
             ''' evidences: dictionary of user id's to dictionaries in the format 
                             {'dimension': dimension, 'sequences': list_of_sequences} '''
@@ -413,9 +400,8 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
             cascade_num = 1
 
             # Iterate each activation sequence and extract sequences of (observation, state) for each user
-            for cascade_id in train_set:
+            for tree in trees:
                 cascade_seqs = {}  # dictionary of user id's to the sequences of ObsPair instances for the current cascade
-                tree = trees[cascade_id]
                 observations = {}  # current observation of each user
                 activated = set()  # set of current activated users
                 logger.debug('cascade %d ...', cascade_num)
@@ -481,13 +467,13 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                     })
                     evidences[uid]['sequences'].append(cascade_seqs[uid])
 
-            logger.info('evidences extracted from %d cascades', len(train_set))
+            logger.info('evidences extracted from %d cascades', len(trees))
             return evidences
         except:
             logger.error(traceback.format_exc())
             raise
 
-    def _predict_one_thr(self, initial_tree, graph, thr, max_step=None):
+    def _predict_one_thr(self, initial_tree, thr, graph, max_step=None):
         # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
         tree = initial_tree.copy()
 
@@ -517,7 +503,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
             for child_id in all_children:
 
                 # if child_id not in active_ids:
-                model = self.get_model(child_id)
+                model = self._models.get(child_id)
 
                 if model is not None:
                     logger.debugv('testing reshare to %s ...', child_id)
@@ -555,24 +541,23 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
 
         return tree
 
-    def predict(self, initial_tree, graph, thresholds, max_step=None, **kwargs):
+    def predict_one_sample(self, initial_tree, threshold, graph, max_step=None):
         """
         Predict activation cascade in the future starting from initial nodes in initial_tree at each threshold.
         :return: dictionary of thresholds to their predicted trees
         """
-        if len(thresholds) == 1:
-            tree = self._predict_one_thr(initial_tree, graph, thresholds[0], max_step)
-            return {thresholds[0]: tree}
+        if not isinstance(threshold, list):
+            return self._predict_one_thr(initial_tree, threshold, graph, max_step)
 
         # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
-        trees = {thr: initial_tree.copy() for thr in thresholds}
+        trees = {thr: initial_tree.copy() for thr in threshold}
 
         # Initialize values.
         max_depth = initial_tree.depth
         cur_step_nodes = initial_tree.nodes_at_depth(max_depth)  # Set the nodes with maximum depth as the initial step.
         cur_step = {node.user_id for node in cur_step_nodes}
         init_nodes = set(initial_tree.node_ids())
-        active_ids = {thr: init_nodes.copy() for thr in thresholds}
+        active_ids = {thr: init_nodes.copy() for thr in threshold}
         step_num = 1
 
         obs_dic = self._get_initial_observations(initial_tree, cur_step_nodes, graph)
@@ -585,7 +570,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                             }
         """
         # logger.debugv('initial observations:\n%s', pprint.pformat(obs_dic))
-        observations = {thr: obs_dic.copy() for thr in thresholds}
+        observations = {thr: obs_dic.copy() for thr in threshold}
 
         # timers = [Timer(f'code {i}', level='debug', silent=True) for i in range(10)]
 
@@ -604,7 +589,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
             for child_id in all_children:
 
                 # with timers[0]:
-                model = self.get_model(child_id)
+                model = self._models.get(child_id)
 
                 if model is not None:
                     logger.debugv('testing reshare to %s ...', child_id)
@@ -612,7 +597,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                     activated = False
                     last_pred = None
 
-                    for thr in thresholds:
+                    for thr in threshold:
                         thr_active_ids = active_ids[thr]
                         if child_id not in thr_active_ids:
                             # with timers[1]:
@@ -719,7 +704,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                 children = children_dic.pop(node.user_id, [])  # to free RAM
                 for child_id in children:
                     # logger.debugv('child %s ...', child_id)
-                    model = self.get_model(child_id)
+                    model = self._models.get(child_id)
                     if model is not None:
                         # Update the observation of this child.
                         parents = parents_dic[child_id]
@@ -734,8 +719,8 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
 
         return observations
 
-    def _get_evid_manager(self):
-        return EvidenceManager(self.project)
+    def _get_evid_manager(self, project):
+        return EvidenceManager(project)
 
 
 class Prediction:

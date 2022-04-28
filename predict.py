@@ -19,13 +19,11 @@ from utils.time_utils import time_measure
 # pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
 
-def run_predict(method_name: str, project_name: str, validation: bool, criterion: Criterion, initial_depth: int,
-                max_depth: int, multi_processed: bool, eco: bool, param: list) -> Metric:
+def run_predict(method_name: str, project_name: str, criterion: Criterion, initial_depth: int, max_depth: int,
+                multi_processed: bool, eco: bool, param: list) -> Metric:
     project = Project(project_name)
     method = Method(method_name)
-    param = extract_param(param, validation)
-    threshold = param['threshold']
-    del param['threshold']
+    param = extract_param(param)
 
     # Log the test configuration.
     logger.info(f'{"db":<20}| {project.db}')
@@ -33,7 +31,6 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
     logger.info(f'{"method":<20}| {method_name}')
     logger.info(f'{"initial depth":<20}| {initial_depth}')
     logger.info(f'{"max depth":<20}| {max_depth}')
-    logger.info(f'{"threshold":<20}| {threshold}')
     for key, value in param.items():
         logger.info(f'{key:<20}| {value}')
 
@@ -42,20 +39,21 @@ def run_predict(method_name: str, project_name: str, validation: bool, criterion
     else:
         tester = DefaultTester(project, method, criterion, eco)
 
-    if validation:
-        return tester.run_validation_test(threshold, initial_depth, max_depth, **param)
-    else:
-        return tester.run_test(threshold, initial_depth, max_depth, **param)
+    mean_res, res = tester.run_validation_test(initial_depth, max_depth, **param)
+
+    return mean_res
 
 
-def extract_param(param, validation):
+def extract_param(param):
     new_param = {}
     for items in param:
         if len(items) == 4:
             param_name, start, end, step = items
             start, end, step = float(start), float(end), float(step)
-            new_param[param_name] = np.arange(start, end, step).tolist()
-            new_param[param_name].append(end)
+            values = [round(val, 5) for val in np.arange(start, end, step)]
+            if end not in values:
+                values.append(end)
+            new_param[param_name] = values
         elif len(items) == 2:
             try:
                 new_param[items[0]] = int(items[1])
@@ -66,18 +64,14 @@ def extract_param(param, validation):
                     new_param[items[0]] = items[1]
         else:
             raise ValueError('invalid format for params option')
-    if not validation and any(isinstance(value, list) for value in new_param.values()):
-        raise ValueError('2 arguments must be given to option "param" in test mode')
-    if validation and all(isinstance(value, float) for value in new_param.values()):
-        raise ValueError('At least one --param option with 4 arguments must be given in validation mode')
 
     return new_param
 
 
 @time_measure('info')
 def handle(args):
-    res = run_predict(args.method, args.project, args.validation, Criterion(args.criterion), args.initial_depth,
-                      args.max_depth, args.multi_processed, args.eco, args.param)
+    res = run_predict(args.method, args.project, Criterion(args.criterion), args.initial_depth, args.max_depth,
+                      args.multi_processed, args.eco, args.param)
 
     if res is not None:
         logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', res.precision(), res.recall(),
@@ -91,8 +85,6 @@ def main():
                         help="the method by which we want to test")
     parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
                         help="the criterion on which the evaluation is done")
-    parser.add_argument("-v", "--validation", action='store_true', default=False,
-                        help="learn the best threshold in validation stage")
     parser.add_argument("-i", "--init-depth", type=int, dest="initial_depth", default=0,
                         help="the maximum depth of the initial nodes")
     parser.add_argument("-d", "--max-depth", type=int, dest="max_depth",

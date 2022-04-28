@@ -8,6 +8,7 @@ from scipy import sparse
 
 import settings
 from cascade.models import ParamTypes
+from diffusion.enum import Method
 from diffusion.models import IC
 from settings import logger
 from utils.time_utils import Timer, time_measure
@@ -229,6 +230,8 @@ def calc_r(edges, alpha, beta, user_map, sequences, edge_pos_cascades):
         rows = []
         cols = []
         i = 0
+        logger.debug('len(alpha) = %s', len(alpha))
+        logger.debug('alpha = %s', alpha)
 
         for (u, v) in edges:
 
@@ -309,17 +312,19 @@ def calc_k(edges, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts):
 
 
 class CTIC(IC):
-    def __init__(self, project):
-        super(CTIC, self).__init__(project)
+    method = Method.CTIC
+
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold)
         self.k_param_name = 'k-ctic'
         self.r_param_name = 'r-ctic'
         self.max_iterations = 20
 
-    def calc_parameters(self, train_set, multi_processed, eco, **kwargs):
-        iterations = kwargs.get('iterations', self.max_iterations)
+    def calc_parameters(self, train_set, project, multi_processed, eco, iterations=None, **kwargs):
         if iterations is None:
             iterations = self.max_iterations
-        graph, sequences = self.project.load_or_extract_graph_seq()
+
+        graph, sequences = project.load_or_extract_graph_seq(train_set)
 
         # Create maps from users and cascades db id's to their matrix id's.
         logger.debug('creating user and cascade id maps ...')
@@ -337,7 +342,7 @@ class CTIC(IC):
         # Run EM algorithm.
         logger.info('running algorithm ...')
         for i in range(iterations):
-            with Timer('iteration time'):
+            with Timer('iteration time', level='debug'):
                 logger.info('#%d' % (i + 1))
 
                 logger.debug('calculating alpha ...')
@@ -353,8 +358,8 @@ class CTIC(IC):
 
                 if eco:
                     # Save r and k.
-                    self.project.save_param(r, self.r_param_name, ParamTypes.SPARSE)
-                    self.project.save_param(k, self.k_param_name, ParamTypes.SPARSE)
+                    project.save_param(r, self.r_param_name, ParamTypes.SPARSE)
+                    project.save_param(k, self.k_param_name, ParamTypes.SPARSE)
 
                 # Calculate and report delta r and delta k.
                 r_dif = r - last_r
@@ -473,14 +478,14 @@ class CTIC(IC):
             pool.join()
 
             # Collect results of the processes.
-            b = {}
+            alpha = {}
             for i in range(len(results)):
                 a_subset = results[i].get()
-                b.update(a_subset)
+                alpha.update(a_subset)
         else:
-            b = calc_alpha(sequences, graph, k, r, user_map)
+            alpha = calc_alpha(sequences, graph, k, r, user_map)
 
-        return b
+        return alpha
 
     @time_measure('debug')
     def __calc_beta_mp(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed):
@@ -501,14 +506,14 @@ class CTIC(IC):
             pool.join()
 
             # Collect results of the processes.
-            b = {}
+            beta = {}
             for i in range(len(results)):
                 a_subset = results[i].get()
-                b.update(a_subset)
+                beta.update(a_subset)
         else:
-            b = calc_beta(sequences, graph, k, r, user_map)
+            beta = calc_beta(sequences, graph, k, r, user_map)
 
-        return b
+        return beta
 
     @time_measure('debug')
     def __calc_r_mp(self, sequences, graph, alpha, beta, user_map, edge_pos_cascades, multi_processed):
