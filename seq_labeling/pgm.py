@@ -251,10 +251,6 @@ class MEMM(SeqLabelModel, abc.ABC):
 
 
 class LongMEMM(MEMM):
-    def __init__(self, td_param=0.65):
-        # TODO: Should I remove td parameter?
-        super().__init__()
-        self.td_param = td_param
 
     def _calc_obs_features(self, obs, states):
         obs_dim = obs.shape[1]
@@ -263,9 +259,7 @@ class LongMEMM(MEMM):
 
         if np.any(states):
             features = np.zeros((states.size, feat_dim - 1))
-            mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
-            mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
-            flat_obs = np.multiply(mults, obs).flatten()[:feat_dim - 1]
+            flat_obs = obs.flatten()[:feat_dim - 1]
             nonzero_indexes = np.nonzero(states)[0]
             features[nonzero_indexes, :flat_obs.size] = np.tile(flat_obs, (nonzero_indexes.size, 1))
 
@@ -287,10 +281,7 @@ class LongMEMM(MEMM):
         for ind in range(obs_num):
             if states[ind]:
                 obs = observations[ind]
-                mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
-                mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
-                flat_obs = np.multiply(mults, obs).flatten()[:feat_dim - 1]
-                # flat_obs = obs.flatten()[:feat_dim - 1]
+                flat_obs = obs.flatten()[:feat_dim - 1]
                 features[ind, :flat_obs.size] = flat_obs
 
         C = obs_dim + 1

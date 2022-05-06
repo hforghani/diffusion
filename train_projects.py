@@ -8,6 +8,7 @@ from diffusion.enum import Method
 def main(args):
     for i in range(args.min_project_num, args.max_project_num + 1):
         project = Project(f'{args.db}-analysis-{i}')
+        train_set, _ = project.load_sets()
 
         for meth_name in args.methods:
             method = Method(meth_name)
@@ -15,7 +16,7 @@ def main(args):
                 tester = MultiProcTester(project, method)
             else:
                 tester = DefaultTester(project, method)
-            tester.train(iterations=2)
+            tester.train(train_set, eco=False, iterations=2)
 
 
 if __name__ == '__main__':

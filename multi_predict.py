@@ -16,12 +16,10 @@ def get_params(project_name, method):
     return {}
 
 
-def multiple_run(methods: list, depth_settings: list, project_name: str, multi_processed: bool,
+def multiple_run(methods: list, depth_settings: list, project_name: str, multi_processed: bool, eco: bool,
                  criterion: Criterion) -> dict:
     project = Project(project_name)
     results = {}
-    # eco = True
-    eco = False
 
     if multi_processed:
         testers = {method: MultiProcTester(project, method, criterion, eco=eco) for method in methods}
@@ -33,10 +31,9 @@ def multiple_run(methods: list, depth_settings: list, project_name: str, multi_p
         for method in methods:
             logger.info('running prediction from depth %d to %s using method %s ...', initial_depth,
                         max_depth if max_depth is not None else 'end', method.value)
-            thresholds = [i / 100 for i in range(101)]
             params = get_params(project_name, method)
             logger.info('params = %s', params)
-            mean_res, res = testers[method].run_validation_test(thresholds, initial_depth, max_depth, **params)
+            mean_res, res = testers[method].run_validation_test(initial_depth, max_depth, **params)
             cur_results[method] = mean_res.f1()
         results[(initial_depth, max_depth)] = cur_results
     return results
@@ -50,26 +47,30 @@ def main():
                         help="the methods by which we want to test")
     parser.add_argument("-M", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
                         help="if this option is given, the task is ran on multiple processes")
+    parser.add_argument("-e", "--eco", action='store_true', default=False,
+                        help="If this option is given, the prediction is done in economical mode e.t. Memory consumption "
+                             "is decreased and data is stored in DB and loaded everytime needed instead of storing in "
+                             "RAM. Otherwise, no data is stored in DB.")
     parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
                         help="the criterion on which the evaluation is done")
     args = parser.parse_args()
 
     project = Project(args.project)
-    training, validation, test = project.load_sets()
+    _, test = project.load_sets()
     trees = project.load_trees()
 
-    max_val_depth = max(trees[cid].depth for cid in validation)
     max_test_depth = max(trees[cid].depth for cid in test)
-    # The depth will not be greater than 3 since has always few data and zero results.
-    max_depth = min(max_val_depth, max_test_depth, 3)
+    # The depth will not be greater than 3 since has always insufficient data and zero results.
+    max_depth = min(max_test_depth, 3)
 
     methods = [Method(met) for met in args.methods]
 
-    # one_step_depths = [(i, i + 1) for i in range(max_depth)]
-    # thorough_depths = [(i, None) for i in range(max_depth)]
-    # depth_settings = one_step_depths + thorough_depths
-    depth_settings = [(0, None)]
-    results = multiple_run(methods, depth_settings, args.project, args.multi_processed, Criterion(args.criterion))
+    one_step_depths = [(i, i + 1) for i in range(max_depth)]
+    thorough_depths = [(i, None) for i in range(max_depth)]
+    depth_settings = one_step_depths + thorough_depths
+    # depth_settings = [(0, None)]
+    results = multiple_run(methods, depth_settings, args.project, args.multi_processed, args.eco,
+                           Criterion(args.criterion))
 
     logs = [f'{"from depth":<15}{"to depth":<15}' + ''.join(f'{method.value:<15}' for method in methods)]
     for init_depth, max_depth in results:

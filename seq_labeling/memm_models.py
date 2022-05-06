@@ -21,7 +21,6 @@ class MEMMModel(SeqLabelDifModel, abc.ABC):
     def _train_model(cls, evidence, iterations, key, graph, **kwargs):
         states = cls.get_states(key, graph)
         memm = cls.get_memm_instance(**kwargs)
-        logger.debug('type(memm) = %s', type(memm))
         memm.fit(evidence, iterations, states)
         return memm
 
@@ -357,9 +356,12 @@ class LongMEMMModel(NodeMEMMModel):
 
     # max_iterations = 1000
 
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold)
+
     @classmethod
-    def get_memm_instance(cls, td_param, *args, **kwargs):
-        return LongMEMM(td_param)
+    def get_memm_instance(cls, *args, **kwargs):
+        return LongMEMM()
 
     def _get_predicted_node_id(self, obs, model, tree, obs_node_ids):
         # Set the parent with the maximum value of Lambda which is also activated at the current step as the
@@ -383,9 +385,15 @@ class LongMEMMModel(NodeMEMMModel):
 class MultiStateLongMEMMModel(LongMEMMModel, MultiStateMEMMModel):
     method = Method.MULTI_STATE_LONG_MEMM
 
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold)
+
 
 class BinMEMMModel(NodeMEMMModel):
     method = Method.BIN_MEMM
+
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold)
 
     @classmethod
     def get_memm_instance(cls, *args, **kwargs):
@@ -395,12 +403,19 @@ class BinMEMMModel(NodeMEMMModel):
 class MultiStateBinMEMMModel(BinMEMMModel, MultiStateMEMMModel):
     method = Method.MULTI_STATE_BIN_MEMM
 
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold)
+
 
 class TDMEMMModel(NodeMEMMModel):
     """
     Time-Decay MEMM Model
     """
     method = Method.TD_MEMM
+
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold, **kwargs)
+        self.td_param = td_param
 
     @classmethod
     def get_memm_instance(cls, td_param, *args, **kwargs):
@@ -410,12 +425,20 @@ class TDMEMMModel(NodeMEMMModel):
 class MultiStateTDMEMMModel(TDMEMMModel, MultiStateMEMMModel):
     method = Method.MULTI_STATE_TD_MEMM
 
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold, **kwargs)
+        self.td_param = td_param
+
 
 class ParentSensTDMEMMModel(MultiStateMEMMModel):
     """
     Parent-sensitive Time-Decay MEMM model
     """
     method = Method.PARENT_SENS_TD_MEMM
+
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold, **kwargs)
+        self.td_param = td_param
 
     @classmethod
     def get_memm_instance(cls, td_param, *args, **kwargs):
@@ -425,6 +448,10 @@ class ParentSensTDMEMMModel(MultiStateMEMMModel):
 class LongParentSensTDMEMMModel(MultiStateMEMMModel):
     method = Method.LONG_PARENT_SENS_TD_MEMM
 
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold, **kwargs)
+        self.td_param = td_param
+
     @classmethod
     def get_memm_instance(cls, td_param, *args, **kwargs):
         return LongParentTDMEMM(td_param)
@@ -432,6 +459,10 @@ class LongParentSensTDMEMMModel(MultiStateMEMMModel):
 
 class TDEdgeMEMMModel(EdgeMEMMModel):
     method = Method.TD_EDGE_MEMM
+
+    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
+        super().__init__(initial_depth, max_step, threshold, **kwargs)
+        self.td_param = td_param
 
     @classmethod
     def get_memm_instance(cls, td_param, *args, **kwargs):

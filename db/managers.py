@@ -228,13 +228,13 @@ class SeqLabelDBManager:
         db_names = self.client.list_database_names()
         return self.db_name in db_names
 
-    def insert(self, memms):
+    def insert(self, models):
         fs = gridfs.GridFS(self.db)
 
-        logger.debug('inserting %d MEMM documents ...', len(memms))
+        logger.debug('inserting %d model documents ...', len(models))
         i = 0
-        for uid in memms:
-            doc = self._get_doc(memms[uid])
+        for uid in models:
+            doc = self._get_doc(models[uid])
             fs.put(bytes(str(doc), encoding='utf8'), user_id=uid)
             i += 1
             if i % 10000 == 0:
@@ -242,15 +242,15 @@ class SeqLabelDBManager:
 
     def fetch_all(self):
         fs = gridfs.GridFS(self.db)
-        memms = {}
+        models = {}
         i = 0
         for doc in fs.find():
-            memm = self._doc_to_memm(doc)
-            memms[doc.user_id] = memm
+            memm = self._doc_to_model(doc)
+            models[doc.user_id] = memm
             i += 1
             if i % 10000 == 0:
-                logger.debug('%d MEMMs fetched', i)
-        return memms
+                logger.debug('%d models fetched', i)
+        return models
 
     def fetch_one(self, user_id):
         if not isinstance(user_id, ObjectId):
@@ -259,47 +259,47 @@ class SeqLabelDBManager:
         doc = fs.find_one({'user_id': user_id})
         if doc is None:
             return None
-        memm = self._doc_to_memm(doc)
-        return memm
+        model = self._doc_to_model(doc)
+        return model
 
-    def _get_doc(self, memm):
+    def _get_doc(self, model):
         doc = {
-            'orig_indexes': memm.orig_indexes,
-            'lambda': memm.Lambda.tolist(),
+            'orig_indexes': model.orig_indexes,
+            'lambda': model.Lambda.tolist(),
         }
-        if hasattr(memm, 'td_param'):
-            doc['td_param'] = memm.td_param
+        if hasattr(model, 'td_param'):
+            doc['td_param'] = model.td_param
         return doc
 
-    def _doc_to_memm(self, doc):
+    def _doc_to_model(self, doc):
         data = doc.read()
-        memm_data = eval(data)
+        model_data = eval(data)
         if self.method in [Method.LONG_MEMM, Method.MULTI_STATE_LONG_MEMM]:
-            memm = LongMEMM()
+            model = LongMEMM()
         elif self.method in [Method.BIN_MEMM, Method.MULTI_STATE_BIN_MEMM]:
-            memm = BinMEMM()
+            model = BinMEMM()
         elif self.method == Method.PARENT_SENS_TD_MEMM:
-            memm = ParentTDMEMM()
+            model = ParentTDMEMM()
         elif self.method == Method.LONG_PARENT_SENS_TD_MEMM:
-            memm = LongParentTDMEMM()
+            model = LongParentTDMEMM()
         else:
-            memm = TDMEMM()
-        orig_indexes = memm_data['orig_indexes']
-        Lambda = np.fromiter(memm_data['lambda'], np.float64)
-        memm.set_params(Lambda, orig_indexes)
-        if 'td_param' in memm_data:
-            memm.td_param = memm_data['td_param']
-        return memm
+            model = TDMEMM()
+        orig_indexes = model_data['orig_indexes']
+        Lambda = np.fromiter(model_data['lambda'], np.float64)
+        model.set_params(Lambda, orig_indexes)
+        if 'td_param' in model_data:
+            model.td_param = model_data['td_param']
+        return model
 
 
 class EdgeMEMMManager(SeqLabelDBManager):
-    def insert(self, memms):
+    def insert(self, models):
         fs = gridfs.GridFS(self.db)
 
-        logger.debug('inserting %d MEMM documents ...', len(memms))
+        logger.debug('inserting %d models documents ...', len(models))
         i = 0
-        for edge in memms:
-            doc = self._get_doc(memms[edge])
+        for edge in models:
+            doc = self._get_doc(models[edge])
             fs.put(bytes(str(doc), encoding='utf8'), src=edge[0], dst=edge[1])
             i += 1
             if i % 10000 == 0:
@@ -307,26 +307,33 @@ class EdgeMEMMManager(SeqLabelDBManager):
 
     def fetch_all(self):
         fs = gridfs.GridFS(self.db)
-        memms = {}
+        models = {}
         i = 0
         for doc in fs.find():
-            memm = self._doc_to_memm(doc)
-            memms[(doc.src, doc.dst)] = memm
+            memm = self._doc_to_model(doc)
+            models[(doc.src, doc.dst)] = memm
             i += 1
             if i % 10000 == 0:
-                logger.debug('%d MEMMs fetched', i)
-        return memms
+                logger.debug('%d models fetched', i)
+        return models
 
     def fetch_one(self, edge):
         fs = gridfs.GridFS(self.db)
         doc = fs.find_one({'src': edge[0], 'dst': edge[1]})
         if doc is None:
             return None
-        memm = self._doc_to_memm(doc)
-        return memm
+        model = self._doc_to_model(doc)
+        return model
 
 
 class CRFManager(SeqLabelDBManager):
+    def db_exists(self):
+        return False  # TODO: This is a temporary hack to prevent reading from and inserting into db for CRF models.
+
     def _get_doc(self, crf):
-        crf_str = pickle.dumps(crf)
-        return {'crf': crf_str}
+        return pickle.dumps(crf)
+
+    def _doc_to_model(self, doc):
+        data = doc.read()
+        crf = pickle.loads(data)
+        return crf

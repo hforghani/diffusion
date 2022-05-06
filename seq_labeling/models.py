@@ -162,6 +162,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
     @classmethod
     def train_models(cls, evidences, iterations, graph, save_in_db=False, project=None, **kwargs):
         logger.info('training %d seq labeling models ...', len(evidences))
+        logger.debug('kwargs = %s', kwargs)
         models = {}
         count = 0
         manager = cls._get_seq_label_manager(project) if save_in_db else None
@@ -177,15 +178,13 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             if count % 100 == 0:
                 logger.debug('%d models trained', count)
 
-            if save_in_db and count % 1000 == 0:
+            if save_in_db and manager is not None and count % 1000 == 0:
                 logger.debug('inserting seq labeling models into db ...')
                 manager.insert(models)
-                models = {}
 
-        if save_in_db and models:
+        if save_in_db and manager is not None and models:
             logger.debug('inserting seq labeling models into db ...')
             manager.insert(models)
-            models = {}
 
         logger.info('done')
         return models
@@ -236,12 +235,15 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
 
     def _fit_by_evidences(self, train_set, train_trees, project, graph, iterations=None, multi_processed=False,
                           eco=False, **kwargs):
+        logger.debug('kwargs = %s', kwargs)
         evidences = self.prepare_evidences(train_set, train_trees, project, graph, multi_processed, eco)
         # if settings.LOG_LEVEL <= logging.DEBUG:
         #     self.log_evidences(evidences)
 
         models = {}
         max_iteration = iterations if iterations is not None else self.max_iterations
+        kwargs.update(self.get_params())
+        manager = self._get_seq_label_manager(project)
         logger.info('training seq labeling models ...')
 
         if multi_processed:
@@ -251,12 +253,9 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             models = self._fit_multiproc(multi_processed_ev, max_iteration, project, graph, **kwargs)
 
             del multi_processed_ev
-            if eco:
+            if eco and manager is not None:
                 logger.info('inserting seq labeling models into db ...')
-                manager = self._get_seq_label_manager(project)
                 manager.insert(models)
-                models = {}
-
         else:
             single_process_ev = evidences
 
@@ -267,7 +266,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             single_proc_models = self.train_models(single_process_ev, max_iteration, graph, save_in_db=eco,
                                                    project=project, **kwargs)
             del single_process_ev
-            if not eco:
+            if not eco or manager is None:
                 models.update(single_proc_models)
 
         return models
@@ -290,24 +289,23 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         Load models from DB if existed, otherwise train a seq labeling model for each user in the training set.
         :return: self
         """
+        logger.debug('kwargs = %s', kwargs)
         logger.info('params = %s', self.get_params())
         self.project = project
-        graph = project.load_or_extract_graph()
+        graph = project.load_or_extract_graph(train_set)
         self.graph = graph
 
-        # train_set, _, _ = self.project.load_sets()
         manager = self._get_seq_label_manager(project)
 
         # If it is in economical mode, train the models only if they are not saved in DB.
-        if not eco or not manager.db_exists():
-            if eco and not manager.db_exists():
+        if eco and manager is not None and manager.db_exists():
+            logger.info('loading seq labeling models from db ...')
+            self._models = manager.fetch_all()
+        else:
+            if eco and manager is not None and not manager.db_exists():
                 logger.info('Seq labeling models do not exist in db.')
             self._models = self._fit_by_evidences(train_set, train_trees, project, graph, iterations, multi_processed,
                                                   eco, **kwargs)
-
-        if eco:
-            logger.info('loading seq labeling models from db ...')
-            self._models = manager.fetch_all()
 
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
         return self
@@ -350,7 +348,11 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
     @classmethod
     @abc.abstractmethod
     def _get_seq_label_manager(cls, project):
-        pass
+        """
+        Get an instance of SeqLabelDBManager that fits your Seq label model. Return None if you want to prevent
+        reading models from and saving them into db.
+        :param project: the project on which we train and test.
+        """
 
     @classmethod
     @abc.abstractmethod
@@ -431,7 +433,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                     # Get the children whom at least one of their parents are in the current step.
                     children_sets = (set(graph.successors(node_id)) for node_id in cur_step_ids if node_id in graph)
                     all_children = list(reduce(lambda x, y: x | y, children_sets, set()))
-                    logger.debugv('all_children = %s', all_children)
+                    # logger.debugv('all_children = %s', all_children)
 
                     # Update the observation of each child and add the new observation-state to the current sequences.
                     for child_id in all_children:
@@ -612,8 +614,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                                 #     logger.debugv('obs = \n%s', obs_to_str(obs))
                                 logger.debugv('threshold %f ...', thr)
                                 # with timers[3]:
-                                node_id, pred = self._predict_by_obs(obs, thr, model, trees[thr], parents,
-                                                                     last_pred)
+                                node_id, pred = self._predict_by_obs(obs, thr, model, trees[thr], parents, last_pred)
                                 last_pred = pred
                                 if node_id:
                                     trees[thr].add_node(child_id, parent_id=node_id)

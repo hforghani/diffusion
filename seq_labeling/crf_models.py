@@ -20,6 +20,7 @@ class CRFModel(NodeSeqLabelModel):
 
     @classmethod
     def _train_model(cls, evidence, iterations, key, graph, **kwargs):
+        logger.debug('kwargs = %s', kwargs)
         crf = cls.get_crf_instance(**kwargs)
         crf.fit(evidence, iterations, **kwargs)
         return crf
@@ -30,7 +31,7 @@ class CRFModel(NodeSeqLabelModel):
 
     @classmethod
     def _get_seq_label_manager(cls, project):
-        return CRFManager(project, cls.method)
+        return None
 
     def _get_predicted_node_id(self, obs, model, tree, obs_node_ids):
         """ Set the parent with the maximum state feature coefficient which is also activated at the current step as the
@@ -107,8 +108,9 @@ class BinCRFModel(SmallFeatCRFModel):
 
 
 class TDCRFModel(SmallFeatCRFModel):
-    def __init__(self, td_param=0.5, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, algorithm='lbfgs', c1=0, c2=1, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5,
+                 **kwargs):
+        super().__init__(algorithm, c1, c2, initial_depth, max_step, threshold)
         self.td_param = td_param
 
     method = Method.TD_CRF

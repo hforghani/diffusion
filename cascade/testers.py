@@ -100,9 +100,9 @@ class ProjectTester(abc.ABC):
 
         logger.info('best_params = %s', best_params)
         logger.info('{0} TRAINING WITH THE BEST PARAMETERS {0}'.format('=' * 20))
-        self.model = self.train(train_set, **best_params)
+        self.model = self.train(train_set, eco=self.eco, **best_params)
         logger.info('{0} TEST {0}'.format('=' * 20))
-        graph = self.project.load_or_extract_graph()
+        graph = self.project.load_or_extract_graph(train_set)
         mean_res, res = self.test(test_set, self.model, graph, initial_depth, max_depth, **best_params)
         logger.debug('type(mean_res) = %s', type(mean_res))
         return mean_res, res
@@ -123,14 +123,13 @@ class ProjectTester(abc.ABC):
             raise Exception('invalid method "%s"' % self.method.value)
         return model
 
-    def train(self, train_set, **kwargs):
-        model = self._get_model()
+    def train(self, train_set, eco, **kwargs):
+        model = self._get_model(**kwargs)
         trees = self.project.load_trees()
         # TODO: Is is necessary to apply initial_depth and max_depth to trees?
         train_trees = [trees[cid] for cid in train_set]
         with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
-            model.fit(train_set, train_trees, self.project, multi_processed=self.multi_processed, eco=self.eco,
-                      **kwargs)
+            model.fit(train_set, train_trees, self.project, multi_processed=self.multi_processed, eco=eco, **kwargs)
             return model
 
     @time_measure('debug')
@@ -189,7 +188,7 @@ class ProjectTester(abc.ABC):
             val_set = folds[i]
             train_set = reduce(lambda x, y: x + y, folds[:i] + folds[i + 1:], [])
             logger.info('{0} TRAINING on fold {1} {0}'.format('=' * 20, i + 1))
-            model = self.train(train_set, threshold=threshold, **params)
+            model = self.train(train_set, eco=False, threshold=threshold, **params)
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
             graph = self.project.load_or_extract_graph(train_set)
             fold_res, _ = self.test(val_set, model, graph, initial_depth, max_depth, threshold=threshold, **params)
@@ -225,8 +224,10 @@ class ProjectTester(abc.ABC):
         # TODO: Is is necessary to apply initial_depth and max_depth to trees?
         train_trees = [trees[cid] for cid in train_set]
         gs.fit(train_set, train_trees, project=self.project)
+        best_params = gs.best_params_.copy()
+        best_params.update(nontunables)
 
-        return gs.best_params_
+        return best_params
 
     def get_cross_val_folds(self, folds_num):
         train_set, test_set = self.project.load_sets()
