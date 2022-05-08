@@ -453,19 +453,21 @@ class CRF(SeqLabelModel):
 
         features = [self._obs_feat_sequence([obs for obs, state in seq]) for seq in sequences]
         states = [[self.__state_to_str(0)] + [self.__state_to_str(state) for obs, state in seq] for seq in sequences]
-        # logger.debugv('sequences = \n%s', pprint.pformat(sequences))
-        # logger.debugv('features = \n%s', pprint.pformat(features))
-        # logger.debugv('states = \n%s', pprint.pformat(states))
+        logger.debugv('sequences = \n%s', pprint.pformat(sequences))
+        logger.debugv('features & states = \n%s', pprint.pformat([list(zip(f, s)) for f, s in zip(features, states)]))
 
         crf.fit(features, states)
         logger.debugv('attributes_:\n%s', crf.attributes_)
-        # logger.debugv('state_features_:\n%s', pprint.pformat(crf.state_features_))
-        # logger.debugv('transition_features_:\n%s', pprint.pformat(crf.transition_features_))
+        logger.debugv('state_features_:\n%s', pprint.pformat(crf.state_features_))
+        logger.debugv('transition_features_:\n%s', pprint.pformat(crf.transition_features_))
 
         self.crf = crf
 
     def __state_to_str(self, state):
-        return '1' if state else '0'
+        if isinstance(state, bool):
+            return '1' if state else '0'
+        else:
+            return str(state)
 
     def _obs_feat_sequence(self, observations):
         dim = observations[0].shape[1]
@@ -486,6 +488,23 @@ class CRF(SeqLabelModel):
         logger.debugv('features = \n%s', features)
         logger.debugv('probs = \n%s', probs)
         return probs[-1][self.__state_to_str(state)]
+
+    def get_probs(self, obs: np.ndarray, all_states: list) -> list:
+        """
+        Get the list of probabilities of transition to all states given the observation conditioned on that the previous
+        state is inactive.
+        :param obs:         current observation
+        :param all_states:  list of all possible states
+        :return:            list of probabilities related to the states given
+        """
+        observations = [obs[obs.shape[0] - i - 1:, :] for i in range(obs.shape[0])]
+        logger.debugv('observations = \n%s', observations)
+        features = self._obs_feat_sequence(observations)
+        probs = self.crf.predict_marginals_single(features)
+        logger.debugv('features = \n%s', features)
+        logger.debugv('probs = \n%s', probs)
+        probs_list = [probs[-1].get(self.__state_to_str(state), 0) for state in all_states]
+        return probs_list
 
 
 class BinCRF(CRF):

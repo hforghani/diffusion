@@ -1,5 +1,6 @@
 import argparse
 import concurrent.futures
+from itertools import repeat
 
 from scipy import stats
 import numpy as np
@@ -25,7 +26,7 @@ def run_method(method, project_name, eco, criterion):
     tester = DefaultTester(project, method, criterion, eco=eco)
     params = get_params(project_name, method)
     logger.info('params = %s', params)
-    mean_res, res = tester.run_validation_test(0, None, **params)
+    mean_res, res = tester.run(0, None, **params)
     f1_values = np.array([metric.f1() for metric in res])
     mean_f1 = mean_res.f1()
     return mean_f1, f1_values
@@ -36,8 +37,7 @@ def multiple_run(methods1: list, methods2: list, project_name: str, eco: bool,
     methods = methods1 + methods2
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
-        mnum = len(methods)
-        exec_res = executor.map(run_method, methods, (project_name,) * mnum, (eco,) * mnum, (criterion,) * mnum)
+        exec_res = executor.map(run_method, methods, repeat(project_name), repeat(eco), repeat(criterion))
     results = {}  # dict of methods to lists of f1 values.
     mean_results = {}  # dict of methods to mean f1 values.
 

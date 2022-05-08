@@ -2,9 +2,9 @@ import abc
 
 import numpy as np
 
-from db.managers import CRFManager
+from db.managers import CRFManager, ParentSensEvidManager
 from diffusion.enum import Method
-from seq_labeling.models import NodeSeqLabelModel
+from seq_labeling.models import NodeSeqLabelModel, Prediction, MultiStateModel
 from seq_labeling.pgm import CRF, BinCRF, TDCRF
 from settings import logger
 
@@ -108,13 +108,17 @@ class BinCRFModel(SmallFeatCRFModel):
 
 
 class TDCRFModel(SmallFeatCRFModel):
+    method = Method.TD_CRF
+
     def __init__(self, algorithm='lbfgs', c1=0, c2=1, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5,
                  **kwargs):
         super().__init__(algorithm, c1, c2, initial_depth, max_step, threshold)
         self.td_param = td_param
 
-    method = Method.TD_CRF
-
     @classmethod
     def get_crf_instance(cls, td_param, **kwargs):
         return TDCRF(td_param)
+
+
+class MultiStateTDCRFModel(TDCRFModel, MultiStateModel):
+    method = Method.MULTI_STATE_TD_CRF

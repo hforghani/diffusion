@@ -49,6 +49,7 @@ METHOD_MODEL_MAP = {
     Method.LONG_CRF: CRFModel,
     Method.BIN_CRF: BinCRFModel,
     Method.TD_CRF: TDCRFModel,
+    Method.MULTI_STATE_TD_CRF: MultiStateTDCRFModel,
 }
 
 
@@ -80,8 +81,7 @@ class ProjectTester(abc.ABC):
         self.criterion = criterion
         self.eco = eco
 
-    def run_validation_test(self, initial_depth: int, max_depth: int, **kwargs) \
-            -> typing.Tuple[Metric, dict]:
+    def run(self, initial_depth: int, max_depth: int, **kwargs) -> typing.Tuple[Metric, dict]:
         """ Run cross-validation for the project """
         tunables = {key: kwargs[key] for key in kwargs if isinstance(kwargs[key], list)}
         nontunables = {key: kwargs[key] for key in kwargs if key not in tunables}

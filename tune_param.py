@@ -47,7 +47,7 @@ def run_predict(method_name: str, project_name: str, criterion: Criterion, initi
             tester = MultiProcTester(project, method, criterion, eco)
         else:
             tester = DefaultTester(project, method, criterion, eco)
-        mean_res, res = tester.run_validation_test(threshold, initial_depth, max_depth, **cur_param)
+        mean_res, res = tester.run(threshold, initial_depth, max_depth, **cur_param)
         if mean_res.f1() > best_f1:
             best_params, best_f1 = cur_param, mean_res.f1()
 

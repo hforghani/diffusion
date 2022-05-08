@@ -1,9 +1,11 @@
 import argparse
+import concurrent
+from itertools import repeat, product
 
 import settings
 from diffusion.enum import Method, Criterion
 from cascade.models import Project
-from cascade.testers import DefaultTester, MultiProcTester
+from cascade.testers import DefaultTester
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -16,27 +18,47 @@ def get_params(project_name, method):
     return {}
 
 
-def multiple_run(methods: list, depth_settings: list, project_name: str, multi_processed: bool, eco: bool,
+def run(method, initial_depth, max_depth, project, eco, criterion):
+    logger.info('running prediction from depth %d to %s using method %s ...', initial_depth,
+                max_depth if max_depth is not None else 'end', method.value)
+    tester = DefaultTester(project, method, criterion, eco=eco)
+    params = get_params(project.name, method)
+    logger.info('params = %s', params)
+    mean_res, res = tester.run(initial_depth, max_depth, **params)
+    return mean_res.f1()
+
+
+def multiple_run(methods: list, depth_settings: list, project_name: str, eco: bool,
                  criterion: Criterion) -> dict:
     project = Project(project_name)
-    results = {}
+    combs = list(product(depth_settings, methods))
+    comb_methods = [comb[1] for comb in combs]
+    init_depths = [comb[0][0] for comb in combs]
+    max_depths = [comb[0][1] for comb in combs]
+    logger.debug('comb_methods = %s', comb_methods)
+    logger.debug('init_depths = %s', init_depths)
+    logger.debug('max_depths = %s', max_depths)
 
-    if multi_processed:
-        testers = {method: MultiProcTester(project, method, criterion, eco=eco) for method in methods}
-    else:
-        testers = {method: DefaultTester(project, method, criterion, eco=eco) for method in methods}
+    with concurrent.futures.ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
+        f1_values = list(executor.map(run, comb_methods, init_depths, max_depths, repeat(project), repeat(eco),
+                                      repeat(criterion)))
 
-    for initial_depth, max_depth in depth_settings:
-        cur_results = {}
-        for method in methods:
-            logger.info('running prediction from depth %d to %s using method %s ...', initial_depth,
-                        max_depth if max_depth is not None else 'end', method.value)
-            params = get_params(project_name, method)
-            logger.info('params = %s', params)
-            mean_res, res = testers[method].run_validation_test(initial_depth, max_depth, **params)
-            cur_results[method] = mean_res.f1()
-        results[(initial_depth, max_depth)] = cur_results
+    results = {(initial_depth, max_depth): {} for initial_depth, max_depth in depth_settings}
+    for i in range(len(f1_values)):
+        results[(init_depths[i], max_depths[i])][comb_methods[i]] = f1_values[i]
+
     return results
+
+
+def report_results(methods, results):
+    logs = [f'{"from depth":<15}{"to depth":<15}' + ''.join(f'{method.value:<15}' for method in methods)]
+    for init_depth, max_depth in results:
+        cur_results = results[(init_depth, max_depth)]
+        row = f'{init_depth:<15}{max_depth if max_depth else "end":<15}'
+        for method in cur_results:
+            row += f'{cur_results[method]:<15.3}'
+        logs.append(row)
+    logger.info('all results:\n%s', '\n'.join(logs))
 
 
 @time_measure()
@@ -45,8 +67,6 @@ def main():
     parser.add_argument("-p", "--project", help="project name")
     parser.add_argument("-m", "--methods", nargs="+", required=True, choices=[e.value for e in Method],
                         help="the methods by which we want to test")
-    parser.add_argument("-M", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
-                        help="if this option is given, the task is ran on multiple processes")
     parser.add_argument("-e", "--eco", action='store_true', default=False,
                         help="If this option is given, the prediction is done in economical mode e.t. Memory consumption "
                              "is decreased and data is stored in DB and loaded everytime needed instead of storing in "
@@ -69,17 +89,9 @@ def main():
     thorough_depths = [(i, None) for i in range(max_depth)]
     depth_settings = one_step_depths + thorough_depths
     # depth_settings = [(0, None)]
-    results = multiple_run(methods, depth_settings, args.project, args.multi_processed, args.eco,
-                           Criterion(args.criterion))
+    results = multiple_run(methods, depth_settings, args.project, args.eco, Criterion(args.criterion))
 
-    logs = [f'{"from depth":<15}{"to depth":<15}' + ''.join(f'{method.value:<15}' for method in methods)]
-    for init_depth, max_depth in results:
-        cur_results = results[(init_depth, max_depth)]
-        row = f'{init_depth:<15}{max_depth if max_depth else "end":<15}'
-        for method in cur_results:
-            row += f'{cur_results[method]:<15.3}'
-        logs.append(row)
-    logger.info('all results:\n%s', '\n'.join(logs))
+    report_results(methods, results)
 
 
 if __name__ == '__main__':

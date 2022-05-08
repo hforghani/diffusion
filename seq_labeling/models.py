@@ -4,22 +4,16 @@ import math
 import pprint
 import random
 import traceback
-import typing
 from functools import reduce
-
-import numpy
-import numpy as np
 from multiprocessing.pool import Pool
 
+import numpy as np
 import psutil
-from networkx import DiGraph
 from pympler.asizeof import asizeof
-from sklearn.base import BaseEstimator
 
 import settings
-from cascade.models import CascadeTree
 from db.exceptions import DataDoesNotExist
-from db.managers import EvidenceManager
+from db.managers import EvidenceManager, ParentSensEvidManager
 from diffusion.models import DiffusionModel
 from log_levels import DEBUG_LEVELV_NUM
 from seq_labeling.utils import obs_to_str
@@ -729,3 +723,50 @@ class Prediction:
         self.obs = obs
         self.prob = prob
         self.state = state
+
+
+class MultiStateModel(NodeSeqLabelModel, abc.ABC):
+    @staticmethod
+    def inactive_state():
+        return 0
+
+    @staticmethod
+    def active_state(node=None, graph=None):
+        parents = list(graph.predecessors(node.user_id))
+        index = parents.index(node.parent_id)
+        return index + 1
+
+    @staticmethod
+    def get_states(key=None, graph=None):
+        return list(range(graph.in_degree(key) + 1))
+
+    def _get_evid_manager(self, project):
+        return ParentSensEvidManager(project)
+
+    def _predict_by_obs(self, obs, thr, model, tree, obs_node_ids, last_pred=None):
+        if last_pred is not None and np.array_equal(obs, last_pred.obs):
+            state, prob = last_pred.state, last_pred.prob
+        else:
+            all_states = list(range(len(obs_node_ids) + 1))
+            probs = model.get_probs(obs, all_states)
+            new_act_indexes = np.nonzero(obs[0, :])[0]
+            if new_act_indexes.any():
+                active_states = new_act_indexes + 1
+                inactive_prob = probs[0]
+                active_prob = 1 - inactive_prob
+                active_probs = [probs[1 + i] for i in new_act_indexes]
+                i = np.argmax(active_probs)
+                state, prob = active_states[i], active_prob
+            else:
+                state, prob = 0, 0
+        pred = Prediction(obs, prob, state)
+
+        if state > 0 and prob >= thr:
+            node_id = obs_node_ids[state - 1]
+            if tree.get_node(node_id):
+                logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
+                return node_id, pred
+            else:
+                logger.warning('parent node %s does not exist', node_id)
+
+        return None, pred

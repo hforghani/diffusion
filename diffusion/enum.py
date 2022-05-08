@@ -21,6 +21,7 @@ class Method(Enum):
     LONG_CRF = 'lcrf'
     BIN_CRF = 'bcrf'
     TD_CRF = 'tdcrf'
+    MULTI_STATE_TD_CRF = 'mtdcrf'
     AVG = 'avg'
 
 

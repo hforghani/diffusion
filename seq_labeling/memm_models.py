@@ -1,11 +1,9 @@
-import pprint
-
 import settings
-from log_levels import DEBUG_LEVELV_NUM
-from db.managers import SeqLabelDBManager, EdgeEvidenceManager, EdgeMEMMManager, ParentSensEvidManager
+from db.managers import SeqLabelDBManager, EdgeEvidenceManager, EdgeMEMMManager
 from diffusion.enum import Method
+from log_levels import DEBUG_LEVELV_NUM
+from seq_labeling.models import SeqLabelDifModel, NodeSeqLabelModel, MultiStateModel
 from seq_labeling.pgm import *
-from seq_labeling.models import SeqLabelDifModel, NodeSeqLabelModel, Prediction
 from seq_labeling.utils import obs_to_str
 from settings import logger
 
@@ -304,53 +302,6 @@ class NodeMEMMModel(NodeSeqLabelModel, MEMMModel, abc.ABC):
     pass
 
 
-class MultiStateMEMMModel(NodeMEMMModel, abc.ABC):
-    @staticmethod
-    def inactive_state():
-        return 0
-
-    @staticmethod
-    def active_state(node=None, graph=None):
-        parents = list(graph.predecessors(node.user_id))
-        index = parents.index(node.parent_id)
-        return index + 1
-
-    @staticmethod
-    def get_states(key=None, graph=None):
-        return list(range(graph.in_degree(key) + 1))
-
-    def _get_evid_manager(self, project):
-        return ParentSensEvidManager(project)
-
-    def _predict_by_obs(self, obs, thr, model, tree, obs_node_ids, last_pred=None):
-        if last_pred is not None and np.array_equal(obs, last_pred.obs):
-            state, prob = last_pred.state, last_pred.prob
-        else:
-            all_states = list(range(len(obs_node_ids) + 1))
-            probs = model.get_probs(obs, all_states)
-            new_act_indexes = np.nonzero(obs[0, :])[0]
-            if new_act_indexes.any():
-                active_states = new_act_indexes + 1
-                inactive_prob = probs[0]
-                active_prob = 1 - inactive_prob
-                active_probs = [probs[1 + i] for i in new_act_indexes]
-                i = np.argmax(active_probs)
-                state, prob = active_states[i], active_prob
-            else:
-                state, prob = 0, 0
-        pred = Prediction(obs, prob, state)
-
-        if state > 0 and prob >= thr:
-            node_id = obs_node_ids[state - 1]
-            if tree.get_node(node_id):
-                logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
-                return node_id, pred
-            else:
-                logger.warning('parent node %s does not exist', node_id)
-
-        return None, pred
-
-
 class LongMEMMModel(NodeMEMMModel):
     method = Method.LONG_MEMM
 
@@ -382,7 +333,7 @@ class LongMEMMModel(NodeMEMMModel):
         return None
 
 
-class MultiStateLongMEMMModel(LongMEMMModel, MultiStateMEMMModel):
+class MultiStateLongMEMMModel(LongMEMMModel, MultiStateModel):
     method = Method.MULTI_STATE_LONG_MEMM
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
@@ -400,7 +351,7 @@ class BinMEMMModel(NodeMEMMModel):
         return BinMEMM()
 
 
-class MultiStateBinMEMMModel(BinMEMMModel, MultiStateMEMMModel):
+class MultiStateBinMEMMModel(BinMEMMModel, MultiStateModel):
     method = Method.MULTI_STATE_BIN_MEMM
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
@@ -422,7 +373,7 @@ class TDMEMMModel(NodeMEMMModel):
         return TDMEMM(td_param)
 
 
-class MultiStateTDMEMMModel(TDMEMMModel, MultiStateMEMMModel):
+class MultiStateTDMEMMModel(TDMEMMModel, MultiStateModel):
     method = Method.MULTI_STATE_TD_MEMM
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
@@ -430,7 +381,7 @@ class MultiStateTDMEMMModel(TDMEMMModel, MultiStateMEMMModel):
         self.td_param = td_param
 
 
-class ParentSensTDMEMMModel(MultiStateMEMMModel):
+class ParentSensTDMEMMModel(MultiStateModel):
     """
     Parent-sensitive Time-Decay MEMM model
     """
@@ -445,7 +396,7 @@ class ParentSensTDMEMMModel(MultiStateMEMMModel):
         return ParentTDMEMM(td_param)
 
 
-class LongParentSensTDMEMMModel(MultiStateMEMMModel):
+class LongParentSensTDMEMMModel(MultiStateModel):
     method = Method.LONG_PARENT_SENS_TD_MEMM
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
