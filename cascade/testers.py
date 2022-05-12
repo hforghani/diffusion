@@ -49,6 +49,8 @@ METHOD_MODEL_MAP = {
     Method.LONG_CRF: CRFModel,
     Method.BIN_CRF: BinCRFModel,
     Method.TD_CRF: TDCRFModel,
+    Method.MULTI_STATE_LONG_CRF: MultiStateCRFModel,
+    Method.MULTI_STATE_BIN_CRF: MultiStateBinCRFModel,
     Method.MULTI_STATE_TD_CRF: MultiStateTDCRFModel,
 }
 
@@ -81,7 +83,7 @@ class ProjectTester(abc.ABC):
         self.criterion = criterion
         self.eco = eco
 
-    def run(self, initial_depth: int, max_depth: int, **kwargs) -> typing.Tuple[Metric, dict]:
+    def run(self, initial_depth: int, max_depth: int, **kwargs) -> tuple:
         """ Run cross-validation for the project """
         tunables = {key: kwargs[key] for key in kwargs if isinstance(kwargs[key], list)}
         nontunables = {key: kwargs[key] for key in kwargs if key not in tunables}
@@ -103,9 +105,9 @@ class ProjectTester(abc.ABC):
         self.model = self.train(train_set, eco=self.eco, **best_params)
         logger.info('{0} TEST {0}'.format('=' * 20))
         graph = self.project.load_or_extract_graph(train_set)
-        mean_res, res = self.test(test_set, self.model, graph, initial_depth, max_depth, **best_params)
+        mean_res, res_eval, res_trees = self.test(test_set, self.model, graph, initial_depth, max_depth, **best_params)
         logger.debug('type(mean_res) = %s', type(mean_res))
-        return mean_res, res
+        return mean_res, res_eval, res_trees
 
     def _get_model(self, initial_depth=0, max_depth=None, **params):
         max_step = max_depth - initial_depth if max_depth else None
@@ -154,21 +156,18 @@ class ProjectTester(abc.ABC):
                 'no average results since the initial depth is more than or equal to the depths of all trees')
             return None
 
-        results = self._do_test(test_set, model, graph, trees, initial_depth, max_depth, **params)
+        res_eval, res_trees = self._do_test(test_set, model, graph, trees, initial_depth, max_depth, **params)
 
-        # if len(results) == 1:  # It is on test stage. Set the results as the list of metrics.
-        #     results = next(iter(results.values()))
+        if isinstance(res_eval, list):  # It is on test stage
+            self._log_cascades_results(test_set, res_eval)
 
-        if isinstance(results, list):  # It is on test stage
-            self._log_cascades_results(test_set, results)
-
-        logger.debug('type(results) = %s', type(results))
-        if isinstance(results, list):  # It is on test stage
-            mean_res = self._get_mean_results(results)
+        logger.debug('type(res_eval) = %s', type(res_eval))
+        if isinstance(res_eval, list):  # It is on test stage
+            mean_res = self._get_mean_results(res_eval)
         else:  # It is on validation stage and results is a dict.
-            mean_res = self._get_mean_results_dict(results)
+            mean_res = self._get_mean_results_dict(res_eval)
 
-        return mean_res, results
+        return mean_res, res_eval, res_trees
 
     @time_measure(level='info')
     def _tune_threshold(self, initial_depth, max_depth, threshold, **params):
@@ -191,7 +190,7 @@ class ProjectTester(abc.ABC):
             model = self.train(train_set, eco=False, threshold=threshold, **params)
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
             graph = self.project.load_or_extract_graph(train_set)
-            fold_res, _ = self.test(val_set, model, graph, initial_depth, max_depth, threshold=threshold, **params)
+            fold_res, _, _ = self.test(val_set, model, graph, initial_depth, max_depth, threshold=threshold, **params)
             for thr in threshold:
                 results.setdefault(thr, [])
                 results[thr].append(fold_res[thr].f1())
@@ -387,12 +386,17 @@ class MultiProcTester(ProjectTester):
         pool.join()
 
         got_results = [res.get() for res in results]
-        if isinstance(got_results[0], list):  # It is on test stage.
-            test_res = reduce(lambda x, y: x + y, got_results, [])
+        result_eval = [res[0] for res in got_results]
+        result_trees = [res[1] for res in got_results]
+        del got_results
+        if isinstance(result_eval[0], list):  # It is on test stage.
+            merged_res_eval = reduce(lambda x, y: x + y, result_eval, [])
+            merged_res_trees = reduce(lambda x, y: x + y, result_trees, [])
         else:  # It is on validation stage.
-            test_res = reduce(lambda x, y: {key: x.get(key, []) + y[key] for key in y}, got_results, {})
+            merged_res_eval = reduce(lambda x, y: {key: x.get(key, []) + y[key] for key in y}, result_eval, {})
+            merged_res_trees = None  # Result trees are not returned on validation stage.
 
-        return test_res
+        return merged_res_eval, merged_res_trees
 
     def _get_validate_n_jobs(self):
         return settings.PROCESS_COUNT

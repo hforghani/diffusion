@@ -123,36 +123,6 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
                 user_ids.append(uid)
         return user_ids
 
-    def _separate_big_ev(self, evidences):
-        """
-        Sort the evidences by their sizes. Select as many small evidences to fill 80% of available memory and
-        put them in a dictionary named small_ev_keys. Put the others in a dictionary named large_ev_keys.
-        :param evidences:
-        :type evidences:
-        :return:
-        :rtype:
-        """
-        large_ev_keys = []
-        small_ev_keys = []
-        sizes = {}
-        for key in evidences:
-            sizes[key] = asizeof(evidences[key]['sequences'])
-        sorted_uids = sorted(evidences.keys(), key=lambda uid: sizes[uid])
-        size_sum = 0
-        available = 0.8 * psutil.virtual_memory().available
-        logger.debugv('available memory: %d G', available / 1024 ** 3)
-        for key in sorted_uids:
-            size_sum += sizes[key]
-            if size_sum < available:
-                small_ev_keys.append(key)
-            else:
-                large_ev_keys.append(key)
-        # Shuffle user ids to balance the process memory sizes of processes (for small evidences).
-        logger.debugv('num of small_ev_keys: %d', len(small_ev_keys))
-        logger.debugv('size of 10 first small evidences: %s', [sizes[key] for key in small_ev_keys[:10]])
-        logger.debugv('size of 10 first large evidences: %s', [sizes[key] for key in large_ev_keys[:10]])
-        return large_ev_keys, small_ev_keys
-
     @classmethod
     def train_models(cls, evidences, iterations, graph, save_in_db=False, project=None, **kwargs):
         logger.info('training %d seq labeling models ...', len(evidences))
@@ -512,10 +482,12 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
 
                         if obs is not None:
                             observations[child_id] = obs
-                            logger.debugv('obs = \n%s', obs_to_str(obs))
-                            node_id, _ = self._predict_by_obs(obs, thr, model, tree, parents)
+                            if settings.LOG_LEVEL <= DEBUG_LEVELV_NUM:
+                                logger.debugv('obs = \n%s', obs_to_str(obs))
+                            node_id, pred = self._predict_by_obs(obs, thr, model, tree, parents)
                             if node_id:
-                                tree.add_node(child_id, parent_id=node_id)
+                                node = tree.add_node(child_id, parent_id=node_id)
+                                node.probability = pred.prob
                                 active_ids.add(child_id)
                                 next_step.add(child_id)
 
@@ -750,11 +722,11 @@ class MultiStateModel(NodeSeqLabelModel, abc.ABC):
             all_states = list(range(len(obs_node_ids) + 1))
             probs = model.get_probs(obs, all_states)
             new_act_indexes = np.nonzero(obs[0, :])[0]
-            if new_act_indexes.any():
+            if new_act_indexes.size != 0:
                 active_states = new_act_indexes + 1
                 inactive_prob = probs[0]
                 active_prob = 1 - inactive_prob
-                active_probs = [probs[1 + i] for i in new_act_indexes]
+                active_probs = [probs[state] for state in active_states]
                 i = np.argmax(active_probs)
                 state, prob = active_states[i], active_prob
             else:

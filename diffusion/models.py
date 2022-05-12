@@ -148,6 +148,7 @@ class LT(DiffusionModel, abc.ABC):
 
                             # Add it to the tree.
                             child = trees[thr].add_node(v, act_time=receive_dt, parent_id=u)
+                            child.probability = prob
                             thr_active_ids.add(v)
                             child_max_pred_thr = thr
                             logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', self.probabilities[v], thr)
@@ -340,6 +341,7 @@ class IC(DiffusionModel, abc.ABC):
 
                             # Add it to the tree.
                             child = trees[thr].add_node(v, act_time=receive_dt, parent_id=u)
+                            child.probability = prob
                             thr_active_ids.add(v)
                             child_max_pred_thr = thr
                             logger.debugv('a reshare predicted: prob (%f) >= thresh (%f)', prob, thr)

@@ -39,7 +39,7 @@ def run_predict(method_name: str, project_name: str, criterion: Criterion, initi
     else:
         tester = DefaultTester(project, method, criterion, eco)
 
-    mean_res, res = tester.run(initial_depth, max_depth, **param)
+    mean_res, res, _ = tester.run(initial_depth, max_depth, **param)
 
     return mean_res
 

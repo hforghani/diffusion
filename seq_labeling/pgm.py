@@ -504,6 +504,7 @@ class CRF(SeqLabelModel):
         logger.debugv('features = \n%s', features)
         logger.debugv('probs = \n%s', probs)
         probs_list = [probs[-1].get(self.__state_to_str(state), 0) for state in all_states]
+        logger.debugv('probs_list = \n%s', probs_list)
         return probs_list
 
 

@@ -24,9 +24,16 @@ class CascadeNode:
         self.post_id = post_id
         self.parent_id = parent_id
         self.children = []
+        self.probability = None
 
     def __repr__(self):
         return f'CascadeNode({self.user_id})'
+
+    def __hash__(self):
+        return hash(self.user_id)
+
+    def __eq__(self, other):
+        return self.user_id == other.user_id
 
     def to_json(self):
         """
@@ -352,7 +359,8 @@ class Project:
             logger.info('trees not found. extracting ...')
             trees = {}
             i = 0
-            all_cascades = self.training + self.validation + self.test
+            # all_cascades = self.training + self.validation + self.test
+            all_cascades = self.training + self.test
             count = len(all_cascades)
             for cascade_id in all_cascades:
                 tree = self.extract_cascade(cascade_id)
@@ -378,16 +386,13 @@ class Project:
             post_ids = db.postcascades.distinct('post_id', {'cascade_id': cascade_id})
             posts = db.posts.find({'_id': {'$in': post_ids}}, {'url': 0}).sort('datetime')
 
-            user_ids = list(set([p['author_id'] for p in posts]))
+            user_ids = list({p['author_id'] for p in posts})
             reshares = db.reshares.find({'post_id': {'$in': post_ids}, 'reshared_post_id': {'$in': post_ids}}) \
                 .sort('datetime')
 
         with Timer('TREE: creating nodes', level='debug'):
-            # Create nodes for the users.
-            nodes = {}
+            nodes = {user_id: CascadeNode(user_id) for user_id in user_ids}  # Create nodes for the users.
             visited = {uid: False for uid in user_ids}  # Set visited True if the node has been visited.
-            for user_id in user_ids:
-                nodes[user_id] = CascadeNode(user_id)
 
         with Timer('TREE: creating diffusion edges', level='debug'):
             """
@@ -419,12 +424,12 @@ class Project:
 
         with Timer('TREE: Adding single nodes', level='debug'):
             # Add users with no diffusion edges as single nodes.
-            first_posts = {}
             posts.rewind()
-
+            first_posts = {}
             for post in posts:
                 if post['author_id'] not in first_posts:
                     first_posts[post['author_id']] = post
+
             for uid, node in nodes.items():
                 if not visited[uid]:
                     post = first_posts[uid]

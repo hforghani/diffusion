@@ -70,11 +70,11 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
 
 
 def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, max_depth: int, criterion: Criterion,
-                  trees: dict, graph: DiGraph, threshold: typing.Union[list, numbers.Number], **params) \
-        -> typing.Union[dict, list]:
+                  trees: dict, graph: DiGraph, threshold: typing.Union[list, numbers.Number], **params) -> tuple:
     try:
         logger.debug('type(threshold) = %s', type(threshold))
         results = {thr: [] for thr in threshold} if isinstance(threshold, list) else []
+        res_trees = [] if not isinstance(threshold, list) else None  # Only used when on test stage
         max_step = max_depth - initial_depth if max_depth is not None else None
         count = 1
 
@@ -124,6 +124,7 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                         meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
                                                                  graph)
                         results.append(meas)
+                        res_trees.append(res_tree)
                         logs.append(
                             f'{len(res_output):10}{len(true_output):10}{meas.precision():10.3f}{meas.recall():10.3f}'
                             f'{meas.f1():10.3f}')
@@ -135,7 +136,7 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
 
         logger.info('done')
         logger.debug('type(results) = %s', type(results))
-        return results
+        return results, res_trees
 
     except:
         logger.error(traceback.format_exc())

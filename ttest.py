@@ -6,19 +6,12 @@ from scipy import stats
 import numpy as np
 
 import settings
+from compare_results import get_params
 from diffusion.enum import Method, Criterion
 from cascade.models import Project
-from cascade.testers import DefaultTester, MultiProcTester
+from cascade.testers import DefaultTester
 from settings import logger
 from utils.time_utils import time_measure
-
-
-def get_params(project_name, method):
-    if method in settings.PARAM:
-        params = settings.PARAM[method]
-        if project_name in params:
-            return params[project_name]
-    return {}
 
 
 def run_method(method, project_name, eco, criterion):
@@ -26,7 +19,7 @@ def run_method(method, project_name, eco, criterion):
     tester = DefaultTester(project, method, criterion, eco=eco)
     params = get_params(project_name, method)
     logger.info('params = %s', params)
-    mean_res, res = tester.run(0, None, **params)
+    mean_res, res, _ = tester.run(0, None, **params)
     f1_values = np.array([metric.f1() for metric in res])
     mean_f1 = mean_res.f1()
     return mean_f1, f1_values

@@ -24,7 +24,7 @@ def run(method, initial_depth, max_depth, project, eco, criterion):
     tester = DefaultTester(project, method, criterion, eco=eco)
     params = get_params(project.name, method)
     logger.info('params = %s', params)
-    mean_res, res = tester.run(initial_depth, max_depth, **params)
+    mean_res, res, _ = tester.run(initial_depth, max_depth, **params)
     return mean_res.f1()
 
 

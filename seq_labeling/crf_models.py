@@ -120,5 +120,13 @@ class TDCRFModel(SmallFeatCRFModel):
         return TDCRF(td_param)
 
 
+class MultiStateCRFModel(CRFModel, MultiStateModel):
+    method = Method.MULTI_STATE_LONG_CRF
+
+
+class MultiStateBinCRFModel(BinCRFModel, MultiStateModel):
+    method = Method.MULTI_STATE_BIN_CRF
+
+
 class MultiStateTDCRFModel(TDCRFModel, MultiStateModel):
     method = Method.MULTI_STATE_TD_CRF
