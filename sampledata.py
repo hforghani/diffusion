@@ -59,17 +59,14 @@ class Command:
             samples = [str(_id) for _id in samples]
             random.shuffle(samples)
 
-            val_ratio, test_ratio = 0.15, 0.15
-            val_num = round(val_ratio * len(samples))
+            test_ratio = 0.3
             test_num = round(test_ratio * len(samples))
-            val_set = samples[:val_num]
-            test_set = samples[val_num:val_num + test_num]
-            train_set = samples[val_num + test_num:]
+            test_set = samples[:test_num]
+            train_set = samples[test_num:]
             project = Project(project_name, db=db_name)
-            project.save_sets(train_set, val_set, test_set)
+            project.save_sets(train_set, test_set)
             logger.info('project %s sampled containing %d cascades', project_name, len(samples))
-            logger.info('sizes -> training: %d, validation: %d, test: %d', len(samples) - val_num - test_num, val_num,
-                        test_num)
+            logger.info('sizes -> training: %d, test: %d', len(samples) - test_num, test_num)
 
         except:
             logger.error(traceback.format_exc())

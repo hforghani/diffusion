@@ -50,7 +50,6 @@ def report_results(mean_results, results, methods1, methods2):
                 ' ' * 10 + ''.join(f'{method.value:<15}' for method in all_methods) +
                 '\nf1 =      ' + ''.join(f'{mean_results[method]:<15.3}' for method in all_methods))
     logs = [
-        '1-tail p-values:',
         ' ' * 20 + ''.join(f'|{method.value:<19}{"|":<20}' for method in methods2),
         ' ' * 20 + ''.join(f'|{"t-value":<19}{"p-value":<20}' for _ in methods2)
     ]
@@ -77,9 +76,8 @@ def main():
     parser.add_argument("--methods2", nargs="+", required=True, choices=[e.value for e in Method],
                         help="the methods of group 2 in student's t-test")
     parser.add_argument("-e", "--eco", action='store_true', default=False,
-                        help="If this option is given, the prediction is done in economical mode e.t. Memory consumption "
-                             "is decreased and data is stored in DB and loaded everytime needed instead of storing in "
-                             "RAM. Otherwise, no data is stored in DB.")
+                        help="If this option is given, the already saved trained models is fetched from db and used. "
+                             "Also it will be saved if has not been saved.")
     parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
                         help="the criterion on which the evaluation is done")
     args = parser.parse_args()

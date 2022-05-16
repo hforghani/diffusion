@@ -1,6 +1,7 @@
 import argparse
 
 from cascade.models import Project
+from settings import logger
 
 
 def main():
@@ -12,6 +13,7 @@ def main():
     project = Project(args.project)
     project.load_or_extract_graph_seq()
     project.load_trees()
+    logger.info('done')
 
 
 if __name__ == '__main__':

@@ -132,7 +132,7 @@ class ProjectTester(abc.ABC):
         train_trees = [trees[cid] for cid in train_set]
         with Timer(f'training of method [{self.method.value}] on project [{self.project.name}]', unit=TimeUnit.SECONDS):
             model.fit(train_set, train_trees, self.project, multi_processed=self.multi_processed, eco=eco, **kwargs)
-            return model
+        return model
 
     @time_measure('debug')
     def test(self, test_set: list, model: DiffusionModel, graph: DiGraph, initial_depth: int = 0, max_depth: int = None,

@@ -312,31 +312,29 @@ class Project:
             self.save_param({'db': db}, 'db', ParamTypes.JSON)
             self.db = db
         self.training = None
-        self.validation = None
         self.test = None
         self.trees = None
 
-    def save_sets(self, train_set, val_set, test_set):
+    def save_sets(self, train_set, test_set):
         # Dump the json into the file.
         self.training = list(train_set)
-        self.validation = list(val_set)
         self.test = list(test_set)
-        data = {'training': train_set, 'validation': val_set, 'test': test_set}
+        data = {
+            'training': [str(cid) for cid in train_set],
+            'test': [str(cid) for cid in test_set]
+        }
         self.save_param(data, 'samples', ParamTypes.JSON)
 
     def load_sets(self):
         sample_set_path = os.path.join(self.path, 'samples.json')
         if os.path.exists(sample_set_path):
             data = json.load(open(sample_set_path))
-            train_cascades, val_cascades, test_cascades = data['training'], data['validation'], data['test']
+            train_cascades, test_cascades = data['training'], data['test']
             self.training = [ObjectId(_id) for _id in train_cascades]
-            # self.validation = [ObjectId(_id) for _id in val_cascades]
-            # self.test = [ObjectId(_id) for _id in test_cascades]
-            self.test = [ObjectId(_id) for _id in val_cascades + test_cascades]
+            self.test = [ObjectId(_id) for _id in test_cascades]
         else:
             raise Exception('Data sample not found. Run sampledata command.')
 
-        # return self.training, self.validation, self.test
         return self.training, self.test
 
     @time_measure(level='debug')
@@ -359,7 +357,6 @@ class Project:
             logger.info('trees not found. extracting ...')
             trees = {}
             i = 0
-            # all_cascades = self.training + self.validation + self.test
             all_cascades = self.training + self.test
             count = len(all_cascades)
             for cascade_id in all_cascades:
@@ -443,10 +440,14 @@ class Project:
     def load_or_extract_graph(self, train_set=None, post_ids=None):
         """
         Load or extract the graph of cascades in training set.
+        If the graph is not saved in db and hence extracted and also if post_ids is a list, then post_ids is filled
+        with the related post ids.
         :return:
         """
         if train_set is None:
             train_set, _ = self.load_sets()
+        if post_ids is None:
+            post_ids = []
 
         graph = None
         graph_info_fname = 'graph_info'
@@ -465,8 +466,8 @@ class Project:
             graph_info = {}
 
         if graph is None:
-            if post_ids is None:
-                post_ids = self.__get_cascades_post_ids(train_set)
+            if len(post_ids) == 0:
+                post_ids.extend(self.__get_cascades_post_ids(train_set))
             if not graph_info:
                 fname = 'graph1'
             else:
@@ -483,12 +484,16 @@ class Project:
     def load_or_extract_act_seq(self, train_set=None, post_ids=None):
         """
         Load or extract list of activation sequences of cascades in training set.
+        If the activation sequence is not saved in db and hence extracted and also if post_ids is a list, then post_ids
+        is filled with the related post ids.
         :return:
         """
         seq_fname = 'sequences'
         all_train_set, _ = self.load_sets()
         if not train_set:
             train_set = all_train_set
+        if post_ids is None:
+            post_ids = []
 
         try:
             seq_copy = self.load_param(seq_fname, ParamTypes.JSON)
@@ -499,8 +504,8 @@ class Project:
                 sequences[ObjectId(m)] = ActSequence(users=users, times=times, max_t=seq_copy[m]['max_t'])
 
         except FileNotFoundError:  # If graph data does not exist.
-            if post_ids is None:
-                post_ids = self.__get_cascades_post_ids(all_train_set)
+            if len(post_ids) == 0:
+                post_ids.extend(self.__get_cascades_post_ids(all_train_set))
             sequences = self.__extract_act_seq(post_ids, all_train_set)
 
         sequences = {cid: seq for cid, seq in sequences.items() if cid in train_set}
@@ -516,7 +521,8 @@ class Project:
         """
         if not train_set:
             train_set, _ = self.load_sets()
-        post_ids = self.__get_cascades_post_ids(train_set)
+        post_ids = []
+        # if the graph is not saved in db and hence extracted, then post_ids is filled with the related post ids.
         graph = self.load_or_extract_graph(train_set, post_ids)
         sequences = self.load_or_extract_act_seq(train_set, post_ids)
         return graph, sequences

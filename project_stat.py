@@ -32,10 +32,9 @@ class Command:
             graph = project.load_or_extract_graph()
             print('Number of nodes:', len(graph.nodes()))
 
-            training, validation, test = project.load_sets()
-            cascade_ids = training + validation + test
+            training, test = project.load_sets()
             db = DBManager(project.db).db
-            cascades = list(db.cascades.find({'_id': {'$in': cascade_ids}}, ['_id', 'depth', 'size']))
+            cascades = list(db.cascades.find({'_id': {'$in': training + test}}, ['_id', 'depth', 'size']))
             print('Number of cascades:', len(cascades))
             print(f'{"cascade id":30}{"size":10}{"depth":10}')
             for cascade in cascades:

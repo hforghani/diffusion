@@ -204,34 +204,18 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         # if settings.LOG_LEVEL <= logging.DEBUG:
         #     self.log_evidences(evidences)
 
-        models = {}
         max_iteration = iterations if iterations is not None else self.max_iterations
         kwargs.update(self.get_params())
         manager = self._get_seq_label_manager(project)
         logger.info('training seq labeling models ...')
 
         if multi_processed:
-            single_process_ev = {}  # Evidences to train sequentially in a single process.
-            multi_processed_ev = evidences
-
-            models = self._fit_multiproc(multi_processed_ev, max_iteration, project, graph, **kwargs)
-
-            del multi_processed_ev
-            if eco and manager is not None:
-                logger.info('inserting seq labeling models into db ...')
-                manager.insert(models)
+            models = self._fit_multiproc(evidences, max_iteration, project, graph, **kwargs)
         else:
-            single_process_ev = evidences
-
-        if single_process_ev:
-            # Train big evidences sequentially in a single process if multi_processed is True and all evidences
-            # otherwise.
-            logger.info('training %d seq labeling models sequentially ...', len(single_process_ev))
-            single_proc_models = self.train_models(single_process_ev, max_iteration, graph, save_in_db=eco,
-                                                   project=project, **kwargs)
-            del single_process_ev
-            if not eco or manager is None:
-                models.update(single_proc_models)
+            models = self.train_models(evidences, max_iteration, graph, save_in_db=eco, project=project, **kwargs)
+        if eco and manager is not None:
+            logger.info('inserting seq labeling models into db ...')
+            manager.insert(models)
 
         return models
 

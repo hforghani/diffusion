@@ -292,14 +292,11 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
 def save_project(project_name, db_name, cas_ids):
     cas_ids_copy = cas_ids.copy()
     random.shuffle(cas_ids_copy)
-    val_ratio, test_ratio = 0.15, 0.15
-    val_num = round(val_ratio * len(cas_ids_copy))
+    test_ratio = 0.3
     test_num = round(test_ratio * len(cas_ids_copy))
-    val_set = cas_ids_copy[:val_num]
-    test_set = cas_ids_copy[val_num:val_num + test_num]
-    train_set = cas_ids_copy[val_num + test_num:]
+    test_set, train_set = cas_ids_copy[:test_num], cas_ids_copy[test_num:]
     project = Project(project_name, db_name)
-    project.save_sets(train_set, val_set, test_set)
+    project.save_sets(train_set, test_set)
 
 
 def main():
@@ -310,7 +307,7 @@ def main():
     parser.add_argument('-M', '--max', type=int, help='maximum cascade size')
     parser.add_argument('--method', choices=['spectral', 'dbscan', 'hierarchy'], help='clustering method')
     parser.add_argument('-D', '--depth', type=int, help='minimum depth')
-    parser.add_argument('-i', '--create_by_index', type=int,
+    parser.add_argument('-i', '--create_by_index', type=int, nargs='+',
                         help='Create a project using cascade ids in cluster index given')
     parser.add_argument('-p', '--project', help='the project name to create if --create_by_index is given')
 
@@ -326,15 +323,17 @@ def main():
     else:
         clusters = save_clusters(args.clusters, args.db, args.min, args.max, args.depth, method, file_name)
 
-    if args.create_by_index is not None:
+    if args.create_by_index:
         if args.project is None:
             parser.error('--project is required when --create_by_index is given')
+        samples = []
         try:
-            cluster = clusters[args.create_by_index]
+            for ind in args.create_by_index:
+                samples.extend(clusters[ind])
         except KeyError:
-            parser.error(f'invalid cluster index {args.create_by_index}. Select between from 0 to {len(clusters)}')
-        save_project(args.project, args.db, cluster)
-        logger.info('project %s created with %d cascades', args.project, len(cluster))
+            parser.error(f'invalid cluster index; Select between from 0 to {len(clusters)}')
+        save_project(args.project, args.db, samples)
+        logger.info('project %s created with %d cascades', args.project, len(samples))
 
 
 if __name__ == '__main__':

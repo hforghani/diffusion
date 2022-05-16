@@ -92,9 +92,8 @@ def main():
     parser.add_argument("-M", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
                         help="If this option is given, the task is ran on multiple processes")
     parser.add_argument("-e", "--eco", action='store_true', default=False,
-                        help="If this option is given, the prediction is done in economical mode e.t. Memory consumption "
-                             "is decreased and data is stored in DB and loaded everytime needed instead of storing in "
-                             "RAM. Otherwise, no data is stored in DB.")
+                        help="If this option is given, the already saved trained models is fetched from db and used. "
+                             "Also it will be saved if has not been saved.")
     parser.add_argument("--param", nargs="+", action='append',
                         help="additional parameters given to the method. In the validation mode use in the format "
                              "[--param <param_name> <from_value> <to_value> <step>] and in the test mode use in the "

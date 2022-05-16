@@ -24,6 +24,8 @@ def run(method, initial_depth, max_depth, project, eco, criterion):
     tester = DefaultTester(project, method, criterion, eco=eco)
     params = get_params(project.name, method)
     logger.info('params = %s', params)
+    if not params:
+        logger.info('no params for %s on %s', method.value, project.name)
     mean_res, res, _ = tester.run(initial_depth, max_depth, **params)
     return mean_res.f1()
 
@@ -68,9 +70,8 @@ def main():
     parser.add_argument("-m", "--methods", nargs="+", required=True, choices=[e.value for e in Method],
                         help="the methods by which we want to test")
     parser.add_argument("-e", "--eco", action='store_true', default=False,
-                        help="If this option is given, the prediction is done in economical mode e.t. Memory consumption "
-                             "is decreased and data is stored in DB and loaded everytime needed instead of storing in "
-                             "RAM. Otherwise, no data is stored in DB.")
+                        help="If this option is given, the already saved trained models is fetched from db and used. "
+                             "Also it will be saved if has not been saved.")
     parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
                         help="the criterion on which the evaluation is done")
     args = parser.parse_args()
@@ -85,10 +86,10 @@ def main():
 
     methods = [Method(met) for met in args.methods]
 
-    one_step_depths = [(i, i + 1) for i in range(max_depth)]
-    thorough_depths = [(i, None) for i in range(max_depth)]
-    depth_settings = one_step_depths + thorough_depths
-    # depth_settings = [(0, None)]
+    # one_step_depths = [(i, i + 1) for i in range(max_depth)]
+    # thorough_depths = [(i, None) for i in range(max_depth)]
+    # depth_settings = one_step_depths + thorough_depths
+    depth_settings = [(0, None)]
     results = multiple_run(methods, depth_settings, args.project, args.eco, Criterion(args.criterion))
 
     report_results(methods, results)
