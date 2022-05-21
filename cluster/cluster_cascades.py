@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 from bson import ObjectId
+from scipy import sparse
 from sklearn.cluster import SpectralClustering, DBSCAN
 from sklearn.preprocessing import normalize
 import numpy as np
@@ -75,39 +76,58 @@ def get_jaccard_mat_mp(cascades: List[str], users: Dict[str, set]):
     pool.close()
     pool.join()
 
-    mat = np.zeros((count, count))
+    logger.info('merging the values into matrix ...')
+    # mat = np.zeros((count, count))
+    mat = sparse.lil_matrix((count, count), dtype=np.float32)
     for res in results:
         jaccard_values = res.get()
         for i, j in jaccard_values:
             mat[i, j] = jaccard_values[(i, j)]
 
-    mat += mat.transpose() + np.eye(count)
-    return mat
+    # mat += mat.transpose() + np.eye(count)
+    return mat.tocsr()
 
 
 def get_jaccard_mat(cascades: List[str], users: Dict[str, set]):
     logger.info('calculating jaccard coefficients ...')
     count = len(cascades)
-    mat = np.zeros((count, count), dtype=np.float32)
+    # mat = np.zeros((count, count), dtype=np.float32)
+    mat = sparse.lil_matrix((count, count), dtype=np.float32)
 
     pairs_count = count * (count - 1) / 2
     counter = 0
+    step = max(pairs_count // 100, 1000)
     for i in range(count - 1):
         for j in range(i + 1, count):
             mat[i, j] = len(users[cascades[i]] & users[cascades[j]]) / len(users[cascades[i]] | users[cascades[j]])
             counter += 1
-            if counter % 1000 == 0:
+            if counter % step == 0:
                 logger.debug('%d%% done', counter / pairs_count * 100)
 
-    mat += mat.transpose() + np.eye(count)
-    return mat
+    # mat += mat.transpose() + np.eye(count)
+    # mat += mat.transpose() + sparse.eye(count, count, format='csr')
+    mat += mat.transpose()
+
+    return mat.tocsr()
 
 
 def heat_map(mat, file_name):
-    fig, ax = plt.subplots()
+    # fig, ax = plt.subplots()
     # im = ax.imshow(mat)
     # plt.show()
-    plt.imsave(file_name, mat)
+
+    if mat.shape[0] <= 1000:
+        plt.imsave(file_name, mat.todense())
+    else:
+        mat = mat.tocsc()  # sparse operations are more efficient on csc
+        N, M = mat.shape
+        s = mat.shape[0] // 1000  # decimation factors for y and x directions
+        t = s
+        T = sparse.csc_matrix((np.ones((M,)), np.arange(M), np.r_[np.arange(0, M, t), M]), (M, (M - 1) // t + 1))
+        S = sparse.csr_matrix((np.ones((N,)), np.arange(N), np.r_[np.arange(0, N, s), N]), ((N - 1) // s + 1, N))
+        result = S @ mat @ T  # downsample by binning into s x t rectangles
+        result = result.todense()  # ready for plotting
+        plt.imsave(file_name, result)
 
 
 def hierarchical(mat, clust_num):
@@ -202,11 +222,13 @@ def calc_error(mat, clusters):
 def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_name):
     base_file_name = os.path.join(BASE_PATH, 'data', 'clusters',
                                   f'{db_name}-{min_size}to{max_size}-{depth}')
-    mat_file_name = base_file_name + '-mat.npy'
+    # mat_file_name = base_file_name + '-mat.npy'
+    mat_file_name = base_file_name + '-mat.npz'
     cascades_file_name = base_file_name + '-cascades.json'
 
     if os.path.exists(mat_file_name) and os.path.exists(cascades_file_name):
-        mat = np.load(mat_file_name)
+        # mat = np.load(mat_file_name)
+        mat = np.load_npz(mat_file_name)
         with open(cascades_file_name) as f:
             cascades = json.load(f)
         logger.info('matrix loaded')
@@ -226,28 +248,36 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
         res_cascades = list(db.cascades.find(query, ['_id']))
         random.shuffle(res_cascades)  # To balance the processes in multi-processing
         cascades = [str(m['_id']) for m in res_cascades]
-        logger.info('%d cascades found', len(cascades))
+        count = len(cascades)
+        logger.info('%d cascades found', count)
 
         # Extract user sets of top cascades
         users = load_or_extract_users(cascades, db_name)
 
         # Calculate the Jaccard matrix.
-        try:
+        if 100 < count < 15000:
             logger.info('creating the similarity matrix using multiple processes ...')
             mat = get_jaccard_mat_mp(cascades, users)
-        except MemoryError:
+        else:
             logger.info('creating the similarity matrix using single process ...')
             mat = get_jaccard_mat(cascades, users)
 
         # Normalize the matrix.
-        mat = np.reshape(mat - np.eye(len(cascades)), (1, mat.size))
+        logger.info('normalizing the matrix ...')
+        # mat = np.reshape(mat - np.eye(count), (1, mat.size))
+        # mat = normalize(mat, norm='max')
+        # mat = np.reshape(mat, (count, count))
+        # mat += np.eye(count)
+
+        mat = mat.reshape((1, count ** 2))
         mat = normalize(mat, norm='max')
-        mat = np.reshape(mat, (len(cascades), len(cascades)))
-        mat += np.eye(len(cascades))
+        mat = mat.reshape((count, count))
+        mat += sparse.eye(count, count, format='csr')
 
         with open(cascades_file_name, 'w') as f:
             json.dump(cascades, f)
-        np.save(mat_file_name, mat)
+        # np.save(mat_file_name, mat)
+        sparse.save_npz(mat_file_name, mat)
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')

@@ -97,11 +97,12 @@ class ProjectTester(abc.ABC):
                 best_params = self._tune_threshold(initial_depth, max_depth, **kwargs)
             else:
                 best_params = self._tune_params(initial_depth, max_depth, tunables, nontunables)
+            logger.info('best_params = %s', best_params)
         else:
             best_params = kwargs
+            logger.info('params = %s', kwargs)
 
-        logger.info('best_params = %s', best_params)
-        logger.info('{0} TRAINING WITH THE BEST PARAMETERS {0}'.format('=' * 20))
+        logger.info('{0} TRAINING {0}'.format('=' * 20))
         self.model = self.train(train_set, eco=self.eco, **best_params)
         logger.info('{0} TEST {0}'.format('=' * 20))
         graph = self.project.load_or_extract_graph(train_set)
