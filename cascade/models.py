@@ -94,9 +94,6 @@ class CascadeNode:
 
 
 class CascadeTree:
-    roots = []
-    depth = 0
-
     def __init__(self, roots=None):
         if roots is not None:
             if not isinstance(roots, list):
@@ -147,6 +144,12 @@ class CascadeTree:
                 for child in node.children:
                     leaves.extend(self.get_leaves(child))
         return leaves
+
+    def size(self, node=None):
+        if node is None:
+            return sum(self.size(node) for node in self.roots)
+        else:
+            return 1 + sum(self.size(child) for child in node.children)
 
     def node_ids(self, max_depth=None):
         return [node.user_id for node in self.nodes(max_depth=max_depth)]

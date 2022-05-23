@@ -33,11 +33,11 @@ class CRFModel(NodeSeqLabelModel):
     def _get_seq_label_manager(cls, project):
         return None
 
-    def _get_predicted_node_id(self, obs, model, tree, obs_node_ids):
+    def _get_predicted_node_id(self, obs_seq, model, tree, obs_node_ids):
         """ Set the parent with the maximum state feature coefficient which is also activated at the current step as the
         predicted parent of this child. """
 
-        conv_indexes = [model.orig_indexes_map.get(ind) for ind in np.where(obs[0, :])[0]]
+        conv_indexes = [model.orig_indexes_map.get(ind) for ind in np.where(obs_seq[0, :])[0]]
         conv_indexes = list(filter(lambda x: x is not None, conv_indexes))
 
         if conv_indexes:
@@ -68,11 +68,11 @@ class SmallFeatCRFModel(CRFModel, abc.ABC):
     The keys of the feature dict are the parent indexes.
     """
 
-    def _get_predicted_node_id(self, obs, model, tree, obs_node_ids):
+    def _get_predicted_node_id(self, obs_seq, model, tree, obs_node_ids):
         """ Set the parent with the maximum state feature coefficient which is also activated at the current step as the
         predicted parent of this child. """
 
-        conv_indexes = [model.orig_indexes_map.get(ind) for ind in np.where(obs[0, :])[0]]
+        conv_indexes = [model.orig_indexes_map.get(ind) for ind in np.where(obs_seq[0, :])[0]]
         conv_indexes = list(filter(lambda x: x is not None, conv_indexes))
 
         if conv_indexes:

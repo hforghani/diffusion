@@ -1,22 +1,23 @@
 import abc
 import collections
+import concurrent
 import math
 import pprint
 import random
 import traceback
 from functools import reduce
+from itertools import repeat
 from multiprocessing.pool import Pool
 
 import numpy as np
 import psutil
-from pympler.asizeof import asizeof
 
 import settings
 from db.exceptions import DataDoesNotExist
 from db.managers import EvidenceManager, ParentSensEvidManager
 from diffusion.models import DiffusionModel
 from log_levels import DEBUG_LEVELV_NUM
-from seq_labeling.utils import obs_to_str
+from seq_labeling.utils import arr_to_str
 from settings import logger
 from utils.time_utils import time_measure, Timer
 
@@ -33,14 +34,10 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         self._models = {}
 
     @time_measure(level='debug')
-    def prepare_evidences(self, train_set, train_trees, project, graph, multi_processed=False, eco=False):
+    def prepare_evidences(self, train_trees, project, graph, multi_processed=False, eco=False):
         """
         Prepare the sequence of observations and states to train the sequence labeling models.
-        :param train_set: list of training cascade id's
-        :return: a dictionary which its values are the evidences dictionaries in the format
-                {'dimension': dimension, 'sequences': list_of_sequences}
-                and the keys are user id's if the method is receiver-based and tuples of (user_i, user_j) if the
-                method is sender-based.
+        :return: a dictionary which its values are the lists of sequences and the keys are user id's.
         """
         logger.debug('method = %s', self.method)
 
@@ -56,39 +53,25 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
                 logger.info('no evidences found!')
 
         if must_extract:
-            logger.info('Evidence extraction started')
-            evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
-            more_args = self._more_args(graph)
-
-            logger.info('extracting sequences from %d cascades ...', len(train_set))
+            logger.info('extracting sequences from %d cascades ...', len(train_trees))
 
             if multi_processed:
-                process_count = min(settings.PROCESS_COUNT, len(train_set))
-                pool = Pool(processes=process_count)
-                step = int(math.ceil(float(len(train_set)) / process_count))
-                results = []
-                for j in range(0, len(train_set), step):
-                    cascade_ids = train_set[j: j + step]
-                    cur_trees = train_trees[j: j + step]
-                    res = pool.apply_async(extract_evidences,
-                                           args=(type(self), cascade_ids, graph, cur_trees),
-                                           kwds=more_args)
-                    results.append(res)
+                trees_parts = self.__split_trees(train_trees)
+                with concurrent.futures.ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
+                    results = list(executor.map(extract_evidences, repeat(type(self)), repeat(graph), trees_parts))
+                logger.debug('len(results) = %d', len(results))
 
-                pool.close()
-                pool.join()
-
+                evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
                 logger.info('merging sequences of processes ...')
                 for res in results:
-                    process_evidences = res.get()
-                    for key in process_evidences:
+                    for key in res:
                         if key not in evidences:
-                            evidences[key] = process_evidences[key]
+                            evidences[key] = res[key]
                         else:
-                            evidences[key]['sequences'].extend(process_evidences[key]['sequences'])
+                            evidences[key].extend(res[key])
 
             else:
-                evidences = self.extract_evidences(train_trees, graph, **more_args)
+                evidences = self.extract_evidences(train_trees, graph)
 
             # Delete evidences of totally inactive users since they will never be activated.
             inactives = self._get_inactives(evidences)
@@ -107,6 +90,27 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
 
         return evidences
 
+    def __split_trees(self, trees):
+        size_thr = 5000
+        parts = []
+        sizes = []
+        cur_part = []
+        cur_part_size = 0
+        for tree in trees:
+            cur_part.append(tree)
+            cur_part_size += tree.size()
+            if cur_part_size >= size_thr:
+                parts.append(cur_part)
+                sizes.append(cur_part_size)
+                cur_part = []
+                cur_part_size = 0
+        if cur_part:
+            parts.append(cur_part)
+            sizes.append(cur_part_size)
+        logger.debug('part sizes : %s', sizes)
+        logger.debug('part lengths : %s', [len(part) for part in parts])
+        return parts
+
     def _get_inactives(self, evidences):
         """
         Get totally inactive users which means they have no state 1.
@@ -116,7 +120,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         """
         user_ids = []
         for uid in evidences:
-            for seq in evidences[uid]['sequences']:
+            for seq in evidences[uid]:
                 if any(pair[1] for pair in seq):
                     break
             else:
@@ -134,7 +138,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         for key, ev in evidences.items():
             count += 1
             logger.debug('training seq labeling model %d (user id: %s, dimensions: %d) ...', count, key,
-                         ev['dimension'])
+                         ev[0][0][0].size)
 
             model = cls._train_model(ev, iterations, key, graph, **kwargs)
             models[key] = model
@@ -197,10 +201,10 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
     def _train_model(cls, evidence, iterations, key, graph, **kwargs):
         pass
 
-    def _fit_by_evidences(self, train_set, train_trees, project, graph, iterations=None, multi_processed=False,
-                          eco=False, **kwargs):
+    def _fit_by_evidences(self, train_trees, project, graph, iterations=None, multi_processed=False, eco=False,
+                          **kwargs):
         logger.debug('kwargs = %s', kwargs)
-        evidences = self.prepare_evidences(train_set, train_trees, project, graph, multi_processed, eco)
+        evidences = self.prepare_evidences(train_trees, project, graph, multi_processed, eco)
         # if settings.LOG_LEVEL <= logging.DEBUG:
         #     self.log_evidences(evidences)
 
@@ -223,12 +227,12 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         logs = ['evidences: ']
         for uid, evid in evidences.items():
             logs.append(f'uid: {uid}')
-            logs.append(f'dimension: {evid["dimension"]}')
-            logs.append(f'sequences:')
-            for i in range(len(evid['sequences'])):
+            logs.append(f'dimension: {evid[0][0][0].size}')
+            logs.append('sequences:')
+            for i in range(len(evid)):
                 logs.append(f'sequence {i}')
-                for obs, state in evid[f'sequences'][i]:
-                    logs.append(f'{obs_to_str(obs)} \t {state}\n')
+                for obs, state in evid[i]:
+                    logs.append(f'{arr_to_str(obs)} \t {state}\n')
         logger.debug('\n'.join(logs))
 
     @time_measure(level='debug')
@@ -252,18 +256,16 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         else:
             if eco and manager is not None and not manager.db_exists():
                 logger.info('Seq labeling models do not exist in db.')
-            self._models = self._fit_by_evidences(train_set, train_trees, project, graph, iterations, multi_processed,
-                                                  eco, **kwargs)
+            self._models = self._fit_by_evidences(train_trees, project, graph, iterations, multi_processed, eco,
+                                                  **kwargs)
 
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
         return self
 
     @classmethod
-    def _update_obs(cls, obs: np.ndarray, cur_step_ids: collections.Iterable, obs_node_ids: list,
-                    timers=None) -> np.ndarray:
+    def _extract_obs(cls, cur_step_ids: collections.Iterable, obs_node_ids: list, timers=None) -> np.ndarray:
         """
         Add a row to obs as the first row specifying current step active nodes.
-        :param obs: current observation. None observation means there is no observation available.
         :param cur_step_ids: current step node ids
         :param obs_node_ids: list of node ids related to the observation dimensions
         :return: a boolean showing whether an update is done, and the new observation array
@@ -276,18 +278,10 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         new_active_indexes = [i for i in range(len(obs_node_ids)) if obs_node_ids[i] in cur_step_ids]
         dim = len(obs_node_ids)
         # with timers[5]:
-        first_row = np.zeros(dim, dtype=bool)
-        if obs is None and not new_active_indexes:
-            return None
-        else:
-            # with timers[6]:
-            first_row[new_active_indexes] = 1
-            # with timers[7]:
-            new_obs = np.vstack((first_row, obs)) if obs is not None else first_row.reshape((1, dim))
-            return new_obs
-
-    def _more_args(self, graph=None):
-        return {}
+        new_obs = np.zeros(dim, dtype=bool)
+        # with timers[6]:
+        new_obs[new_active_indexes] = 1
+        return new_obs
 
     @abc.abstractmethod
     def _get_evid_manager(self, project):
@@ -304,7 +298,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def extract_evidences(cls, trees, graph, **kwargs):
+    def extract_evidences(cls, trees, graph):
         pass
 
     @staticmethod
@@ -328,9 +322,9 @@ def train_models(cls, evidences, iterations, graph, save_in_db=False, project=No
         raise
 
 
-def extract_evidences(cls, train_set, graph, trees, **kwargs):
+def extract_evidences(cls, graph, trees):
     try:
-        return cls.extract_evidences(trees, graph, **kwargs)
+        return cls.extract_evidences(trees, graph)
     except:
         logger.error(traceback.format_exc())
         raise
@@ -342,17 +336,14 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
     """
 
     @classmethod
-    def extract_evidences(cls, trees, graph, **kwargs):
+    def extract_evidences(cls, trees, graph):
         try:
-            ''' evidences: dictionary of user id's to dictionaries in the format 
-                            {'dimension': dimension, 'sequences': list_of_sequences} '''
-            evidences = {}
+            evidences = {}  # dictionary of user id's to the lis of sequences
             cascade_num = 1
 
             # Iterate each activation sequence and extract sequences of (observation, state) for each user
             for tree in trees:
                 cascade_seqs = {}  # dictionary of user id's to the sequences of ObsPair instances for the current cascade
-                observations = {}  # current observation of each user
                 activated = set()  # set of current activated users
                 logger.debug('cascade %d ...', cascade_num)
 
@@ -370,13 +361,12 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                         activated.add(uid)
                         parents_count = graph.in_degree(uid) if uid in graph else 0
 
-                        if parents_count and uid in cascade_seqs and uid in observations:
+                        if parents_count and uid in cascade_seqs:
                             if cascade_seqs[uid]:
                                 obs = cascade_seqs[uid][-1][0]
                                 state = cls.active_state(node, graph)
                                 cascade_seqs[uid] = cascade_seqs[uid][:-1] + [(obs, state)]
                                 logger.debugv('(obs, state) updated for %s : (%s, %d)', uid, obs, state)
-                            del observations[uid]
 
                     # Get the children whom at least one of their parents are in the current step.
                     children_sets = (set(graph.successors(node_id)) for node_id in cur_step_ids if node_id in graph)
@@ -386,14 +376,12 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                     # Update the observation of each child and add the new observation-state to the current sequences.
                     for child_id in all_children:
                         if child_id not in activated and child_id in graph:
-                            obs = observations.get(child_id)
                             parents = list(graph.predecessors(child_id))
-                            new_obs = cls._update_obs(obs, cur_step_ids, parents)
-                            observations[child_id] = new_obs
+                            obs = cls._extract_obs(cur_step_ids, parents)
                             state = cls.inactive_state()
                             cascade_seqs.setdefault(child_id, [])
-                            cascade_seqs[child_id].append((new_obs, state))
-                            logger.debugv('(obs, state) added for %s : (%s, %d)', child_id, new_obs, state)
+                            cascade_seqs[child_id].append((obs, state))
+                            logger.debugv('(obs, state) added for %s : (%s, %d)', child_id, obs, state)
 
                     # Update the current step nodes.
                     cur_step = reduce(lambda li1, li2: li1 + li2, [node.children for node in cur_step])
@@ -410,12 +398,8 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                 if settings.LOG_LEVEL <= DEBUG_LEVELV_NUM:
                     logger.debugv('cascade_seqs =\n%s', pprint.pformat(cascade_seqs))
                 for uid in cascade_seqs:
-                    dim = graph.in_degree(uid)
-                    evidences.setdefault(uid, {
-                        'dimension': dim,  # TODO: Can I remove dimension?
-                        'sequences': []
-                    })
-                    evidences[uid]['sequences'].append(cascade_seqs[uid])
+                    evidences.setdefault(uid, [])
+                    evidences[uid].append(cascade_seqs[uid])
 
             logger.info('evidences extracted from %d cascades', len(trees))
             return evidences
@@ -461,14 +445,14 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
 
                     if child_id not in active_ids:
                         new_active_ids = cur_step & active_ids
-                        obs = observations.get(child_id)
-                        obs = self._update_obs(obs, new_active_ids, parents)
+                        obs_seq = observations.setdefault(child_id, [])
+                        obs = self._extract_obs(new_active_ids, parents)
 
-                        if obs is not None:
-                            observations[child_id] = obs
+                        if obs_seq or np.any(obs):
+                            obs_seq.append(obs)
                             if settings.LOG_LEVEL <= DEBUG_LEVELV_NUM:
-                                logger.debugv('obs = \n%s', obs_to_str(obs))
-                            node_id, pred = self._predict_by_obs(obs, thr, model, tree, parents)
+                                logger.debugv('obs_seq = \n%s', [arr_to_str(obs) for obs in obs_seq])
+                            node_id, pred = self._predict_by_obs(obs_seq, thr, model, tree, parents)
                             if node_id:
                                 node = tree.add_node(child_id, parent_id=node_id)
                                 node.probability = pred.prob
@@ -554,17 +538,18 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                         if child_id not in thr_active_ids:
                             # with timers[1]:
                             new_active_ids = cur_step & thr_active_ids
-                            obs = observations[thr].get(child_id)
+                            obs_seq = observations[thr].setdefault(child_id, [])
                             # with timers[2]:
-                            obs = self._update_obs(obs, new_active_ids, parents)
+                            obs = self._extract_obs(new_active_ids, parents)
 
-                            if obs is not None:
-                                observations[thr][child_id] = obs
+                            if obs_seq or np.any(obs):
+                                obs_seq.append(obs)
                                 # if last_pred is None or not np.array_equal(obs, last_pred.obs):
-                                #     logger.debugv('obs = \n%s', obs_to_str(obs))
+                                #     logger.debugv('obs = \n%s', arr_to_str(obs))
                                 logger.debugv('threshold %f ...', thr)
                                 # with timers[3]:
-                                node_id, pred = self._predict_by_obs(obs, thr, model, trees[thr], parents, last_pred)
+                                node_id, pred = self._predict_by_obs(obs_seq, thr, model, trees[thr], parents,
+                                                                     last_pred)
                                 last_pred = pred
                                 if node_id:
                                     trees[thr].add_node(child_id, parent_id=node_id)
@@ -590,10 +575,10 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
 
         return trees
 
-    def _get_predicted_node_id(self, obs, model, tree, obs_node_ids):
+    def _get_predicted_node_id(self, obs_seq, model, tree, obs_node_ids):
         # Set the parent with the maximum value of Lambda which is also activated at the current step as the
         # predicted parent of this child.
-        conv_indexes = [model.orig_indexes_map.get(ind) for ind in np.where(obs[0, :])[0]]
+        conv_indexes = [model.orig_indexes_map.get(ind) for ind in obs_seq[0]]
         conv_indexes = list(filter(lambda x: x is not None, conv_indexes))
         if conv_indexes:
             max_lambda_ind = np.argmax(model.Lambda[conv_indexes])
@@ -606,27 +591,28 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
             logger.debugv('the newly active nodes are not available in the training data')
         return
 
-    def _predict_by_obs(self, obs, thr, model, tree, obs_node_ids, last_pred=None):
+    def _predict_by_obs(self, obs_seq, thr, model, tree, obs_node_ids, last_pred=None):
         """
 
-        :param obs: observation
+        :param obs_seq: observation sequence
         :param thr: threshold
         :param model: seq labeling model
         :param tree: current predicted tree
         :param obs_node_ids: list of node ids related to observation dimensions.
         :return: The parent id is returned if the diffusion is predicted, otherwise None.
         """
-        if last_pred is not None and np.array_equal(obs, last_pred.obs):
+        if last_pred is not None and len(obs_seq) == len(last_pred.obs_seq) and all(
+                np.array_equal(obs_seq[i], last_pred.obs_seq[i]) for i in range(obs_seq)):
             prob = last_pred.prob
         else:
-            prob = model.get_prob(obs, self.active_state(), self.get_states())
+            prob = model.get_prob(obs_seq, self.active_state(), self.get_states())
             logger.debugv('prob = %f', prob)
             if prob == np.nan:
-                logger.warning('activation prob. of obs. %s is nan', obs)
-        pred = Prediction(obs, prob)
+                logger.warning('activation prob. of obs. %s is nan', obs_seq)
+        pred = Prediction(obs_seq, prob)
 
         if prob >= thr:
-            node_id = self._get_predicted_node_id(obs, model, tree, obs_node_ids)
+            node_id = self._get_predicted_node_id(obs_seq, model, tree, obs_node_ids)
             if node_id:
                 logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
             return node_id, pred
@@ -659,9 +645,9 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                     if model is not None:
                         # Update the observation of this child.
                         parents = parents_dic[child_id]
-                        obs = observations.get(child_id)
-                        obs = self._update_obs(obs, cur_step_ids, parents)
-                        observations[child_id] = obs
+                        observations.setdefault(child_id, [])
+                        obs = self._extract_obs(cur_step_ids, parents)
+                        observations[child_id].append(obs)
                         # logger.debugv('obs set: %s', observations[child_id])
 
             next_step = reduce(lambda x, y: x + y, [node.children for node in cur_step], [])
@@ -675,8 +661,8 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
 
 
 class Prediction:
-    def __init__(self, obs, prob, state=True):
-        self.obs = obs
+    def __init__(self, obs_seq, prob, state=True):
+        self.obs_seq = obs_seq
         self.prob = prob
         self.state = state
 
@@ -699,13 +685,14 @@ class MultiStateModel(NodeSeqLabelModel, abc.ABC):
     def _get_evid_manager(self, project):
         return ParentSensEvidManager(project)
 
-    def _predict_by_obs(self, obs, thr, model, tree, obs_node_ids, last_pred=None):
-        if last_pred is not None and np.array_equal(obs, last_pred.obs):
+    def _predict_by_obs(self, obs_seq, thr, model, tree, obs_node_ids, last_pred=None):
+        if last_pred is not None and len(obs_seq) == len(last_pred.obs_seq) and all(
+                np.array_equal(obs_seq[i], last_pred.obs_seq[i]) for i in range(len(obs_seq))):
             state, prob = last_pred.state, last_pred.prob
         else:
             all_states = list(range(len(obs_node_ids) + 1))
-            probs = model.get_probs(obs, all_states)
-            new_act_indexes = np.nonzero(obs[0, :])[0]
+            probs = model.get_probs(obs_seq, all_states)
+            new_act_indexes = np.nonzero(obs_seq[-1])[0]
             if new_act_indexes.size != 0:
                 active_states = new_act_indexes + 1
                 inactive_prob = probs[0]
@@ -715,7 +702,7 @@ class MultiStateModel(NodeSeqLabelModel, abc.ABC):
                 state, prob = active_states[i], active_prob
             else:
                 state, prob = 0, 0
-        pred = Prediction(obs, prob, state)
+        pred = Prediction(obs_seq, prob, state)
 
         if state > 0 and prob >= thr:
             node_id = obs_node_ids[state - 1]

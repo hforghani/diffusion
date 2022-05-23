@@ -1,7 +1,6 @@
 import numbers
 import traceback
 import typing
-from typing import Tuple, Any
 
 from networkx import DiGraph
 
@@ -9,7 +8,6 @@ import settings
 from cascade.metric import Metric
 from diffusion.enum import Method, Criterion
 from log_levels import DEBUG_LEVELV_NUM
-from seq_labeling.memm_models import TDEdgeMEMMModel
 from settings import logger
 from utils.time_utils import Timer
 
@@ -77,10 +75,6 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
         res_trees = [] if not isinstance(threshold, list) else None  # Only used when on test stage
         max_step = max_depth - initial_depth if max_depth is not None else None
         count = 1
-
-        if method == Method.TD_EDGE_MEMM:
-            obs_nodes_ids_map = TDEdgeMEMMModel.extract_obs_node_ids_map(graph)
-            params['obs_nodes_ids_map'] = obs_nodes_ids_map
 
         for cid in cascade_ids:
             tree = trees[cid]

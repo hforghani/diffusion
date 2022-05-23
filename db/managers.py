@@ -33,10 +33,7 @@ class EvidenceManager:
         doc = fs.find_one({'user_id': user_id})
         if doc is None:
             raise ValueError(f'No evidence exists for user id {user_id}')
-        return {
-            'dimension': doc.dimension,
-            'sequences': self._str_to_sequences(doc.read())
-        }
+        return self._str_to_sequences(doc.read())
 
     def __find_by_user_ids(self, user_ids):
         fs = gridfs.GridFS(self.db)
@@ -50,9 +47,7 @@ class EvidenceManager:
 
     def get_many(self, user_ids=None):
         """
-        Return dictionary of user id's to the dict {'dimension': dim, 'sequences': sequences}
-        of which sequences is the list of the sequences and each sequence is the list of (obs, state)
-        tuples.
+        Return dictionary of user id's to the lists of the sequences. Each sequence is a list of (obs, state) tuples.
         :param user_ids:
         :return:
         """
@@ -60,11 +55,7 @@ class EvidenceManager:
 
         if documents.count():
             return {
-                doc.user_id: {
-                    'dimension': doc.dimension,
-                    'sequences': self._str_to_sequences(doc.read())
-                }
-                for doc in documents
+                doc.user_id: self._str_to_sequences(doc.read()) for doc in documents
             }
         else:
             raise DataDoesNotExist(
@@ -73,8 +64,7 @@ class EvidenceManager:
 
     def get_many_generator(self, user_ids=None):
         """
-        Get the generator of (user_id, evidences) tuples which each evidences is a dictionary
-        {'dimension': dim, 'sequences': sequences}. Read the doc of get_many for more information.
+        Get the generator of (user_id, sequences) tuples which each "sequences" is a list of (obs, state) tuples.
         :param user_ids:
         :return:
         """
@@ -82,11 +72,7 @@ class EvidenceManager:
 
         if documents.count():
             for doc in documents:
-                evidences = {
-                    'dimension': doc.dimension,
-                    'sequences': self._str_to_sequences(doc.read())
-                }
-                yield doc['user_id'], evidences
+                yield doc['user_id'], self._str_to_sequences(doc.read())
         else:
             raise DataDoesNotExist(
                 f'No MEMM evidences exist on project {self.project.name}'
@@ -94,20 +80,16 @@ class EvidenceManager:
 
     def insert(self, evidences):
         """
-        :param evidences: dictionary of user id's to MEMM evidences. Each evidence is a dictionary
-         with 2 keys:
-            <p>dimension : number of observation dimensions.</p>
-            <p>sequences : list of (obs, state) sequences.</p>
+        :param evidences: dictionary of user id's to the sequences.
         :return:
         """
         fs = gridfs.GridFS(self.db)
 
-        logger.info('inserting %d MEMM evidence documents ...', len(evidences))
+        logger.info('inserting %d evidence documents ...', len(evidences))
         i = 0
         for uid in evidences:
-            fs.put(bytes(self._sequences_to_str(evidences[uid]['sequences']), encoding='utf8'),
-                   user_id=ObjectId(uid),
-                   dimension=evidences[uid]['dimension'])
+            fs.put(bytes(self._sequences_to_str(evidences[uid]), encoding='utf8'),
+                   user_id=ObjectId(uid))
             i += 1
             if i % 10000 == 0:
                 logger.info('%d documents inserted', i)
@@ -120,7 +102,7 @@ class EvidenceManager:
 
     def create_index(self):
         """
-        Create index on 'user_id' key of MEMM evidences collection of the given project if does not exist.
+        Create index on 'user_id' key of the collection of evidences of the given project if it does not exist.
         :return:
         """
         collection = self.db.get_collection('fs.files')
@@ -134,86 +116,6 @@ class EvidenceManager:
 class ParentSensEvidManager(EvidenceManager):
     def get_db_name(self, project):
         return f'{project.db}_parent_evid_{project.name}'
-
-
-class EdgeEvidenceManager(EvidenceManager):
-    def get_db_name(self, project):
-        return f'{project.db}_edge_evid_{project.name}'
-
-    def get_one(self, edge):
-        fs = gridfs.GridFS(self.db)
-        doc = fs.find_one({'src': edge[0], 'dst': edge[1]})
-        if doc is None:
-            raise ValueError(f'No evidence exists for edge {edge}')
-        return {
-            'dimension': doc.dimension,
-            'sequences': self._str_to_sequences(doc.read())
-        }
-
-    def get_many(self):
-        fs = gridfs.GridFS(self.db)
-        documents = fs.find(no_cursor_timeout=True)
-
-        if documents.count():
-            results = {}
-            i = 0
-            for doc in documents:
-                results[(doc.src, doc.dst)] = {
-                    'dimension': doc.dimension,
-                    'sequences': self._str_to_sequences(doc.read())
-                }
-                i += 1
-                if i % 100 == 0:
-                    logger.debug('%d evidences fetched', i)
-            return results
-        else:
-            raise DataDoesNotExist(f'No MEMM evidences exist on project {self.project.name}')
-
-    def get_many_generator(self):
-        """
-        Get the generator of (edge, evidences) tuples which each "evidences" is a dictionary
-        {'dimension': dim, 'sequences': sequences}. Read the doc of get_many for more information.
-        :return:
-        """
-        fs = gridfs.GridFS(self.db)
-        documents = fs.find(no_cursor_timeout=True)
-
-        if documents.count():
-            for doc in documents:
-                evidences = {
-                    'dimension': doc.dimension,
-                    'sequences': self._str_to_sequences(doc.read())
-                }
-                yield (doc.src, doc.dst), evidences
-        else:
-            raise DataDoesNotExist(f'No MEMM evidences exist on project {self.project.name}')
-
-    def insert(self, evidences):
-        """
-        :param evidences: dictionary of user id's to MEMM evidences. Each evidence is a dictionary
-         with 2 keys:
-            <p>dimension : number of observation dimensions.</p>
-            <p>sequences : list of (obs, state) sequences.</p>
-        :return:
-        """
-        fs = gridfs.GridFS(self.db)
-
-        logger.info('inserting %d MEMM evidence documents ...', len(evidences))
-        i = 0
-        for edge, sequences in evidences.items():
-            fs.put(bytes(self._sequences_to_str(sequences['sequences']), encoding='utf8'),
-                   src=edge[0], dst=edge[1], dimension=sequences['dimension'])
-            i += 1
-            if i % 10000 == 0:
-                logger.info('%d documents inserted', i)
-
-    def create_index(self):
-        """
-        Create index on 'user_id' key of MEMM evidences collection of the given project if does not exist.
-        :return:
-        """
-        collection = self.db.get_collection('fs.files')
-        collection.create_index([('src', pymongo.ASCENDING), ('dst', pymongo.ASCENDING)])
 
 
 class SeqLabelDBManager:
@@ -289,40 +191,6 @@ class SeqLabelDBManager:
         model.set_params(Lambda, orig_indexes)
         if 'td_param' in model_data:
             model.td_param = model_data['td_param']
-        return model
-
-
-class EdgeMEMMManager(SeqLabelDBManager):
-    def insert(self, models):
-        fs = gridfs.GridFS(self.db)
-
-        logger.debug('inserting %d models documents ...', len(models))
-        i = 0
-        for edge in models:
-            doc = self._get_doc(models[edge])
-            fs.put(bytes(str(doc), encoding='utf8'), src=edge[0], dst=edge[1])
-            i += 1
-            if i % 10000 == 0:
-                logger.debug('%d documents inserted', i)
-
-    def fetch_all(self):
-        fs = gridfs.GridFS(self.db)
-        models = {}
-        i = 0
-        for doc in fs.find():
-            memm = self._doc_to_model(doc)
-            models[(doc.src, doc.dst)] = memm
-            i += 1
-            if i % 10000 == 0:
-                logger.debug('%d models fetched', i)
-        return models
-
-    def fetch_one(self, edge):
-        fs = gridfs.GridFS(self.db)
-        doc = fs.find_one({'src': edge[0], 'dst': edge[1]})
-        if doc is None:
-            return None
-        model = self._doc_to_model(doc)
         return model
 
 

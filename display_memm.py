@@ -5,7 +5,7 @@ from functools import reduce
 from bson import ObjectId
 import numpy as np
 
-from db.managers import EvidenceManager, SeqLabelDBManager, EdgeMEMMManager, EdgeEvidenceManager, ParentSensEvidManager
+from db.managers import EvidenceManager, SeqLabelDBManager, ParentSensEvidManager
 from cascade.models import Project
 from diffusion.enum import Method
 from seq_labeling.pgm import ParentTDMEMM
@@ -34,20 +34,16 @@ def print_lambda(memm):
 
 
 def print_probs(sequences, memm, dim_users):
-    observations = [[obs for obs, state in seq] for seq in sequences]
-    observations = reduce(lambda l1, l2: l1 + l2, observations)
-    features, states = memm.sequences_to_feat_states(sequences)
+    states = [[state for obs, state in seq] for seq in sequences]
+    states = reduce(lambda l1, l2: l1 + l2, states)
+    features = memm.sequences_to_feat_states(sequences)
     dim = features.shape[1]
-    if isinstance(memm, ParentTDMEMM):
-        all_states = list(range(len(dim_users) + 1))
-    else:
-        all_states = [False, True]
-    probs = memm.get_multi_obs_probs(observations, all_states)
+    all_states = list(range(len(dim_users) + 1))
+    # all_states = [False, True]
+    probs = memm.get_multi_obs_probs(sequences)
 
-    if isinstance(memm, ParentTDMEMM):
-        states_to_print = all_states
-    else:
-        states_to_print = [True]
+    states_to_print = all_states
+    # states_to_print = [True]
     state_indexes = [all_states.index(s) for s in states_to_print]
 
     col0_width = max((dim + 1) * 5, 30)
@@ -72,27 +68,17 @@ def get_dim_users(key, graph, method):
 def handle():
     parser = argparse.ArgumentParser('Display evidences of a user id')
     parser.add_argument('-p', '--project', type=str, help='project name', required=True)
-    parser.add_argument('-u', '--userid', dest='user_id', type=str, help='user id (for node MEMMs)')
-    parser.add_argument('-s', '--src', dest='src', type=str, help='source user id (for edge MEMMs)')
-    parser.add_argument('-d', '--dst', dest='dst', type=str, help='destination user id (for edge MEMMs)')
+    parser.add_argument('-u', '--userid', dest='user_id', type=str, help='user id (for node MEMMs)', required=True)
     parser.add_argument('-m', '--method', type=str, help='MEMM method', required=True)
     args = parser.parse_args()
 
     methods = {e.value: e for e in Method}
     method = methods[args.method]
     project = Project(args.project)
-    if args.user_id:
-        manager = SeqLabelDBManager(project, method)
-        if method in [Method.PARENT_SENS_TD_MEMM, Method.LONG_PARENT_SENS_TD_MEMM, Method.MULTI_STATE_TD_MEMM]:
-            evid_manager = ParentSensEvidManager(project)
-        else:
-            evid_manager = EvidenceManager(project)
-        EvidenceManager(project)
-        key = ObjectId(args.user_id)
-    else:
-        manager = EdgeMEMMManager(project, method)
-        evid_manager = EdgeEvidenceManager(project)
-        key = (ObjectId(args.src), ObjectId(args.dst))
+    manager = SeqLabelDBManager(project, method)
+    evid_manager = ParentSensEvidManager(project)
+    # evid_manager = EvidenceManager(project)
+    key = ObjectId(args.user_id)
 
     memm = manager.fetch_one(key)
     if memm is None:

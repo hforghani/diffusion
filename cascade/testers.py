@@ -1,20 +1,13 @@
-import itertools
 import math
-import numbers
 import os
-import random
-import typing
 from multiprocessing import Pool
 
-import scipy
 from bson import ObjectId
 from matplotlib import pyplot
 from networkx import DiGraph
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import GridSearchCV
-from sklearn_crfsuite import metrics
 
-import settings
 from cascade.asynchroizables import test_cascades, evaluate_nodes, evaluate_edges
 from cascade.metric import Metric
 from cascade.models import Project
@@ -45,7 +38,6 @@ METHOD_MODEL_MAP = {
     Method.MULTI_STATE_TD_MEMM: MultiStateTDMEMMModel,
     Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
     Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
-    Method.TD_EDGE_MEMM: TDEdgeMEMMModel,
     Method.LONG_CRF: CRFModel,
     Method.BIN_CRF: BinCRFModel,
     Method.TD_CRF: TDCRFModel,

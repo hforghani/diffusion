@@ -5,6 +5,7 @@ from functools import reduce
 import numpy as np
 import sklearn_crfsuite
 
+from seq_labeling.utils import arr_to_str
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -15,15 +16,14 @@ class SeqLabelModel(abc.ABC):
         self.orig_indexes_map = {}
 
     @time_measure(level='debug')
-    def fit(self, evidence: dict, iterations: int, states: list = None, **kwargs):
+    def fit(self, sequences: dict, iterations: int, states: list = None, **kwargs):
         """
         Learn MEMM lambdas and transition probabilities for previous state of 0.
-        :param evidence:   dictionary of sequences in the format {'dimension': int, 'sequences': list}
+        :param sequences:   list of sequences
         :param states:      list of all possible states
         :param iterations: maximum iterations
         :return:            self
         """
-        dim, sequences = evidence['dimension'], evidence['sequences']
         new_sequences, self.orig_indexes = self.decrease_dim(sequences)
         new_dim = len(self.orig_indexes)
         self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
@@ -66,8 +66,8 @@ class SeqLabelModel(abc.ABC):
         :return:            new sequences, map of new indexes to the old ones; with one difference that
                             the observation is numpy array in tuple (obs, state)
         """
-        dim = sequences[0][0][0].shape[1]
-        stacked = np.vstack(list(reduce(lambda li1, li2: li1 + li2, [[pair[0] for pair in seq] for seq in sequences])))
+        dim = sequences[0][0][0].size
+        stacked = np.array(list(reduce(lambda li1, li2: li1 + li2, [[pair[0] for pair in seq] for seq in sequences])))
         union = stacked.any(axis=0)
         orig_indexes = list(np.nonzero(union)[0])
         new_dim = len(orig_indexes)
@@ -76,7 +76,7 @@ class SeqLabelModel(abc.ABC):
             return sequences, list(range(dim))
 
         # Decrease the dimensions and create the new sequences.
-        new_sequences = [[(obs[:, orig_indexes], state) for obs, state in seq] for seq in sequences]
+        new_sequences = [[(obs[orig_indexes], state) for obs, state in seq] for seq in sequences]
 
         return new_sequences, orig_indexes
 
@@ -101,15 +101,14 @@ class MEMM(SeqLabelModel, abc.ABC):
         logger.debugv('state_mat =\n%s', state_mat)
         logger.debugv('all possible states = %s', all_states)
 
-        # Calculate features for observation-state pairs. Shape of features is obs_num * (obs_dim+1)
-        features, C = self._calc_features(all_obs, state_mat)
+        # Calculate features for observation-state pairs. Shape of features is feat_num * feat_dim.
+        features, C = self._calc_multi_seq_features(sequences)
         self.feat_dim = features.shape[1]
         logger.debugv('features =\n%s', features)
-        obs_num = len(all_obs)
-        features_for_all_states = [self._calc_features(all_obs, np.ones(obs_num, dtype=type(all_states[0])) * s)[0] for
-                                   s in
-                                   all_states]
+        features_for_all_states = [self._calc_multi_seq_features([[(obs, s) for obs, _ in seq] for seq in sequences])[0]
+                                   for s in all_states]
         # logger.debugv('features_for_all_states =\n%s', pprint.pformat(features_for_all_states))
+
         # Calculate the training data average for each feature.
         F = np.mean(features, axis=0).T
         logger.debugv('F =\n%s', F)
@@ -137,30 +136,29 @@ class MEMM(SeqLabelModel, abc.ABC):
                 logger.debug('GIS iterations = %d, diff = %s', iter_count, diff)
                 break
 
-    def get_prob(self, obs, state, all_states, timers=None):
+    def get_prob(self, obs_seq, state, all_states, timers=None):
         # if timers is None:
         #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
 
-        obs = obs[:, self.orig_indexes]
-        if np.count_nonzero(obs) == 0:
+        obs_seq = [obs[:, self.orig_indexes] for obs in obs_seq]
+        if all(np.count_nonzero(obs) == 0 for obs in obs_seq):
             return 0
-        f, _ = self._calc_features(obs, np.array(all_states))
+        f, _ = self._calc_seq_features(obs_seq, np.array(all_states))
         dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         s_value = dots[all_states.index(state)]
         prob = float(1 / np.sum(np.array([np.exp(dots[i] - s_value) for i in range(len(all_states))])))
         return prob
 
-    def get_probs(self, obs: np.ndarray, all_states: list) -> list:
+    def get_probs(self, obs_seq: list, all_states: list) -> list:
         """
         Get the list of probabilities of transition to all states given the observation conditioned on that the previous
         state is inactive.
-        :param obs:         current observation
+        :param obs_seq:     sequence of t observations
         :param all_states:  list of all possible states
-        :return:            list of probabilities related to the states given
+        :return:            list of probabilities of P(Y_t=1|X,Y_{t-1}=0) related to the states given
         """
-        obs = obs[:, self.orig_indexes]
-        observations = [obs] * len(all_states)
-        f, _ = self._calc_features(observations, np.array(all_states))
+        obs_seq = [obs[self.orig_indexes] for obs in obs_seq]
+        f, _ = self._calc_seq_features(obs_seq, np.array(all_states))
         dots = f.dot(self.Lambda.reshape(self.Lambda.shape[0], 1))
         probs = np.zeros(len(all_states))
         for i in range(len(all_states)):
@@ -168,25 +166,23 @@ class MEMM(SeqLabelModel, abc.ABC):
             probs[i] = 1 / (1 + exp_sum)
         return probs.tolist()
 
-    def get_multi_obs_probs(self, observations: list, all_states: list) -> np.ndarray:
-        probs = np.zeros((len(observations), len(all_states)))
-        for i in range(len(observations)):
-            probs[i, :] = np.array(self.get_probs(observations[i], all_states))
-        # logger.debug('observations = \n%s', observations)
+    def get_multi_obs_probs(self, sequences: list, all_states: list) -> np.ndarray:
+        probs = []
+        for seq in sequences:
+            obs_seq = [obs for obs, state in seq]
+            for i in range(1, len(seq)):
+                probs.append(np.array(self.get_probs(obs_seq[:i], all_states)))
+        probs = np.array(probs)
+        # logger.debug('sequences = \n%s', sequences)
         # logger.debug('probs = \n%s', probs)
         return probs
 
-    def _calc_features(self, obs: typing.Union[list, np.ndarray], states: np.ndarray) -> np.ndarray:
-        if isinstance(obs, list):
-            return self._calc_multi_obs_features(obs, states)
-        else:
-            return self._calc_obs_features(obs, states)
-
-    def _calc_obs_features(self, obs: np.ndarray, states: np.ndarray) -> np.ndarray:
-        return self._calc_multi_obs_features([obs] * len(states), states)
+    def _calc_seq_features(self, obs_seq: list, states: np.ndarray) -> np.ndarray:
+        sequences = [[(obs, state) for obs in obs_seq] for state in states]
+        return self._calc_multi_seq_features(sequences, only_last=True)
 
     @abc.abstractmethod
-    def _calc_multi_obs_features(self, observations: list, states: np.ndarray) -> np.ndarray:
+    def _calc_multi_seq_features(self, sequences: list, only_last: bool = False) -> np.ndarray:
         pass
 
     def __build_tpm(self, features: list, Lambda: np.ndarray):
@@ -201,7 +197,7 @@ class MEMM(SeqLabelModel, abc.ABC):
         states_num = len(features)
 
         # dots is a list of values (f(o,s) . lambda) for different s values
-        # logger.debug('features[0] = \n%s', two_d_arr_to_str(features[0]))
+        # logger.debug('features[0] = \n%s', arr_to_str(features[0]))
         # logger.debug('Lambda = %s', Lambda)
         # logger.debug('states_num = %s', states_num)
         dots = [np.squeeze(features[i].dot(Lambda)) for i in range(states_num)]
@@ -245,23 +241,22 @@ class MEMM(SeqLabelModel, abc.ABC):
 
     def sequences_to_feat_states(self, sequences):
         new_sequences, orig_indexes = self.decrease_dim(sequences)
-        all_obs, state_mat = self.get_all_obs(new_sequences)
-        features, C = self._calc_features(all_obs, state_mat)
-        return features, state_mat
+        features, C = self._calc_multi_seq_features(new_sequences)
+        return features
 
 
 class LongMEMM(MEMM):
 
-    def _calc_obs_features(self, obs, states):
-        obs_dim = obs.shape[1]
-        feat_dim = self.feat_dim if self.feat_dim else obs.shape[0] * obs_dim + 1
-        features = np.zeros((states.size, feat_dim - 1))
+    def _calc_seq_features(self, obs_seq, states):
+        obs_dim = obs_seq[0].size
+        D = (self.feat_dim - 1) // obs_dim
+        features = np.zeros((states.size, obs_dim * D))
 
         if np.any(states):
-            features = np.zeros((states.size, feat_dim - 1))
-            flat_obs = obs.flatten()[:feat_dim - 1]
+            feat = np.concatenate(obs_seq[::-1], axis=None) if len(obs_seq) > 1 else obs_seq[0].copy()
+            feat.resize(obs_dim * D)
             nonzero_indexes = np.nonzero(states)[0]
-            features[nonzero_indexes, :flat_obs.size] = np.tile(flat_obs, (nonzero_indexes.size, 1))
+            features[nonzero_indexes, :] = np.tile(feat, (nonzero_indexes.size, 1))
 
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
@@ -270,35 +265,49 @@ class LongMEMM(MEMM):
         # logger.debug('features = \n%s', two_d_arr_to_str(features))
         return features, C
 
-    def _calc_multi_obs_features(self, observations, states):
-        if len(observations) != states.size:
-            raise ValueError('number of observations and states must be equal')
-        obs_num = len(observations)
-        obs_dim = observations[0].shape[1]
-        feat_dim = self.feat_dim if self.feat_dim else max(obs.shape[0] for obs in observations) * obs_dim + 1
-        features = np.zeros((obs_num, feat_dim - 1))
+    def _calc_multi_seq_features(self, sequences, only_last=False):
+        obs_dim = sequences[0][0][0].size
+        D = (self.feat_dim - 1) // obs_dim if self.feat_dim else max(len(seq) for seq in sequences)
+        features = []
 
-        for ind in range(obs_num):
-            if states[ind]:
-                obs = observations[ind]
-                flat_obs = obs.flatten()[:feat_dim - 1]
-                features[ind, :flat_obs.size] = flat_obs
+        for seq in sequences:
+            if only_last:
+                state = seq[-1][1]
+                if state:
+                    feat = np.concatenate([obs for obs, state in seq[::-1]], axis=None) if len(seq) > 1 else seq[
+                        0].copy()
+                else:
+                    feat = np.zeros(D * obs_dim)
+                np.resize(D * obs_dim)
+                features.append(feat)
+            else:
+                if any(state for obs, state in seq):
+                    obs_seq = np.array([])
+                    for obs, state in seq:
+                        obs_seq = np.concatenate((obs, obs_seq), axis=None)
+                        feat = obs_seq.copy() if state else np.zeros(D * obs_dim)
+                        feat.resize(D * obs_dim)
+                        features.append(feat)
+                else:
+                    features.extend([np.zeros(D * obs_dim)] * len(seq))
+        features = np.array(features)
 
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
-        last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
+        feat_count = features.shape[0]
+        last_feat = np.ones((feat_count, 1)) * C - np.reshape(feat_sum, (feat_count, 1))
         features = np.concatenate((features, last_feat), axis=1)
         # logger.debug('features = \n%s', two_d_arr_to_str(features))
         return features, C
 
 
 class BinMEMM(MEMM):
-    def _calc_obs_features(self, obs, states):
-        obs_dim = obs.shape[1]
+    def _calc_seq_features(self, obs_seq, states):
+        obs_dim = obs_seq[0].size
         features = np.zeros((states.size, obs_dim))
 
         if np.any(states):
-            feat = np.any(obs, axis=0)
+            feat = np.any(np.array(obs_seq), axis=0)
             nonzero_indexes = np.nonzero(states)[0]
             features[nonzero_indexes, :] = np.tile(feat, (nonzero_indexes.size, 1))
 
@@ -308,19 +317,30 @@ class BinMEMM(MEMM):
         features = np.concatenate((features, last_feat), axis=1)
         return features, C
 
-    def _calc_multi_obs_features(self, observations, states):
-        if len(observations) != states.size:
-            raise ValueError('number of observations and states must be equal')
-        obs_num = len(observations)
-        obs_dim = observations[0].shape[1]
-        features = [np.any(obs, axis=0) for obs in observations]
+    def _calc_multi_seq_features(self, sequences, only_last=False):
+        obs_dim = sequences[0][0][0].size
+        features = []
+
+        for seq in sequences:
+            if only_last:
+                state = seq[-1][1]
+                feat = np.any(np.array([obs for obs, state in seq]), axis=0) if state else np.zeros(obs_dim)
+                features.append(feat)
+            else:
+                if any(state for obs, state in seq):
+                    obs_sum = np.zeros(obs_dim)
+                    for obs, state in seq:
+                        obs_sum += obs
+                        feat = obs_sum.copy() if state else np.zeros(obs_dim)
+                        features.append(feat)
+                else:
+                    features.extend([np.zeros(obs_dim)] * len(seq))
         features = np.array(features)
-        features = np.logical_and(features, np.tile(np.reshape(states, (obs_num, 1)), obs_dim))
-        # features = np.logical_not(
-        #     np.logical_xor(features, np.tile(np.reshape(states, (obs_num, 1)), obs_dim)))
+
         C = obs_dim + 1
         feat_sum = np.sum(features, axis=1)
-        last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
+        feat_count = features.shape[0]
+        last_feat = np.ones((feat_count, 1)) * C - np.reshape(feat_sum, (feat_count, 1))
         features = np.concatenate((features, last_feat), axis=1)
         return features, C
 
@@ -330,14 +350,15 @@ class TDMEMM(MEMM):
         super().__init__()
         self.td_param = td_param
 
-    def _calc_obs_features(self, obs, states):
-        obs_dim = obs.shape[1]
+    def _calc_seq_features(self, obs_seq, states):
+        # TODO
+        obs_dim = obs_seq.shape[1]
         features = np.zeros((states.size, obs_dim))
 
         if np.any(states):
-            mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
-            mults = np.tile(mults.reshape(obs.shape[0], 1), obs_dim)
-            feat = np.sum(np.multiply(mults, obs), axis=0)
+            mults = np.array([self.td_param ** i for i in range(obs_seq.shape[0])])
+            mults = np.tile(mults.reshape(obs_seq.shape[0], 1), obs_dim)
+            feat = np.sum(np.multiply(mults, obs_seq), axis=0)
             nonzero_indexes = np.nonzero(states)[0]
             features[nonzero_indexes, :] = np.tile(feat, (nonzero_indexes.size, 1))
 
@@ -347,7 +368,8 @@ class TDMEMM(MEMM):
         features = np.concatenate((features, last_feat), axis=1)
         return features, C
 
-    def _calc_multi_obs_features(self, observations, states):
+    def _calc_multi_seq_features(self, sequences, only_last=False):
+        # TODO
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
@@ -373,12 +395,13 @@ class ParentTDMEMM(TDMEMM):
         super().__init__()
         self.td_param = td_param
 
-    def _calc_multi_obs_features(self, observations, states):
+    def _calc_multi_seq_features(self, sequences, only_last=False):
+        # TODO
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
         obs_dim = observations[0].shape[1]
-        td_features, _ = super()._calc_multi_obs_features(observations, states != 0)
+        td_features, _ = super()._calc_multi_seq_features(observations, states != 0)
         # for obs in observations:
         #     logger.debug('obs = \n%s', obs_to_str(obs))
         # logger.debug('states = %s', states)
@@ -407,12 +430,13 @@ class LongParentTDMEMM(TDMEMM):
         super().__init__()
         self.td_param = td_param
 
-    def _calc_multi_obs_features(self, observations, states):
+    def _calc_multi_seq_features(self, sequences, only_last=False):
+        # TODO
         if len(observations) != states.size:
             raise ValueError('number of observations and states must be equal')
         obs_num = len(observations)
         obs_dim = observations[0].shape[1]
-        td_features, _ = super()._calc_multi_obs_features(observations, states != 0)
+        td_features, _ = super()._calc_multi_seq_features(observations, states != 0)
         # logger.debugv('obs_mat, state_mat =\n%s',
         #               np.concatenate((obs_mat, state_mat.reshape(state_mat.shape[0], 1)), axis=1))
         # logger.debugv('states =\n%s', states)
@@ -454,7 +478,9 @@ class CRF(SeqLabelModel):
         features = [self._obs_feat_sequence([obs for obs, state in seq]) for seq in sequences]
         states = [[self.__state_to_str(0)] + [self.__state_to_str(state) for obs, state in seq] for seq in sequences]
         logger.debugv('sequences = \n%s', pprint.pformat(sequences))
-        logger.debugv('features & states = \n%s', pprint.pformat([list(zip(f, s)) for f, s in zip(features, states)]))
+        logger.debugv('features = \n%s', pprint.pformat(features))
+        logger.debugv('states = \n%s', pprint.pformat(states))
+        # logger.debugv('features & states = \n%s', pprint.pformat([list(zip(f, s)) for f, s in zip(features, states)]))
 
         crf.fit(features, states)
         logger.debugv('attributes_:\n%s', crf.attributes_)
@@ -469,37 +495,38 @@ class CRF(SeqLabelModel):
         else:
             return str(state)
 
-    def _obs_feat_sequence(self, observations):
-        dim = observations[0].shape[1]
-        zero_obs = np.zeros((1, dim), dtype=bool)
-        zero_feat = self._obs_feature(zero_obs)
-        return [zero_feat] + [self._obs_feature(obs) for obs in observations]
+    def _obs_feat_sequence(self, obs_seq):
+        logger.debugv('_obs_feat_sequence -> obs_seq = %s', obs_seq)
+        dim = obs_seq[0].size
+        zero_obs = np.zeros(dim, dtype=bool)
+        zero_feat = self._obs_feature([zero_obs])
+        return [zero_feat] + [self._obs_feature(obs_seq[:i + 1]) for i in range(len(obs_seq))]
 
-    def _obs_feature(self, obs):
-        return {f'{-i}:{j}': obs[i, j] for i in range(obs.shape[0]) for j in range(obs.shape[1])}
+    def _obs_feature(self, obs_seq):
+        logger.debugv('_obs_feature -> obs_seq = %s', obs_seq)
+        return {f'{-len(obs_seq) + 1 + i}:{j}': obs_seq[i][j] for i in range(len(obs_seq)) for j in
+                range(obs_seq[i].size)}
 
-    def get_prob(self, obs, state, all_states, timers=None):
+    def get_prob(self, obs_seq, state, all_states, timers=None):
         # if timers is None:
         #     timers = [Timer(f'get_prob part {i}', level='debug', unit=TimeUnit.SECONDS) for i in range(2)]
 
-        observations = [obs[:i + 1, :] for i in range(obs.shape[0])]
-        features = self._obs_feat_sequence(observations)
+        features = self._obs_feat_sequence(obs_seq)
         probs = self.crf.predict_marginals_single(features)
         logger.debugv('features = \n%s', features)
         logger.debugv('probs = \n%s', probs)
         return probs[-1][self.__state_to_str(state)]
 
-    def get_probs(self, obs: np.ndarray, all_states: list) -> list:
+    def get_probs(self, obs_seq: np.ndarray, all_states: list) -> list:
         """
         Get the list of probabilities of transition to all states given the observation conditioned on that the previous
         state is inactive.
-        :param obs:         current observation
+        :param obs_seq:         observation sequence
         :param all_states:  list of all possible states
         :return:            list of probabilities related to the states given
         """
-        observations = [obs[obs.shape[0] - i - 1:, :] for i in range(obs.shape[0])]
-        logger.debugv('observations = \n%s', observations)
-        features = self._obs_feat_sequence(observations)
+        logger.debugv('obs_seq = \n%s', obs_seq)
+        features = self._obs_feat_sequence(obs_seq)
         probs = self.crf.predict_marginals_single(features)
         logger.debugv('features = \n%s', features)
         logger.debugv('probs = \n%s', probs)
@@ -509,9 +536,12 @@ class CRF(SeqLabelModel):
 
 
 class BinCRF(CRF):
-    def _obs_feature(self, obs):
-        bin_feat = np.any(obs, axis=0)
-        return {str(i): bin_feat[i] for i in range(bin_feat.size)}
+    def _obs_feature(self, obs_seq):
+        logger.debugv('_obs_feature -> obs_seq = %s', obs_seq)
+        bin_feat = np.any(np.array(obs_seq), axis=0)
+        f = {str(i): bin_feat[i] for i in range(bin_feat.size)}
+        logger.debugv('f = %s', f)
+        return f
 
 
 class TDCRF(CRF):
@@ -519,8 +549,9 @@ class TDCRF(CRF):
         super().__init__()
         self.td_param = td_param
 
-    def _obs_feature(self, obs):
-        mults = np.array([self.td_param ** i for i in range(obs.shape[0])])
-        mults = np.tile(mults.reshape(obs.shape[0], 1), obs.shape[1])
-        td_feat = np.sum(np.multiply(mults, obs), axis=0)
+    def _obs_feature(self, obs_seq):
+        #TODO
+        mults = np.array([self.td_param ** i for i in range(obs_seq.shape[0])])
+        mults = np.tile(mults.reshape(obs_seq.shape[0], 1), obs_seq.shape[1])
+        td_feat = np.sum(np.multiply(mults, obs_seq), axis=0)
         return {str(i): td_feat[i] for i in range(td_feat.size)}
