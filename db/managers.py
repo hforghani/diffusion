@@ -195,9 +195,6 @@ class SeqLabelDBManager:
 
 
 class CRFManager(SeqLabelDBManager):
-    def db_exists(self):
-        return False  # TODO: This is a temporary hack to prevent reading from and inserting into db for CRF models.
-
     def _get_doc(self, crf):
         return pickle.dumps(crf)
 

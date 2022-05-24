@@ -1,13 +1,11 @@
 import abc
 import collections
-import concurrent
-import math
 import pprint
 import random
 import traceback
+from concurrent.futures import ProcessPoolExecutor
 from functools import reduce
 from itertools import repeat
-from multiprocessing.pool import Pool
 
 import numpy as np
 import psutil
@@ -57,7 +55,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
 
             if multi_processed:
                 trees_parts = self.__split_trees(train_trees)
-                with concurrent.futures.ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
+                with ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
                     results = list(executor.map(extract_evidences, repeat(type(self)), repeat(graph), trees_parts))
                 logger.debug('len(results) = %d', len(results))
 
@@ -128,77 +126,50 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         return user_ids
 
     @classmethod
-    def train_models(cls, evidences, iterations, graph, save_in_db=False, project=None, **kwargs):
-        logger.info('training %d seq labeling models ...', len(evidences))
+    def _train_models(cls, evidences, iterations, graph, **kwargs):
         logger.debug('kwargs = %s', kwargs)
         models = {}
         count = 0
-        manager = cls._get_seq_label_manager(project) if save_in_db else None
 
         for key, ev in evidences.items():
             count += 1
             logger.debug('training seq labeling model %d (user id: %s, dimensions: %d) ...', count, key,
                          ev[0][0][0].size)
-
-            model = cls._train_model(ev, iterations, key, graph, **kwargs)
+            states = cls.get_states(key, graph)
+            model = cls.train_model(ev, iterations, states, **kwargs)
             models[key] = model
 
             if count % 100 == 0:
-                logger.debug('%d models trained', count)
-
-            if save_in_db and manager is not None and count % 1000 == 0:
-                logger.debug('inserting seq labeling models into db ...')
-                manager.insert(models)
-
-        if save_in_db and manager is not None and models:
-            logger.debug('inserting seq labeling models into db ...')
-            manager.insert(models)
-
-        logger.info('done')
+                logger.info('%d models trained', count)
         return models
 
-    def _fit_multiproc(self, evidences, iterations, project, graph, **kwargs):
+    def _fit_multiproc(self, evidences, iterations, graph, **kwargs):
         """
         Train the seq labeling models using evidences given in multiprocessing mode.
         Side effect: Clears the evidences' dictionary.
         """
-        keys = list(evidences.keys())
-        random.shuffle(keys)
-        process_count = min(settings.PROCESS_COUNT, len(evidences))
-        logger.debug('starting %d processes to train seq labeling models', process_count)
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(len(evidences) / process_count))
-        results = []
+        node_ids = list(evidences.keys())
+        random.shuffle(node_ids)
 
-        for i in range(process_count):
-            keys_i = keys[i * step: (i + 1) * step]
-            evidences_i = {}
-            for key in keys_i:
-                evidences_i[key] = evidences.pop(key)  # to free RAM
+        futures = {}
+        with ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
+            for node_id in node_ids:
+                states = self.get_states(node_id, graph)
+                evid = evidences.pop(node_id)
+                futures[node_id] = executor.submit(train_model, type(self), evid, iterations, states, **kwargs)
+        del evidences
 
-            res = pool.apply_async(train_models, (type(self), evidences_i, iterations, graph, False, project),
-                                   kwargs)
-            results.append(res)
-
-        del evidences  # to free RAM
-        pool.close()
-        pool.join()
-        models = {}
-
-        # Collect results of the processes.
         logger.debug('assembling learned seq labeling models of processes ...')
-        for res in results:
-            models_i = res.get()
-            keys_i = list(models_i.keys())
-            for key in keys_i:
-                models[key] = models_i.pop(key)  # to free RAM
+        models = {}
+        for node_id in node_ids:
+            models[node_id] = futures.pop(node_id).result()
         logger.debug('assembling done')
 
         return models
 
     @classmethod
     @abc.abstractmethod
-    def _train_model(cls, evidence, iterations, key, graph, **kwargs):
+    def train_model(cls, evidence, iterations, states, **kwargs):
         pass
 
     def _fit_by_evidences(self, train_trees, project, graph, iterations=None, multi_processed=False, eco=False,
@@ -211,12 +182,13 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         max_iteration = iterations if iterations is not None else self.max_iterations
         kwargs.update(self.get_params())
         manager = self._get_seq_label_manager(project)
-        logger.info('training seq labeling models ...')
+        logger.info('training %d seq labeling models ...', len(evidences))
 
         if multi_processed:
-            models = self._fit_multiproc(evidences, max_iteration, project, graph, **kwargs)
+            models = self._fit_multiproc(evidences, max_iteration, graph, **kwargs)
         else:
-            models = self.train_models(evidences, max_iteration, graph, save_in_db=eco, project=project, **kwargs)
+            models = self._train_models(evidences, max_iteration, graph, **kwargs)
+
         if eco and manager is not None:
             logger.info('inserting seq labeling models into db ...')
             manager.insert(models)
@@ -314,9 +286,10 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         return [False, True]
 
 
-def train_models(cls, evidences, iterations, graph, save_in_db=False, project=None, **kwargs):
+def train_model(cls, evidence, iterations, states, **kwargs):
     try:
-        return cls.train_models(evidences, iterations, graph, save_in_db, project, **kwargs)
+        # return cls.train_models(evidences, iterations, states, save_in_db, project, **kwargs)
+        return cls.train_model(evidence, iterations, states, **kwargs)
     except:
         logger.error(traceback.format_exc())
         raise

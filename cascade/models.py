@@ -346,7 +346,7 @@ class Project:
         Load trees of cascades in training and test sets.
         :return:
         """
-        if self.trees is not None:
+        if self.trees:
             return self.trees
 
         # Load trees from the json file.

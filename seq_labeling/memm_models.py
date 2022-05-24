@@ -1,10 +1,7 @@
-import settings
 from db.managers import SeqLabelDBManager
 from diffusion.enum import Method
-from log_levels import DEBUG_LEVELV_NUM
 from seq_labeling.models import SeqLabelDifModel, NodeSeqLabelModel, MultiStateModel
 from seq_labeling.pgm import *
-from seq_labeling.utils import obs_to_str
 from settings import logger
 
 
@@ -16,8 +13,7 @@ class MEMMModel(SeqLabelDifModel, abc.ABC):
         return SeqLabelDBManager(project, cls.method)
 
     @classmethod
-    def _train_model(cls, evidence, iterations, key, graph, **kwargs):
-        states = cls.get_states(key, graph)
+    def train_model(cls, evidence, iterations, states, **kwargs):
         memm = cls.get_memm_instance(**kwargs)
         memm.fit(evidence, iterations, states)
         return memm

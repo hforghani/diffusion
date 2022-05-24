@@ -3,6 +3,7 @@ import traceback
 import typing
 
 from networkx import DiGraph
+from pympler.asizeof import asizeof
 
 import settings
 from cascade.metric import Metric
@@ -110,8 +111,8 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                                                                      criterion, graph)
                             results[thr].append(meas)
                             logs.append(
-                                f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{meas.precision():10.3f}'
-                                f'{meas.recall():10.3f}{meas.f1():10.3f}')
+                                f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{meas.precision:10.3f}'
+                                f'{meas.recall:10.3f}{meas.f1:10.3f}')
                     else:
                         # res_tree is an instance of CascadeTree
                         logs = [f'{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
@@ -120,13 +121,17 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                         results.append(meas)
                         res_trees.append(res_tree)
                         logs.append(
-                            f'{len(res_output):10}{len(true_output):10}{meas.precision():10.3f}{meas.recall():10.3f}'
-                            f'{meas.f1():10.3f}')
+                            f'{len(res_output):10}{len(true_output):10}{meas.precision:10.3f}{meas.recall:10.3f}'
+                            f'{meas.f1:10.3f}')
 
                     # log_trees(tree, res_tree, max_depth)
                     logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))
 
             count += 1
+
+        # logger.debug('sizes in MB:')
+        # for key, value in locals().items():
+        #     logger.debug(f'{key:<30}{asizeof(value) / (1024 ** 2)}')
 
         logger.info('done')
         logger.debug('type(results) = %s', type(results))

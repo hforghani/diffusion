@@ -74,8 +74,8 @@ def handle(args):
                       args.multi_processed, args.eco, args.param)
 
     if res is not None:
-        logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', res.precision(), res.recall(),
-                    res.f1(), res.fpr())
+        logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', res.precision, res.recall,
+                    res.f1, res.fpr)
 
 
 def main():

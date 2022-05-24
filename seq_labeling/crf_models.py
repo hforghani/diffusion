@@ -1,6 +1,7 @@
 import abc
 
 import numpy as np
+from pympler.asizeof import asizeof
 
 from db.managers import CRFManager, ParentSensEvidManager
 from diffusion.enum import Method
@@ -19,10 +20,19 @@ class CRFModel(NodeSeqLabelModel):
         self.c2 = c2
 
     @classmethod
-    def _train_model(cls, evidence, iterations, key, graph, **kwargs):
+    def train_model(cls, evidence, iterations, states, **kwargs):
         logger.debug('kwargs = %s', kwargs)
         crf = cls.get_crf_instance(**kwargs)
         crf.fit(evidence, iterations, **kwargs)
+
+        # logger.debug('model attributes sizes (B):')
+        # in_crf = crf.crf
+        # for attr in dir(in_crf):
+        #     try:
+        #         logger.debug(f'{attr:<30}{asizeof(getattr(in_crf, attr))}')
+        #     except AttributeError:
+        #         pass
+
         return crf
 
     @classmethod

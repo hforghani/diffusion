@@ -27,7 +27,7 @@ def run(method, initial_depth, max_depth, project, eco, criterion):
     if not params:
         logger.info('no params for %s on %s', method.value, project.name)
     mean_res, res, _ = tester.run(initial_depth, max_depth, **params)
-    return mean_res.f1()
+    return mean_res.f1
 
 
 def multiple_run(methods: list, depth_settings: list, project_name: str, eco: bool,

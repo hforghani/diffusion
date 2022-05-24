@@ -1,11 +1,9 @@
 import abc
 import pprint
-import typing
 from functools import reduce
 import numpy as np
 import sklearn_crfsuite
 
-from seq_labeling.utils import arr_to_str
 from settings import logger
 from utils.time_utils import time_measure
 
@@ -217,7 +215,7 @@ class MEMM(SeqLabelModel, abc.ABC):
         """
         :param features:  list of lists. features[i] contains the features of f(o, states[i] | s' = 0)
                             where o is an observations.
-        :param TPM:      N * d array of TPM
+        :param TPM:      N * S array of TPM where N and S are respectively the number of observations states
         :return:        (d+1) array of expectation of features
         """
         states_num = len(features)
@@ -483,6 +481,7 @@ class CRF(SeqLabelModel):
         # logger.debugv('features & states = \n%s', pprint.pformat([list(zip(f, s)) for f, s in zip(features, states)]))
 
         crf.fit(features, states)
+        del crf.training_log_
         logger.debugv('attributes_:\n%s', crf.attributes_)
         logger.debugv('state_features_:\n%s', pprint.pformat(crf.state_features_))
         logger.debugv('transition_features_:\n%s', pprint.pformat(crf.transition_features_))
@@ -550,7 +549,7 @@ class TDCRF(CRF):
         self.td_param = td_param
 
     def _obs_feature(self, obs_seq):
-        #TODO
+        # TODO
         mults = np.array([self.td_param ** i for i in range(obs_seq.shape[0])])
         mults = np.tile(mults.reshape(obs_seq.shape[0], 1), obs_seq.shape[1])
         td_feat = np.sum(np.multiply(mults, obs_seq), axis=0)

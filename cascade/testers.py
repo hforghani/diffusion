@@ -1,5 +1,6 @@
 import math
 import os
+from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Pool
 
 from bson import ObjectId
@@ -61,7 +62,7 @@ def trees_f1_scorer(true_trees, pred_trees, initial_depth, max_depth, graph, cri
         else:
             all_edges = set(graph.edges())
             meas, _, _ = evaluate_edges(initial_tree, pred_tree, true_tree, all_edges, max_depth)
-        f1_values.append(meas.f1())
+        f1_values.append(meas.f1)
 
     f1 = np.mean(np.array(f1_values))
     return f1
@@ -186,7 +187,7 @@ class ProjectTester(abc.ABC):
             fold_res, _, _ = self.test(val_set, model, graph, initial_depth, max_depth, threshold=threshold, **params)
             for thr in threshold:
                 results.setdefault(thr, [])
-                results[thr].append(fold_res[thr].f1())
+                results[thr].append(fold_res[thr].f1)
 
         logger.debug('results = %s', results)
         mean_res = {thr: np.mean(np.array(results[thr])) for thr in results}
@@ -244,10 +245,10 @@ class ProjectTester(abc.ABC):
         ]
         for thr in results:
             mean_metric = Metric([], [])
-            prec = np.array([m.precision() for m in results[thr] if m is not None]).mean()
-            rec = np.array([m.recall() for m in results[thr] if m is not None]).mean()
-            fpr = np.array([m.fpr() for m in results[thr] if m is not None]).mean()
-            f1 = np.array([m.f1() for m in results[thr] if m is not None]).mean()
+            prec = np.array([m.precision for m in results[thr] if m is not None]).mean()
+            rec = np.array([m.recall for m in results[thr] if m is not None]).mean()
+            fpr = np.array([m.fpr for m in results[thr] if m is not None]).mean()
+            f1 = np.array([m.f1 for m in results[thr] if m is not None]).mean()
             mean_metric.set(prec, rec, f1, fpr)
             mean_res[thr] = mean_metric
             logs.append(f'{thr:<10.3f}{prec:<10.3f}{rec:<10.3f}{f1:<10.3f}')
@@ -265,10 +266,10 @@ class ProjectTester(abc.ABC):
             f'{"precision":<10}{"recall":<10}{"f1":<10}'
         ]
         mean_metric = Metric([], [])
-        prec = np.array([m.precision() for m in results if m is not None]).mean()
-        rec = np.array([m.recall() for m in results if m is not None]).mean()
-        fpr = np.array([m.fpr() for m in results if m is not None]).mean()
-        f1 = np.array([m.f1() for m in results if m is not None]).mean()
+        prec = np.array([m.precision for m in results if m is not None]).mean()
+        rec = np.array([m.recall for m in results if m is not None]).mean()
+        fpr = np.array([m.fpr for m in results if m is not None]).mean()
+        f1 = np.array([m.f1 for m in results if m is not None]).mean()
         mean_metric.set(prec, rec, f1, fpr)
         logs.append(f'{prec:<10.3f}{rec:<10.3f}{f1:<10.3f}')
 
@@ -289,7 +290,7 @@ class ProjectTester(abc.ABC):
                 ]
         for i in range(len(test_set)):
             if results[i]:
-                cells = (test_set[i], results[i].precision(), results[i].recall(), results[i].f1())
+                cells = (test_set[i], results[i].precision, results[i].recall, results[i].f1)
             else:
                 cells = (test_set[i], None, None, None)
             row = ''.join(format_cell(cell) for cell in cells)
@@ -298,31 +299,31 @@ class ProjectTester(abc.ABC):
         logger.info('\n'.join(logs))
 
     def __save_charts(self, best_thr: float, results: dict, thresholds: list, initial_depth: int, max_depth: int):
-        precs_list = [results[thr].precision() for thr in thresholds]
-        recs_list = [results[thr].recall() for thr in thresholds]
-        f1s_list = [results[thr].f1() for thr in thresholds]
-        fprs_list = [results[thr].fpr() for thr in thresholds]
+        precs_list = [results[thr].precision for thr in thresholds]
+        recs_list = [results[thr].recall for thr in thresholds]
+        f1s_list = [results[thr].f1 for thr in thresholds]
+        fprs_list = [results[thr].fpr for thr in thresholds]
         best_res = results[best_thr]
 
         pyplot.figure()
         pyplot.subplot(221)
         pyplot.plot(thresholds, precs_list)
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
-        pyplot.scatter([best_thr], [best_res.precision()], c='r', marker='o')
+        pyplot.scatter([best_thr], [best_res.precision], c='r', marker='o')
         pyplot.title('precision')
         pyplot.subplot(222)
         pyplot.plot(thresholds, recs_list)
-        pyplot.scatter([best_thr], [best_res.recall()], c='r', marker='o')
+        pyplot.scatter([best_thr], [best_res.recall], c='r', marker='o')
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.title('recall')
         pyplot.subplot(223)
         pyplot.plot(thresholds, f1s_list)
-        pyplot.scatter([best_thr], [best_res.f1()], c='r', marker='o')
+        pyplot.scatter([best_thr], [best_res.f1], c='r', marker='o')
         pyplot.axis([0, pyplot.axis()[1], 0, 1])
         pyplot.title('F1')
         pyplot.subplot(224)
         pyplot.plot(fprs_list, recs_list)
-        pyplot.scatter([best_res.fpr()], [best_res.recall()], c='r', marker='o')
+        pyplot.scatter([best_res.fpr], [best_res.recall], c='r', marker='o')
         pyplot.title('ROC curve')
         pyplot.axis([0, 1, 0, 1])
         results_path = os.path.join(settings.BASE_PATH, 'results')
@@ -360,25 +361,20 @@ class MultiProcTester(ProjectTester):
     def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params):
         """
         Create a process pool to distribute the prediction.
+        Side effect: Will clear the dictionary "tree" to free RAM.
         """
-        process_count = min(settings.PROCESS_COUNT, len(test_set))
-        pool = Pool(processes=process_count)
-        step = int(math.ceil(float(len(test_set)) / process_count))
-        results = []
-        for j in range(0, len(test_set), step):
-            cascade_ids = test_set[j: j + step]
-            res = pool.apply_async(test_cascades,
-                                   (
-                                       cascade_ids, self.method, model, initial_depth, max_depth, self.criterion, trees,
-                                       graph
-                                   ),
-                                   params)
-            results.append(res)
+        step = 1
+        futures = []
+        with ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
+        # with ProcessPoolExecutor(max_workers=4) as executor:
+            for i in range(0, len(test_set), step):
+                cascades_i = test_set[i:i + step]
+                trees_i = {cid: trees.pop(cid) for cid in cascades_i}
+                f = executor.submit(test_cascades, cascades_i, self.method, model, initial_depth, max_depth,
+                                    self.criterion, trees_i, graph, **params)
+                futures.append(f)
+        got_results = [f.result() for f in futures]
 
-        pool.close()
-        pool.join()
-
-        got_results = [res.get() for res in results]
         result_eval = [res[0] for res in got_results]
         result_trees = [res[1] for res in got_results]
         del got_results
@@ -388,8 +384,10 @@ class MultiProcTester(ProjectTester):
         else:  # It is on validation stage.
             merged_res_eval = reduce(lambda x, y: {key: x.get(key, []) + y[key] for key in y}, result_eval, {})
             merged_res_trees = None  # Result trees are not returned on validation stage.
-
         return merged_res_eval, merged_res_trees
+
+        # return test_cascades(test_set, self.method, model, initial_depth, max_depth, self.criterion, trees,
+        #                      graph, **params)
 
     def _get_validate_n_jobs(self):
         return settings.PROCESS_COUNT
