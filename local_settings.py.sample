@@ -1,6 +1,8 @@
 import logging
 from log_levels import DEBUG_LEVELV_NUM     # Do not remove this line.
 
+from diffusion.enum import Method
+
 # LOG_LEVEL = logging.INFO
 LOG_LEVEL = logging.DEBUG
 # LOG_LEVEL = DEBUG_LEVELV_NUM
@@ -10,4 +12,14 @@ MONGO_URL = 'mongodb://localhost:27017/'
 WEIBO_FOLLOWERS_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\weibo_network.txt'
 WEIBO_UIDLIST_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\uidlist.txt'
 
-PROCESS_COUNT = multiprocessing.cpu_count() - 1
+DEFAULT_WORKERS = multiprocessing.cpu_count() - 1
+EVID_WORKERS = DEFAULT_WORKERS # Max number of workers for seq labeling models evidence extraction
+TRAIN_WORKERS = DEFAULT_WORKERS # Max number of workers for training
+TEST_WORKERS = DEFAULT_WORKERS # Max number of workers for test
+RSCV_WORKERS = DEFAULT_WORKERS # Max number of workers for randomized search cross-validation
+
+PARAM = {
+    Method.MULTI_STATE_BIN_CRF: {
+        'project_name': {} # Parameters
+    }
+} # Used only in multi_predict.py & ttest.py

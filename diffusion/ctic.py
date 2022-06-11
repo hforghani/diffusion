@@ -1,5 +1,7 @@
 import math
 import traceback
+from concurrent.futures import ProcessPoolExecutor
+from itertools import repeat
 from multiprocessing import Pool
 
 import numpy as np
@@ -133,9 +135,6 @@ def calc_alpha(sequences, graph, k, r, user_map):
                     continue
                 v_index = user_map[v]
                 parents = seq.get_active_parents(v, graph)
-                # if str(v) == '5d89465a86887712d4b704a9':
-                #     logger.debug('cid = %s', cid)
-                #     logger.debug('parents = %s', parents)
                 if not parents:
                     continue
 
@@ -156,10 +155,6 @@ def calc_alpha(sequences, graph, k, r, user_map):
                         values.extend(np.squeeze(val).tolist())
                     else:
                         values.append(float(val))
-                    # if str(v) == '5d89465a86887712d4b704a9':
-                    #     logger.debug('a_col = %s', a_col)
-                    #     logger.debug('b_col = %s', b_col)
-                    #     logger.debug('val = %s', val)
 
                 rows.extend(parents_indexes)
                 cols.extend([v_index] * len(parents_indexes))
@@ -231,7 +226,7 @@ def calc_r(edges, alpha, beta, user_map, sequences, edge_pos_cascades):
         cols = []
         i = 0
         logger.debug('len(alpha) = %s', len(alpha))
-        logger.debug('alpha = %s', alpha)
+        logger.debugv('alpha = %s', alpha)
 
         for (u, v) in edges:
 
@@ -247,17 +242,7 @@ def calc_r(edges, alpha, beta, user_map, sequences, edge_pos_cascades):
                 diff[diff == 0] = 1.0 / (30 * 24 * 60)  # 1 minute
                 numerator = float(np.sum(alphas))
                 denominator = float(np.sum(np.multiply(alphas + np.multiply(1 - alphas, betas), diff)))
-                # if str(v) == '5d89465a86887712d4b704a9':
-                #     logger.debug('u,v = %s', (u, v))
-                #     logger.debug('pos_cascades = %s', pos_cascades)
-                #     logger.debug('diff = %s', diff)
-                #     logger.debug('alphas = %s', alphas)
-                #     logger.debug('betas = %s', betas)
-                #     logger.debug('numerator = %s', numerator)
-                #     logger.debug('denominator = %s', denominator)
                 val = numerator / denominator
-                # if str(v) == '5d89465a86887712d4b704a9':
-                #     logger.debug('val = %s', val)
 
                 values.append(val)
                 rows.append(u_index)
@@ -292,11 +277,6 @@ def calc_k(edges, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts):
                 alphas = np.array([alpha[cid][u_index, v_index] for cid in pos_cascades])
                 betas = np.array([beta[cid][u_index, v_index] for cid in pos_cascades])
                 val = np.sum(alphas + np.multiply(1 - alphas, betas)) / (len(pos_cascades) + neg_count)
-                # if str(v) == '5d89a9e886887712d4d9e2e4':
-                #     logger.debug('neg_count = %s', neg_count)
-                #     logger.debug('alphas = %s', alphas)
-                #     logger.debug('betas = %s', betas)
-                #     logger.debug('val = %s', val)
                 values.append(float(val))
                 rows.append(u_index)
                 cols.append(v_index)
@@ -334,7 +314,7 @@ class CTIC(IC):
         logger.info('user space size = %d', len(user_map))
 
         logger.info('extracting positive and negative examples ...')
-        edge_pos_cascades, edge_neg_counts = self.__get_pos_neg_examples(sequences, graph)
+        edge_pos_cascades, edge_neg_counts = self.__get_pos_neg_examples(sequences, graph, multi_processed)
 
         # Set initial values of k and r.
         k, r = self.__set_initial_values(graph, user_ids, user_map)
@@ -408,7 +388,7 @@ class CTIC(IC):
         c_count = len(cascade_ids)
 
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, c_count)
+            process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
             results = []
@@ -436,7 +416,7 @@ class CTIC(IC):
         c_count = len(cascade_ids)
 
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, c_count)
+            process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
             results = []
@@ -464,7 +444,7 @@ class CTIC(IC):
         c_count = len(cascade_ids)
 
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, c_count)
+            process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
             results = []
@@ -492,7 +472,7 @@ class CTIC(IC):
         c_count = len(cascade_ids)
 
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, c_count)
+            process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
             results = []
@@ -521,25 +501,24 @@ class CTIC(IC):
         e_count = len(edges)
         u_count = len(user_map)
 
-        if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, e_count)
-            pool = Pool(processes=process_count)
-            step = int(math.ceil(e_count / process_count))
-            results = []
-            for j in range(0, e_count, step):
-                edges_j = edges[j: j + step]
-                res = pool.apply_async(calc_r, (edges_j, alpha, beta, user_map, sequences, edge_pos_cascades))
-                results.append(res)
+        multi_processed = False  # TODO: Remove it!
 
-            pool.close()
-            pool.join()
+        if multi_processed:
+
+            step = e_count // settings.TRAIN_WORKERS
+            step = max(10, min(10000, step))
+            logger.info('creating %d jobs to calculate r ...', math.ceil(e_count / step))
+
+            with ProcessPoolExecutor(max_workers=settings.TRAIN_WORKERS) as executor:
+                edge_lists = [edges[j: j + step] for j in range(0, e_count, step)]
+                results = executor.map(calc_r, edge_lists, repeat(alpha), repeat(beta), repeat(user_map),
+                                       repeat(sequences), repeat(edge_pos_cascades))
 
             # Collect results of the processes.
             values = []
             rows = []
             cols = []
-            for res in results:
-                val_subset, row_subset, col_subset = res.get()
+            for val_subset, row_subset, col_subset in results:
                 values.extend(val_subset)
                 rows.extend(row_subset)
                 cols.extend(col_subset)
@@ -555,8 +534,10 @@ class CTIC(IC):
         e_count = len(edges)
         u_count = len(user_map)
 
+        multi_processed = False  # TODO: Remove it!
+
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, e_count)
+            process_count = min(settings.TRAIN_WORKERS, e_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(e_count / process_count))
             results = []
@@ -583,7 +564,7 @@ class CTIC(IC):
         k = sparse.csc_matrix((values, [rows, cols]), shape=(u_count, u_count), dtype=np.float64)
         return k
 
-    def __get_pos_neg_examples(self, sequences, graph):
+    def __get_pos_neg_examples(self, sequences, graph, multi_processed):
         """
         :param sequences:
         :param graph:
@@ -591,10 +572,33 @@ class CTIC(IC):
                 edge_pos_cascades : dictionary of edge (u,v) to the cascade ids of positive examples of the edge.
                 edge_neg_counts : dictionary of edge (u,v) to the number of negative examples of the edge.
         """
-        edge_pos_cascades = {(u, v): [cid for cid, seq in sequences.items() if
-                                      v in seq.user_times and u in seq.user_times and seq.user_times[u] <=
-                                      seq.user_times[v]] for (u, v) in graph.edges()}
-        edge_neg_counts = {
-            (u, v): sum(1 for cid, seq in sequences.items() if v not in seq.user_times and u in seq.user_times) for
-            (u, v) in graph.edges()}
+
+        if multi_processed:
+            e_count = graph.number_of_edges()
+            step = e_count // settings.TRAIN_WORKERS
+            step = max(10, min(10000, step))
+
+            with ProcessPoolExecutor(max_workers=settings.TRAIN_WORKERS) as executor:
+                edges = list(graph.edges())
+                edge_lists = [edges[j: j + step] for j in range(0, e_count, step)]
+                del edges
+                results = executor.map(get_pos_neg_examples, edge_lists, repeat(sequences))
+
+            edge_pos_cascades, edge_neg_counts = {}, {}
+            for pos_res, neg_res in results:
+                edge_pos_cascades.update(pos_res)
+                edge_neg_counts.update(neg_res)
+        else:
+            edge_pos_cascades, edge_neg_counts = get_pos_neg_examples(graph.edges(), sequences)
+
         return edge_pos_cascades, edge_neg_counts
+
+
+def get_pos_neg_examples(edges_list, sequences):
+    edge_pos_cascades = {(u, v): [cid for cid, seq in sequences.items() if
+                                  v in seq.user_times and u in seq.user_times and seq.user_times[u] <=
+                                  seq.user_times[v]] for (u, v) in edges_list}
+    edge_neg_counts = {
+        (u, v): sum(1 for cid, seq in sequences.items() if v not in seq.user_times and u in seq.user_times) for
+        (u, v) in edges_list}
+    return edge_pos_cascades, edge_neg_counts

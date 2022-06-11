@@ -461,6 +461,11 @@ class LongParentTDMEMM(TDMEMM):
 
 
 class CRF(SeqLabelModel):
+    def __init__(self, model_filename=None):
+        super().__init__()
+        self.model_filename = model_filename
+        self.crf = None
+
     def _train(self, sequences, iterations, all_states=None, **kwargs):
         alg = kwargs.get('algorithm', 'lbfgs')
         params = {
@@ -471,20 +476,21 @@ class CRF(SeqLabelModel):
             'arow': ['variance', 'gamma'],
         }
         crf_params = {param: kwargs[param] for param in params[alg] if param in kwargs}
-        crf = sklearn_crfsuite.CRF(algorithm=alg, max_iterations=iterations, **crf_params)
+        crf = sklearn_crfsuite.CRF(algorithm=alg, max_iterations=iterations, model_filename=self.model_filename,
+                                   keep_tempfiles=True, **crf_params)
 
         features = [self._obs_feat_sequence([obs for obs, state in seq]) for seq in sequences]
         states = [[self.__state_to_str(0)] + [self.__state_to_str(state) for obs, state in seq] for seq in sequences]
         logger.debugv('sequences = \n%s', pprint.pformat(sequences))
         logger.debugv('features = \n%s', pprint.pformat(features))
         logger.debugv('states = \n%s', pprint.pformat(states))
-        # logger.debugv('features & states = \n%s', pprint.pformat([list(zip(f, s)) for f, s in zip(features, states)]))
 
         crf.fit(features, states)
         del crf.training_log_
-        logger.debugv('attributes_:\n%s', crf.attributes_)
-        logger.debugv('state_features_:\n%s', pprint.pformat(crf.state_features_))
-        logger.debugv('transition_features_:\n%s', pprint.pformat(crf.transition_features_))
+
+        # logger.debugv('attributes_:\n%s', crf.attributes_)
+        # logger.debugv('state_features_:\n%s', pprint.pformat(crf.state_features_))
+        # logger.debugv('transition_features_:\n%s', pprint.pformat(crf.transition_features_))
 
         self.crf = crf
 
@@ -533,6 +539,12 @@ class CRF(SeqLabelModel):
         logger.debugv('probs_list = \n%s', probs_list)
         return probs_list
 
+    def set_params(self, orig_indexes, model_filename):
+        self.orig_indexes = orig_indexes
+        self.orig_indexes_map = {self.orig_indexes[i]: i for i in range(len(self.orig_indexes))}
+        self.model_filename = model_filename
+        self.crf = None
+
 
 class BinCRF(CRF):
     def _obs_feature(self, obs_seq):
@@ -544,8 +556,8 @@ class BinCRF(CRF):
 
 
 class TDCRF(CRF):
-    def __init__(self, td_param=0.5):
-        super().__init__()
+    def __init__(self, td_param=0.5, model_filename=None):
+        super().__init__(model_filename)
         self.td_param = td_param
 
     def _obs_feature(self, obs_seq):

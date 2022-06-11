@@ -13,7 +13,7 @@ class MEMMModel(SeqLabelDifModel, abc.ABC):
         return SeqLabelDBManager(project, cls.method)
 
     @classmethod
-    def train_model(cls, evidence, iterations, states, **kwargs):
+    def train_model(cls, evidence, iterations, states, node_id, project, eco=False, **kwargs):
         memm = cls.get_memm_instance(**kwargs)
         memm.fit(evidence, iterations, states)
         return memm

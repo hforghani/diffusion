@@ -129,7 +129,7 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
 
             count += 1
 
-        # logger.debug('sizes in MB:')
+        # logger.debug('sizes in test_cascades (MB):')
         # for key, value in locals().items():
         #     logger.debug(f'{key:<30}{asizeof(value) / (1024 ** 2)}')
 

@@ -54,8 +54,9 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             logger.info('extracting sequences from %d cascades ...', len(train_trees))
 
             if multi_processed:
-                trees_parts = self.__split_trees(train_trees)
-                with ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
+                step = 3
+                trees_parts = [train_trees[i:i + step] for i in range(0, len(train_trees), step)]
+                with ProcessPoolExecutor(max_workers=settings.EVID_WORKERS) as executor:
                     results = list(executor.map(extract_evidences, repeat(type(self)), repeat(graph), trees_parts))
                 logger.debug('len(results) = %d', len(results))
 
@@ -88,27 +89,6 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
 
         return evidences
 
-    def __split_trees(self, trees):
-        size_thr = 5000
-        parts = []
-        sizes = []
-        cur_part = []
-        cur_part_size = 0
-        for tree in trees:
-            cur_part.append(tree)
-            cur_part_size += tree.size()
-            if cur_part_size >= size_thr:
-                parts.append(cur_part)
-                sizes.append(cur_part_size)
-                cur_part = []
-                cur_part_size = 0
-        if cur_part:
-            parts.append(cur_part)
-            sizes.append(cur_part_size)
-        logger.debug('part sizes : %s', sizes)
-        logger.debug('part lengths : %s', [len(part) for part in parts])
-        return parts
-
     def _get_inactives(self, evidences):
         """
         Get totally inactive users which means they have no state 1.
@@ -126,55 +106,58 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         return user_ids
 
     @classmethod
-    def _train_models(cls, evidences, iterations, graph, **kwargs):
-        logger.debug('kwargs = %s', kwargs)
+    def train_models(cls, evidences, iterations, node_id_to_states, project, eco=False, **kwargs):
+        logger.debugv('kwargs = %s', kwargs)
         models = {}
         count = 0
 
-        for key, ev in evidences.items():
+        for node_id, ev in evidences.items():
             count += 1
-            logger.debug('training seq labeling model %d (user id: %s, dimensions: %d) ...', count, key,
+            logger.debug('training seq labeling model %d (user id: %s, dimensions: %d) ...', count, node_id,
                          ev[0][0][0].size)
-            states = cls.get_states(key, graph)
-            model = cls.train_model(ev, iterations, states, **kwargs)
-            models[key] = model
-
-            if count % 100 == 0:
+            states = node_id_to_states[node_id]
+            model = cls.train_model(ev, iterations, states, node_id, project, eco, **kwargs)
+            models[node_id] = model
+            if count % 500 == 0:
                 logger.info('%d models trained', count)
+
+        logger.info('%d models trained', len(evidences))
         return models
 
-    def _fit_multiproc(self, evidences, iterations, graph, **kwargs):
+    def _fit_multiproc(self, evidences, iterations, graph, project, eco=False, **kwargs):
         """
         Train the seq labeling models using evidences given in multiprocessing mode.
-        Side effect: Clears the evidences' dictionary.
         """
         node_ids = list(evidences.keys())
         random.shuffle(node_ids)
 
-        futures = {}
-        with ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
-            for node_id in node_ids:
-                states = self.get_states(node_id, graph)
-                evid = evidences.pop(node_id)
-                futures[node_id] = executor.submit(train_model, type(self), evid, iterations, states, **kwargs)
+        futures = []
+        step = 1000
+        with ProcessPoolExecutor(max_workers=settings.TRAIN_WORKERS) as executor:
+            for i in range(0, len(node_ids), step):
+                evidences_i = {nid: evidences[nid] for nid in node_ids[i:i + step]}
+                node_id_to_states = {nid: self.get_states(nid, graph) for nid in node_ids[i:i + step]}
+                f = executor.submit(train_models, type(self), evidences_i, iterations, node_id_to_states, project, eco,
+                                    **kwargs)
+                futures.append(f)
         del evidences
 
         logger.debug('assembling learned seq labeling models of processes ...')
         models = {}
-        for node_id in node_ids:
-            models[node_id] = futures.pop(node_id).result()
+        for f in futures:
+            models.update(f.result())
         logger.debug('assembling done')
 
         return models
 
     @classmethod
     @abc.abstractmethod
-    def train_model(cls, evidence, iterations, states, **kwargs):
+    def train_model(cls, evidence, iterations, states, node_id, project, eco=False, **kwargs):
         pass
 
     def _fit_by_evidences(self, train_trees, project, graph, iterations=None, multi_processed=False, eco=False,
                           **kwargs):
-        logger.debug('kwargs = %s', kwargs)
+        logger.debugv('kwargs = %s', kwargs)
         evidences = self.prepare_evidences(train_trees, project, graph, multi_processed, eco)
         # if settings.LOG_LEVEL <= logging.DEBUG:
         #     self.log_evidences(evidences)
@@ -185,9 +168,9 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         logger.info('training %d seq labeling models ...', len(evidences))
 
         if multi_processed:
-            models = self._fit_multiproc(evidences, max_iteration, graph, **kwargs)
+            models = self._fit_multiproc(evidences, max_iteration, graph, project, eco, **kwargs)
         else:
-            models = self._train_models(evidences, max_iteration, graph, **kwargs)
+            models = self.train_models(evidences, max_iteration, graph, project, eco, **kwargs)
 
         if eco and manager is not None:
             logger.info('inserting seq labeling models into db ...')
@@ -286,10 +269,9 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         return [False, True]
 
 
-def train_model(cls, evidence, iterations, states, **kwargs):
+def train_models(cls, evidences, iterations, states, project, eco=False, **kwargs):
     try:
-        # return cls.train_models(evidences, iterations, states, save_in_db, project, **kwargs)
-        return cls.train_model(evidence, iterations, states, **kwargs)
+        return cls.train_models(evidences, iterations, states, project, eco, **kwargs)
     except:
         logger.error(traceback.format_exc())
         raise
@@ -410,7 +392,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
             for child_id in all_children:
 
                 # if child_id not in active_ids:
-                model = self._models.get(child_id)
+                model = self._get_model(child_id)
 
                 if model is not None:
                     logger.debugv('testing reshare to %s ...', child_id)
@@ -498,7 +480,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
             for child_id in all_children:
 
                 # with timers[0]:
-                model = self._models.get(child_id)
+                model = self._get_model(child_id)
 
                 if model is not None:
                     logger.debugv('testing reshare to %s ...', child_id)
@@ -614,7 +596,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                 children = children_dic.pop(node.user_id, [])  # to free RAM
                 for child_id in children:
                     # logger.debugv('child %s ...', child_id)
-                    model = self._models.get(child_id)
+                    model = self._get_model(child_id)
                     if model is not None:
                         # Update the observation of this child.
                         parents = parents_dic[child_id]
@@ -631,6 +613,9 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
 
     def _get_evid_manager(self, project):
         return EvidenceManager(project)
+
+    def _get_model(self, node_id):
+        return self._models.get(node_id)
 
 
 class Prediction:

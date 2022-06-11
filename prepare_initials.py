@@ -1,4 +1,5 @@
 import argparse
+from functools import reduce
 
 from cascade.models import Project
 from cascade.testers import DefaultTester
@@ -14,10 +15,15 @@ def main():
     project = Project(args.project)
     logger.info('extracting training graph and act sequences if not exist ...')
     project.load_or_extract_graph_seq()
-    folds = DefaultTester(project, None).get_cross_val_folds(3)
-    logger.info('extracting graphs of 3 folds if not exist ...')
-    for fold in folds:
-        project.load_or_extract_graph(fold)
+    folds_num = 3
+    folds = DefaultTester(project, None).get_cross_val_folds(folds_num)
+    logger.info('extracting graphs of %d folds if not exist ...', folds_num)
+
+    for i in range(folds_num):
+        logger.info('extracting graph missing fold %d ...', i + 1)
+        train_set = reduce(lambda x, y: x + y, folds[:i] + folds[i + 1:], [])
+        project.load_or_extract_graph(train_set)
+
     logger.info('extracting trees if not exist ...')
     project.load_trees()
     logger.info('done')

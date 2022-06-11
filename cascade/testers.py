@@ -1,14 +1,16 @@
 import math
 import os
+import typing
 from concurrent.futures import ProcessPoolExecutor
-from multiprocessing import Pool
 
+import scipy
 from bson import ObjectId
 from matplotlib import pyplot
 from networkx import DiGraph
 from sklearn.metrics import make_scorer
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
+import settings
 from cascade.asynchroizables import test_cascades, evaluate_nodes, evaluate_edges
 from cascade.metric import Metric
 from cascade.models import Project
@@ -69,10 +71,11 @@ def trees_f1_scorer(true_trees, pred_trees, initial_depth, max_depth, graph, cri
 
 
 class ProjectTester(abc.ABC):
+    multi_processed = None  # Must be overriden in subclasses.
+
     def __init__(self, project: Project, method: Method, criterion: Criterion = Criterion.NODES, eco: bool = False):
         self.project = project
         self.method = method
-        self.model = None
         self.criterion = criterion
         self.eco = eco
 
@@ -96,10 +99,10 @@ class ProjectTester(abc.ABC):
             logger.info('params = %s', kwargs)
 
         logger.info('{0} TRAINING {0}'.format('=' * 20))
-        self.model = self.train(train_set, eco=self.eco, **best_params)
+        model = self.train(train_set, eco=self.eco, **best_params)
         logger.info('{0} TEST {0}'.format('=' * 20))
         graph = self.project.load_or_extract_graph(train_set)
-        mean_res, res_eval, res_trees = self.test(test_set, self.model, graph, initial_depth, max_depth, **best_params)
+        mean_res, res_eval, res_trees = self.test(test_set, model, graph, initial_depth, max_depth, **best_params)
         logger.debug('type(mean_res) = %s', type(mean_res))
         return mean_res, res_eval, res_trees
 
@@ -180,11 +183,12 @@ class ProjectTester(abc.ABC):
         for i in range(folds_num):
             val_set = folds[i]
             train_set = reduce(lambda x, y: x + y, folds[:i] + folds[i + 1:], [])
-            logger.info('{0} TRAINING on fold {1} {0}'.format('=' * 20, i + 1))
+            logger.info('{0} TRAINING with fold {1} left {0}'.format('=' * 20, i + 1))
             model = self.train(train_set, eco=False, threshold=threshold, **params)
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
             graph = self.project.load_or_extract_graph(train_set)
             fold_res, _, _ = self.test(val_set, model, graph, initial_depth, max_depth, threshold=threshold, **params)
+            del model
             for thr in threshold:
                 results.setdefault(thr, [])
                 results[thr].append(fold_res[thr].f1)
@@ -209,15 +213,19 @@ class ProjectTester(abc.ABC):
 
         # search
         folds_num = 3
-        n_jobs = settings.PROCESS_COUNT if self.multi_processed else 1
-        gs = GridSearchCV(model, tunables, cv=folds_num, verbose=1, n_jobs=n_jobs, scoring=f1_scorer)
+        n_jobs = settings.RSCV_WORKERS if self.multi_processed else 1
+        # scv = GridSearchCV(model, tunables, cv=folds_num, verbose=2, n_jobs=n_jobs, scoring=f1_scorer, refit=False)
+        distributions = {param: scipy.stats.uniform(loc=values[0], scale=values[-1] - values[0]) for param, values in
+                         tunables.items()}
+        scv = RandomizedSearchCV(model, distributions, cv=folds_num, n_iter=10, verbose=3, n_jobs=n_jobs, refit=False,
+                                 scoring=f1_scorer)
 
         train_set, test_set = self.project.load_sets()
         trees = self.project.load_trees()
-        # TODO: Is is necessary to apply initial_depth and max_depth to trees?
+        # TODO: Is it necessary to apply initial_depth and max_depth to trees?
         train_trees = [trees[cid] for cid in train_set]
-        gs.fit(train_set, train_trees, project=self.project)
-        best_params = gs.best_params_.copy()
+        scv.fit(train_set, train_trees, project=self.project)
+        best_params = scv.best_params_.copy()
         best_params.update(nontunables)
 
         return best_params
@@ -334,42 +342,29 @@ class ProjectTester(abc.ABC):
         pyplot.savefig(filename)
         # pyplot.show()
 
-    @abc.abstractmethod
-    def _get_validate_n_jobs(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def multi_processed(self):
-        pass
-
 
 class DefaultTester(ProjectTester):
+    multi_processed = False
+
     def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params):
         return test_cascades(test_set, self.method, model, initial_depth, max_depth, self.criterion, trees,
                              graph, **params)
 
-    def _get_validate_n_jobs(self):
-        return None
-
-    @property
-    def multi_processed(self):
-        return False
-
 
 class MultiProcTester(ProjectTester):
+    multi_processed = True
+
     def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params):
         """
         Create a process pool to distribute the prediction.
         Side effect: Will clear the dictionary "tree" to free RAM.
         """
-        step = 1
+        step = 3
         futures = []
-        with ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
-        # with ProcessPoolExecutor(max_workers=4) as executor:
+        with ProcessPoolExecutor(max_workers=settings.TEST_WORKERS) as executor:
             for i in range(0, len(test_set), step):
                 cascades_i = test_set[i:i + step]
-                trees_i = {cid: trees.pop(cid) for cid in cascades_i}
+                trees_i = {cid: trees[cid] for cid in cascades_i}
                 f = executor.submit(test_cascades, cascades_i, self.method, model, initial_depth, max_depth,
                                     self.criterion, trees_i, graph, **params)
                 futures.append(f)
@@ -385,13 +380,3 @@ class MultiProcTester(ProjectTester):
             merged_res_eval = reduce(lambda x, y: {key: x.get(key, []) + y[key] for key in y}, result_eval, {})
             merged_res_trees = None  # Result trees are not returned on validation stage.
         return merged_res_eval, merged_res_trees
-
-        # return test_cascades(test_set, self.method, model, initial_depth, max_depth, self.criterion, trees,
-        #                      graph, **params)
-
-    def _get_validate_n_jobs(self):
-        return settings.PROCESS_COUNT
-
-    @property
-    def multi_processed(self):
-        return True

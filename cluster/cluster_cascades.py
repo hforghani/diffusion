@@ -1,8 +1,9 @@
 import logging
 import math
-import pprint
 import sys
-from multiprocessing import Pool
+import typing
+from concurrent.futures import ProcessPoolExecutor
+from functools import reduce
 from typing import Dict, List, Set
 import argparse
 import json
@@ -10,6 +11,7 @@ import os
 from bson import ObjectId
 from scipy import sparse
 from sklearn.cluster import SpectralClustering, DBSCAN
+from sklearn.decomposition import PCA, SparsePCA
 from sklearn.preprocessing import normalize
 import numpy as np
 from matplotlib import pyplot as plt
@@ -33,8 +35,7 @@ def get_users(cascade_id: str, db_name) -> Set[str]:
 
 
 def calc_jaccards(index_pairs, users, cascade_ids):
-    logger.debug('calculating %d jaccard coefficients', len(index_pairs))
-    logger.debug('len(users) = %d', len(users))
+    logger.debug('calculating %d jaccard coefficients ...', len(index_pairs))
     jaccards = {}
     for i, j in index_pairs:
         inter = len(users[cascade_ids[i]] & users[cascade_ids[j]])
@@ -49,38 +50,30 @@ def calc_jaccards(index_pairs, users, cascade_ids):
 
 def get_jaccard_mat_mp(cascades: List[str], users: Dict[str, set]):
     count = len(cascades)
-    results = []
-    process_count = settings.PROCESS_COUNT
-    n = int(math.floor((math.sqrt(1 + 8 * process_count) - 1) / 2))
-    process_count = min(process_count, int(n * (n + 1) / 2))
-    pool = Pool(processes=process_count)
-    logger.debug('n = %d', n)
-    step = int(math.ceil(count / n))
-    logger.debug('step = %d', step)
 
-    for i in range(0, count, step):
-        for j in range(i, count, step):
-            logger.debug('starting process for index %d to %d with index %d to %d', i, min(i + step, count), j,
-                         min(j + step, count))
-            cur_pairs = [(r, c) for r in range(i, min(i + step, count)) for c in range(j, min(j + step, count)) if
-                         r < c]
-            cur_cascades = {cascades[r] for r in range(i, min(i + step, count))}
-            cur_cascades.update(cascades[c] for c in range(j, min(j + step, count)))
-            cur_users = {cid: users[cid] for cid in cur_cascades}
-            res = pool.apply_async(calc_jaccards, (cur_pairs, cur_users, cascades))
-            results.append(res)
+    futures = []
+    step = 500
+    n = math.ceil(len(cascades) / step)
+    logger.info('creating %d jobs to calculate jaccards ...', n * (n + 1) / 2)
 
-        for k in range(i, min(i + step, count)):
-            del users[cascades[k]]  # to free RAM
+    with ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
+        for i in range(0, count, step):
+            for j in range(i, count, step):
+                cur_pairs = [(r, c) for r in range(i, min(i + step, count)) for c in range(j, min(j + step, count)) if
+                             r < c]
+                cur_cascades = {cascades[r] for r in range(i, min(i + step, count))}
+                cur_cascades.update(cascades[c] for c in range(j, min(j + step, count)))
+                cur_users = {cid: users[cid] for cid in cur_cascades}
+                f = executor.submit(calc_jaccards, cur_pairs, cur_users, cascades)
+                futures.append(f)
 
-    pool.close()
-    pool.join()
+            for k in range(i, min(i + step, count)):
+                del users[cascades[k]]  # to free RAM
 
-    logger.info('merging the values into matrix ...')
     # mat = np.zeros((count, count))
     mat = sparse.lil_matrix((count, count), dtype=np.float32)
-    for res in results:
-        jaccard_values = res.get()
+    for f in futures:
+        jaccard_values = f.result()
         for i, j in jaccard_values:
             mat[i, j] = jaccard_values[(i, j)]
 
@@ -219,6 +212,24 @@ def calc_error(mat, clusters):
     return error
 
 
+def create_cascade_features(cascades: typing.List[str], users: typing.Dict[str, set]):
+    logger.info('creating cascade feature vectors ...')
+    all_users = list(reduce(lambda x, y: x | y, users.values(), set()))
+    uid_to_index = {all_users[i]: i for i in range(len(all_users))}
+    mat = sparse.csr_matrix((len(cascades), len(all_users)))
+
+    for i in range(len(cascades)):
+        cid = cascades[i]
+        u_indexes = [uid_to_index[u] for u in users[cid]]
+        mat[i, u_indexes] = 1
+
+    if len(all_users) > 100:
+        logger.info('decreasing dimensions ...')
+        pca = SparsePCA(n_components=100)
+        mat = pca.fit_transform(mat)
+    return mat
+
+
 def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_name):
     base_file_name = os.path.join(BASE_PATH, 'data', 'clusters',
                                   f'{db_name}-{min_size}to{max_size}-{depth}')
@@ -251,11 +262,11 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
         count = len(cascades)
         logger.info('%d cascades found', count)
 
-        # Extract user sets of top cascades
+        # Extract user sets of the cascades
         users = load_or_extract_users(cascades, db_name)
 
         # Calculate the Jaccard matrix.
-        if 100 < count < 15000:
+        if count > 100:
             logger.info('creating the similarity matrix using multiple processes ...')
             mat = get_jaccard_mat_mp(cascades, users)
         else:
@@ -264,15 +275,12 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
 
         # Normalize the matrix.
         logger.info('normalizing the matrix ...')
-        # mat = np.reshape(mat - np.eye(count), (1, mat.size))
-        # mat = normalize(mat, norm='max')
-        # mat = np.reshape(mat, (count, count))
-        # mat += np.eye(count)
-
         mat = mat.reshape((1, count ** 2))
         mat = normalize(mat, norm='max')
         mat = mat.reshape((count, count))
         mat += sparse.eye(count, count, format='csr')
+
+        # mat = create_cascade_features(cascades, users)
 
         with open(cascades_file_name, 'w') as f:
             json.dump(cascades, f)
@@ -281,7 +289,15 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
+
     labels = cluster_mat(mat, clust_num, method)
+    affinity = mat
+
+    # clustering = SpectralClustering(n_clusters=clust_num,
+    #                                 assign_labels="discretize",
+    #                                 random_state=0).fit(mat)
+    # labels = clustering.labels_
+    # affinity = clustering.affinity_matrix_
 
     # Create the ordered indexes of cascades.
     ordered_ind = np.array([], dtype=np.int64)
@@ -299,7 +315,7 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
         indexes = indexes.astype(np.int64)
         clusters[val] = [cascades[i] for i in indexes]
         ordered_ind = np.concatenate((ordered_ind, indexes))
-        mean = np.mean(mat[indexes, :][:, indexes])
+        mean = np.mean(affinity[indexes, :][:, indexes])
         # logger.debug('mat[indexes, indexes] = %s', mat[indexes, :][:, indexes])
         logger.info('cluster %d with %d cascades and mean Jaccard value of %f', val, indexes.size, mean)
 
@@ -307,7 +323,7 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
     with open(file_name + '.json', 'w') as f:
         json.dump({str(key): clust for key, clust in clusters.items()}, f, indent=4)
 
-    new_mat = mat[:, ordered_ind]
+    new_mat = affinity[:, ordered_ind]
     new_mat = new_mat[ordered_ind, :]
 
     # Calculate the clustering error.

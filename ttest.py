@@ -29,7 +29,7 @@ def multiple_run(methods1: list, methods2: list, project_name: str, eco: bool,
                  criterion: Criterion) -> dict:
     methods = methods1 + methods2
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
         exec_res = executor.map(run_method, methods, repeat(project_name), repeat(eco), repeat(criterion))
     results = {}  # dict of methods to lists of f1 values.
     mean_results = {}  # dict of methods to mean f1 values.

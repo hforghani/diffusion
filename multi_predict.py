@@ -41,7 +41,7 @@ def multiple_run(methods: list, depth_settings: list, project_name: str, eco: bo
     logger.debug('init_depths = %s', init_depths)
     logger.debug('max_depths = %s', max_depths)
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=settings.PROCESS_COUNT) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=settings.TEST_WORKERS) as executor:
         f1_values = list(executor.map(run, comb_methods, init_depths, max_depths, repeat(project), repeat(eco),
                                       repeat(criterion)))
 

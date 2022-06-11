@@ -7,7 +7,6 @@ from anytree import Node, RenderTree
 from bson.objectid import ObjectId
 from networkx import DiGraph, read_adjlist, relabel_nodes, write_adjlist
 import numpy as np
-from pymongo.errors import CursorNotFound
 
 import settings
 from db.managers import DBManager

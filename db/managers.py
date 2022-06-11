@@ -196,9 +196,23 @@ class SeqLabelDBManager:
 
 class CRFManager(SeqLabelDBManager):
     def _get_doc(self, crf):
-        return pickle.dumps(crf)
+        return {
+            'orig_indexes': crf.orig_indexes,
+            'model_filename': crf.model_filename
+        }
 
     def _doc_to_model(self, doc):
-        data = doc.read()
-        crf = pickle.loads(data)
+        data = eval(doc.read())
+        crf = self._get_model_instance()
+        crf.set_params(data['orig_indexes'], data['model_filename'])
         return crf
+
+    def _get_model_instance(self):
+        if self.method in [Method.LONG_CRF, Method.MULTI_STATE_LONG_CRF]:
+            return CRF()
+        elif self.method in [Method.BIN_CRF, Method.MULTI_STATE_BIN_CRF]:
+            return BinCRF()
+        elif self.method in [Method.TD_CRF, Method.MULTI_STATE_TD_CRF]:
+            return TDCRF()
+        else:
+            raise ValueError(f"Invalid method {self.method.value} for CRF manager")

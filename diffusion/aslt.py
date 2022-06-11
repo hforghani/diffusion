@@ -507,7 +507,7 @@ class AsLT(LT):
         c_count = len(cascade_ids)
 
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, c_count)
+            process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
             results = []
@@ -544,7 +544,7 @@ class AsLT(LT):
         c_count = len(cascade_ids)
 
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, c_count)
+            process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
             results = []
@@ -578,7 +578,7 @@ class AsLT(LT):
         c_count = len(cascade_ids)
 
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, c_count)
+            process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
             results = []
@@ -610,7 +610,7 @@ class AsLT(LT):
         c_count = len(cascade_ids)
 
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, c_count)
+            process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
             results = []
@@ -643,7 +643,7 @@ class AsLT(LT):
         c_count = len(cascade_ids)
 
         if multi_processed:
-            process_count = min(settings.PROCESS_COUNT, c_count)
+            process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
             results = []
@@ -688,7 +688,7 @@ class AsLT(LT):
 
         if multi_processed:
             logger.debug('\tcreating processes to calculate values ...')
-            process_count = min(settings.PROCESS_COUNT, u_count)
+            process_count = min(settings.TRAIN_WORKERS, u_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(u_count / process_count))
             results = []
