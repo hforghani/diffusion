@@ -9,6 +9,8 @@ from itertools import repeat
 
 import numpy as np
 import psutil
+from networkx import DiGraph
+from pympler.asizeof import asizeof
 
 import settings
 from db.exceptions import DataDoesNotExist
@@ -32,7 +34,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         self._models = {}
 
     @time_measure(level='debug')
-    def prepare_evidences(self, train_trees, project, graph, multi_processed=False, eco=False):
+    def prepare_evidences(self, train_set, train_trees, project, graph, multi_processed=False, eco=False):
         """
         Prepare the sequence of observations and states to train the sequence labeling models.
         :return: a dictionary which its values are the lists of sequences and the keys are user id's.
@@ -41,11 +43,12 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
 
         must_extract = True
         evidences = {}
-        if eco:
+        save_in_db_thr = 200
+        if len(train_set) > save_in_db_thr:
             evid_manager = self._get_evid_manager(project)
             try:
                 logger.info('loading evidences ...')
-                evidences = evid_manager.get_many()
+                evidences = evid_manager.get_many(train_set)
                 must_extract = False
             except DataDoesNotExist:
                 logger.info('no evidences found!')
@@ -82,9 +85,9 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             # if settings.LOG_LEVEL <= DEBUG_LEVELV_NUM:
             #     logger.debugv('evidences = \n%s', pprint.pformat(evidences))
 
-            if eco:
+            if len(train_set) > save_in_db_thr:
                 logger.info('inserting %d evidences into db and creating indexes ...', len(evidences))
-                evid_manager.insert(evidences)
+                evid_manager.insert(evidences, train_set)
                 evid_manager.create_index()
 
         return evidences
@@ -155,10 +158,10 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
     def train_model(cls, evidence, iterations, states, node_id, project, eco=False, **kwargs):
         pass
 
-    def _fit_by_evidences(self, train_trees, project, graph, iterations=None, multi_processed=False, eco=False,
-                          **kwargs):
+    def _fit_by_evidences(self, train_set, train_trees, project, graph, iterations=None, multi_processed=False,
+                          eco=False, **kwargs):
         logger.debugv('kwargs = %s', kwargs)
-        evidences = self.prepare_evidences(train_trees, project, graph, multi_processed, eco)
+        evidences = self.prepare_evidences(train_set, train_trees, project, graph, multi_processed, eco)
         # if settings.LOG_LEVEL <= logging.DEBUG:
         #     self.log_evidences(evidences)
 
@@ -211,8 +214,8 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         else:
             if eco and manager is not None and not manager.db_exists():
                 logger.info('Seq labeling models do not exist in db.')
-            self._models = self._fit_by_evidences(train_trees, project, graph, iterations, multi_processed, eco,
-                                                  **kwargs)
+            self._models = self._fit_by_evidences(train_set, train_trees, project, graph, iterations, multi_processed,
+                                                  eco, **kwargs)
 
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
         return self
@@ -430,6 +433,8 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
             cur_step = next_step
             step_num += 1
 
+        # logger.debug('size of tree: %d', asizeof(tree))
+        # logger.debug('size of list: %d', asizeof(tree.edges()))
         return tree
 
     def predict_one_sample(self, initial_tree, threshold, graph, max_step=None):

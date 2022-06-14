@@ -38,6 +38,7 @@ class DiffusionModel(BaseEstimator, abc.ABC):
 
         for cid in test_set:
             initial_tree = trees[cid].copy(self.initial_depth)
+            logger.info('running prediction on cascade <%s>', cid)
             res = self.predict_one_sample(initial_tree, self.threshold, self.graph, self.max_step)
             results.append(res)
 

@@ -16,80 +16,88 @@ class DBManager:
         self.db = self.client[db_name]
 
 
-class EvidenceManager:
+class EvidenceManager(DBManager):
     def __init__(self, project):
         self.project = project
-        mongo_client = pymongo.MongoClient(MONGO_URL)
         db_name = self.get_db_name(project)
-        self.db = mongo_client[db_name]
+        super().__init__(db_name)
+        self.train_sets_col = self.client['train_sets'][f'{project.db}_{project.name}']
 
     def get_db_name(self, project):
         return f'{project.db}_evid_{project.name}'
 
-    def get_one(self, user_id):
+    def get_one(self, user_id, train_set):
+        set_id = self.__get_train_set_id(train_set)
+        if set_id is None:
+            raise DataDoesNotExist('No evidences exist for training set given')
         if not isinstance(user_id, ObjectId):
             user_id = ObjectId(user_id)
         fs = gridfs.GridFS(self.db)
-        doc = fs.find_one({'user_id': user_id})
+        doc = fs.find_one({'set_id': set_id, 'user_id': user_id})
         if doc is None:
             raise ValueError(f'No evidence exists for user id {user_id}')
         return self._str_to_sequences(doc.read())
 
-    def __find_by_user_ids(self, user_ids):
+    def __find_by_set_id(self, set_id):
         fs = gridfs.GridFS(self.db)
+        return fs.find({'set_id': set_id}, no_cursor_timeout=True)
 
-        if user_ids:
-            documents = fs.find({'user_id': {'$in': user_ids}}, no_cursor_timeout=True)
-        else:
-            documents = fs.find(no_cursor_timeout=True)
+    def __get_train_set_id(self, train_set):
+        set_id = None
+        for doc in self.train_sets_col.find():
+            if set(doc['train_set']) == set(train_set):
+                set_id = doc['_id']
+        return set_id
 
-        return documents
-
-    def get_many(self, user_ids=None):
+    def get_many(self, train_set):
         """
         Return dictionary of user id's to the lists of the sequences. Each sequence is a list of (obs, state) tuples.
         :param user_ids:
         :return:
         """
-        documents = self.__find_by_user_ids(user_ids)
+        set_id = self.__get_train_set_id(train_set)
+        if set_id is None:
+            raise DataDoesNotExist('No evidences exist for training set given')
 
+        documents = self.__find_by_set_id(set_id)
         if documents.count():
             return {
                 doc.user_id: self._str_to_sequences(doc.read()) for doc in documents
             }
         else:
-            raise DataDoesNotExist(
-                f'No MEMM evidences exist on project {self.project.name}'
-                f'{" for user set given" if user_ids else ""}')
+            raise DataDoesNotExist(f'No evidences exist for training set given')
 
-    def get_many_generator(self, user_ids=None):
+    def get_many_generator(self, train_set):
         """
         Get the generator of (user_id, sequences) tuples which each "sequences" is a list of (obs, state) tuples.
         :param user_ids:
         :return:
         """
-        documents = self.__find_by_user_ids(user_ids)
+        set_id = self.__get_train_set_id(train_set)
+        if set_id is None:
+            raise DataDoesNotExist('No evidences exist for training set given')
 
+        documents = self.__find_by_set_id(set_id)
         if documents.count():
             for doc in documents:
                 yield doc['user_id'], self._str_to_sequences(doc.read())
         else:
-            raise DataDoesNotExist(
-                f'No MEMM evidences exist on project {self.project.name}'
-                f'{" for user set given" if user_ids else ""}')
+            raise DataDoesNotExist('No evidences exist for training set given')
 
-    def insert(self, evidences):
+    def insert(self, evidences, train_set):
         """
         :param evidences: dictionary of user id's to the sequences.
         :return:
         """
-        fs = gridfs.GridFS(self.db)
+        set_id = self.__get_train_set_id(train_set)
+        if set_id is None:
+            set_id = self.train_sets_col.insert_one({'train_set': train_set}).inserted_id
 
+        fs = gridfs.GridFS(self.db)
         logger.info('inserting %d evidence documents ...', len(evidences))
         i = 0
         for uid in evidences:
-            fs.put(bytes(self._sequences_to_str(evidences[uid]), encoding='utf8'),
-                   user_id=ObjectId(uid))
+            fs.put(bytes(self._sequences_to_str(evidences[uid]), encoding='utf8'), user_id=uid, set_id=set_id)
             i += 1
             if i % 10000 == 0:
                 logger.info('%d documents inserted', i)
@@ -102,15 +110,12 @@ class EvidenceManager:
 
     def create_index(self):
         """
-        Create index on 'user_id' key of the collection of evidences of the given project if it does not exist.
+        Create index on 'set_id' key of the collection if it does not exist.
         :return:
         """
         collection = self.db.get_collection('fs.files')
-        for _, value in collection.index_information().items():
-            if value['key'][0][0] == 'user_id':
-                break
-        else:
-            collection.create_index('user_id')
+        if len(collection.index_information()) < 2:
+            collection.create_index('set_id')
 
 
 class ParentSensEvidManager(EvidenceManager):

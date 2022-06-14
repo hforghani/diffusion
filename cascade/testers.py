@@ -79,9 +79,9 @@ class ProjectTester(abc.ABC):
         self.criterion = criterion
         self.eco = eco
 
-    def run(self, initial_depth: int, max_depth: int, **kwargs) -> tuple:
+    def run(self, initial_depth: int, max_depth: int, n_iter: int, **kwargs) -> tuple:
         """ Run cross-validation for the project """
-        tunables = {key: kwargs[key] for key in kwargs if isinstance(kwargs[key], list)}
+        tunables = {key: kwargs[key] for key in kwargs if isinstance(kwargs[key], tuple)}
         nontunables = {key: kwargs[key] for key in kwargs if key not in tunables}
         logger.debug('tunables = %s', tunables)
         logger.debug('nontunables = %s', nontunables)
@@ -90,9 +90,9 @@ class ProjectTester(abc.ABC):
         if tunables:
             if list(tunables.keys()) == ['threshold']:  # There is just one hyperparameter "threshold" to tune.
                 logger.info('{0} VALIDATION {0}'.format('=' * 20))
-                best_params = self._tune_threshold(initial_depth, max_depth, **kwargs)
+                best_params = self._tune_threshold(initial_depth, max_depth, n_iter, **kwargs)
             else:
-                best_params = self._tune_params(initial_depth, max_depth, tunables, nontunables)
+                best_params = self._tune_params(initial_depth, max_depth, tunables, nontunables, n_iter)
             logger.info('best_params = %s', best_params)
         else:
             best_params = kwargs
@@ -167,7 +167,7 @@ class ProjectTester(abc.ABC):
         return mean_res, res_eval, res_trees
 
     @time_measure(level='info')
-    def _tune_threshold(self, initial_depth, max_depth, threshold, **params):
+    def _tune_threshold(self, initial_depth, max_depth, n_iter, threshold, **params):
         """
         The tunable parameters are related to the test step (indeed they are hyperparameters and are not used
         in the training step).
@@ -177,6 +177,9 @@ class ProjectTester(abc.ABC):
         """
         folds_num = 3
         folds = self.get_cross_val_folds(folds_num)
+        if isinstance(threshold, tuple):
+            start, end = threshold
+            threshold = [round(val, 5) for val in np.arange(start, end, (end - start) / (n_iter - 1))]
         results = {}
 
         # for each fold, train on the others and test on that fold.
@@ -201,7 +204,7 @@ class ProjectTester(abc.ABC):
         best_params['threshold'] = best_thr
         return best_params
 
-    def _tune_params(self, initial_depth, max_depth, tunables, nontunables):
+    def _tune_params(self, initial_depth, max_depth, tunables, nontunables, n_iter):
         graph = self.project.load_or_extract_graph()
         f1_scorer = make_scorer(trees_f1_scorer,
                                 initial_depth=initial_depth,
@@ -215,10 +218,10 @@ class ProjectTester(abc.ABC):
         folds_num = 3
         n_jobs = settings.RSCV_WORKERS if self.multi_processed else 1
         # scv = GridSearchCV(model, tunables, cv=folds_num, verbose=2, n_jobs=n_jobs, scoring=f1_scorer, refit=False)
-        distributions = {param: scipy.stats.uniform(loc=values[0], scale=values[-1] - values[0]) for param, values in
+        distributions = {param: scipy.stats.uniform(loc=values[0], scale=values[1] - values[0]) for param, values in
                          tunables.items()}
-        scv = RandomizedSearchCV(model, distributions, cv=folds_num, n_iter=10, verbose=3, n_jobs=n_jobs, refit=False,
-                                 scoring=f1_scorer)
+        scv = RandomizedSearchCV(model, distributions, cv=folds_num, n_iter=n_iter, verbose=3, n_jobs=n_jobs,
+                                 refit=False, scoring=f1_scorer)
 
         train_set, test_set = self.project.load_sets()
         trees = self.project.load_trees()

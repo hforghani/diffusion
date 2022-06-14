@@ -31,9 +31,10 @@ class CRFModel(NodeSeqLabelModel):
         crf.fit(evidence, iterations, **kwargs)
 
         crf.model_filename = crf.crf.modelfile.name
-        os.close(crf.crf.modelfile.fd)  # Close the file to avoid too much open files.
+        if hasattr(crf.crf.modelfile, 'fd'):
+            os.close(crf.crf.modelfile.fd)  # Close the file to avoid too much open files.
         crf.crf = None  # Set the crf None to clear the memory.
-        logger.debug('node id %s -> model_filename = %s', str(node_id), model_filename)
+        logger.debugv('node id %s -> model_filename = %s', str(node_id), model_filename)
 
         return crf
 
@@ -88,9 +89,12 @@ class CRFModel(NodeSeqLabelModel):
     def __del__(self):
         count = 0
         for crf in self._models.values():
-            if crf.model_filename.startswith('/tmp') and os.path.exists(crf.model_filename):
-                os.unlink(crf.model_filename)
-                count += 1
+            if crf.model_filename.startswith('/tmp'):
+                try:
+                    os.unlink(crf.model_filename)
+                    count += 1
+                except FileNotFoundError:
+                    pass
         logger.debug('%d files cleaned up', count)
 
 

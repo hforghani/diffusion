@@ -20,7 +20,7 @@ from utils.time_utils import time_measure
 
 
 def run_predict(method_name: str, project_name: str, criterion: Criterion, initial_depth: int, max_depth: int,
-                multi_processed: bool, eco: bool, param: list) -> Metric:
+                multi_processed: bool, eco: bool, param: list, n_iter: int) -> Metric:
     project = Project(project_name)
     method = Method(method_name)
     param = extract_param(param)
@@ -39,7 +39,7 @@ def run_predict(method_name: str, project_name: str, criterion: Criterion, initi
     else:
         tester = DefaultTester(project, method, criterion, eco)
 
-    mean_res, res, _ = tester.run(initial_depth, max_depth, **param)
+    mean_res, res, _ = tester.run(initial_depth, max_depth, n_iter=n_iter, **param)
 
     return mean_res
 
@@ -47,13 +47,9 @@ def run_predict(method_name: str, project_name: str, criterion: Criterion, initi
 def extract_param(param):
     new_param = {}
     for items in param:
-        if len(items) == 4:
-            param_name, start, end, step = items
-            start, end, step = float(start), float(end), float(step)
-            values = [round(val, 5) for val in np.arange(start, end, step)]
-            if end not in values:
-                values.append(end)
-            new_param[param_name] = values
+        if len(items) == 3:
+            param_name, start, end = items
+            new_param[param_name] = (float(start), float(end))
         elif len(items) == 2:
             try:
                 new_param[items[0]] = int(items[1])
@@ -71,7 +67,7 @@ def extract_param(param):
 @time_measure('info')
 def handle(args):
     res = run_predict(args.method, args.project, Criterion(args.criterion), args.initial_depth, args.max_depth,
-                      args.multi_processed, args.eco, args.param)
+                      args.multi_processed, args.eco, args.param, args.n_iter)
 
     if res is not None:
         logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', res.precision, res.recall,
@@ -95,9 +91,13 @@ def main():
                         help="If this option is given, the already saved trained models is fetched from db and used. "
                              "Also it will be saved if has not been saved.")
     parser.add_argument("--param", nargs="+", action='append',
-                        help="additional parameters given to the method. In the validation mode use in the format "
-                             "[--param <param_name> <from_value> <to_value> <step>] and in the test mode use in the "
-                             "format [--param <param_name> <value>]")
+                        help="additional parameters given to the method. If the format [--param <param_name> "
+                             "<from_value> <to_value>] is used at least once, randomized search cross-validation with "
+                             "3 folds is done. If the only parameters with this format is 'threshold', grid search "
+                             "cross-validation with 3 folds id executed. If the format --param <param_name> <value>] "
+                             "is used for all parameters, just one run is done using the specified parameters.")
+    parser.add_argument("-n", "--n-iter", type=int, dest='n_iter', default=100,
+                        help="Number of randomized search iterations. Used when --param is given with a range of values.")
 
     args = parser.parse_args()
 
