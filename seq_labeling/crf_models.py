@@ -14,11 +14,18 @@ from settings import logger
 class CRFModel(NodeSeqLabelModel):
     method = Method.LONG_CRF
 
-    def __init__(self, algorithm='lbfgs', c1=0, c2=1, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
+    def __init__(self, algorithm='lbfgs', c1=0, c2=1, initial_depth=0, max_step=None, threshold=0.5,
+                 keep_temp_files=True, **kwargs):
         super().__init__(initial_depth, max_step, threshold, **kwargs)
         self.algorithm = algorithm
         self.c1 = c1
         self.c2 = c2
+        self.keep_temp_files = keep_temp_files
+        self.__fetch_freq = {}  # Number of fetching of CRF (_get_model call) for each node id
+        self.__node_ids_in_mem = set()  # The node ids of which CRF exists in the memory
+        self.__min_fetch_freq = None
+        self.__min_fetch_node_id = None
+        self.__max_crf_in_mem = 1000  # Maximum number of CRF kept in memory
 
     @classmethod
     def train_model(cls, evidence, iterations, states, node_id, project, eco=False, **kwargs):
@@ -31,24 +38,64 @@ class CRFModel(NodeSeqLabelModel):
         crf.fit(evidence, iterations, **kwargs)
 
         crf.model_filename = crf.crf.modelfile.name
-        if hasattr(crf.crf.modelfile, 'fd'):
-            os.close(crf.crf.modelfile.fd)  # Close the file to avoid too much open files.
-        crf.crf = None  # Set the crf None to clear the memory.
+        cls.__clear_mem(crf)
         logger.debugv('node id %s -> model_filename = %s', str(node_id), model_filename)
 
         return crf
 
     def _get_model(self, node_id):
-        crf = self._models.get(node_id)
-        if crf is None:
-            return None
-        elif crf.crf is None:
-            new_crf = self.get_crf_instance()
-            new_crf.set_params(crf.orig_indexes, crf.model_filename)
-            new_crf.crf = sklearn_crfsuite.CRF(model_filename=crf.model_filename, keep_tempfiles=True)
-            return new_crf
-        else:
-            return crf
+        try:
+            if node_id not in self._models:
+                return None
+            self.__fetch_freq.setdefault(node_id, 0)
+            self.__fetch_freq[node_id] += 1
+            # logger.debug('self.__fetch_freq[node_id] = %s', self.__fetch_freq[node_id])
+
+            crf = self._models[node_id]
+
+            if crf.crf is not None:
+                logger.debug('fetched CRF returned')
+                return crf
+            else:
+                logger.debug('fetching CRF ...')
+                new_crf = self.get_crf_instance()
+                new_crf.set_params(crf.orig_indexes, crf.model_filename)
+                new_crf.crf = sklearn_crfsuite.CRF(model_filename=crf.model_filename, keep_tempfiles=True)
+
+                # logger.debug('len(self.__node_ids_in_mem) = %s', len(self.__node_ids_in_mem))
+                # logger.debug('self.__min_fetch_freq = %s', self.__min_fetch_freq)
+                # logger.debug('self.__min_fetch_node_id = %s', self.__min_fetch_node_id)
+                if self.__fetch_freq and len(self.__node_ids_in_mem) >= self.__max_crf_in_mem:
+                    if self.__fetch_freq[node_id] > self.__min_fetch_freq:
+                        self._models[node_id] = new_crf
+                        self.__clear_mem(self._models[self.__min_fetch_node_id])
+                        self.__node_ids_in_mem.remove(self.__min_fetch_node_id)
+                        self.__node_ids_in_mem.add(node_id)
+                        self.__min_fetch_freq, self.__min_fetch_node_id = self.__min_fetch_freq_in_mem()
+                        # logger.debug('fetched CRF replaced')
+                else:
+                    self._models[node_id] = new_crf
+                    self.__node_ids_in_mem.add(node_id)
+                    # logger.debug('Max threshold not reached. CRF kept.')
+                    if self.__min_fetch_freq is None or self.__fetch_freq[node_id] < self.__min_fetch_freq:
+                        self.__min_fetch_freq = self.__fetch_freq[node_id]
+                        self.__min_fetch_node_id = node_id
+                        # logger.debug('min fetch freq replaced')
+
+                return new_crf
+        except:
+            # logger.debug('self.__fetch_freq = %s', self.__fetch_freq)
+            # logger.debug('self.__node_ids_in_mem = %s', self.__node_ids_in_mem)
+            raise
+
+    def __min_fetch_freq_in_mem(self):
+        min_freq, min_node_id = None, None
+        for node_id in self.__node_ids_in_mem:
+            freq = self.__fetch_freq[node_id]
+            if min_freq is None or freq < min_freq:
+                min_freq = freq
+                min_node_id = node_id
+        return min_freq, min_node_id
 
     @classmethod
     def get_crf_instance(cls, **kwargs):
@@ -86,7 +133,16 @@ class CRFModel(NodeSeqLabelModel):
             logger.debugv('the newly active nodes are not available in the training data')
         return
 
-    def __del__(self):
+    @classmethod
+    def __clear_mem(cls, crf: CRF):
+        """
+        Close the CRF file and set the crf field None.
+        """
+        if hasattr(crf.crf.modelfile, 'fd'):
+            os.close(crf.crf.modelfile.fd)  # Close the file to avoid too much open files.
+        crf.crf = None  # Set the crf None to clear the memory.
+
+    def clean_temp_files(self):
         count = 0
         for crf in self._models.values():
             if crf.model_filename.startswith('/tmp'):
@@ -95,7 +151,11 @@ class CRFModel(NodeSeqLabelModel):
                     count += 1
                 except FileNotFoundError:
                     pass
-        logger.debug('%d files cleaned up', count)
+        logger.info('%d files cleaned up', count)
+
+    def __del__(self):
+        if not self.keep_temp_files:
+            self.clean_temp_files()
 
 
 class SmallFeatCRFModel(CRFModel, abc.ABC):

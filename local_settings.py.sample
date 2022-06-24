@@ -1,16 +1,19 @@
 import logging
+import multiprocessing
 from log_levels import DEBUG_LEVELV_NUM     # Do not remove this line.
 
 from diffusion.enum import Method
 
-# LOG_LEVEL = logging.INFO
-LOG_LEVEL = logging.DEBUG
+LOG_LEVEL = logging.INFO
+# LOG_LEVEL = logging.DEBUG
 # LOG_LEVEL = DEBUG_LEVELV_NUM
 
 MONGO_URL = 'mongodb://localhost:27017/'
 
-WEIBO_FOLLOWERS_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\weibo_network.txt'
-WEIBO_UIDLIST_PATH = 'E:\\datasets\\Weibo-Net-Tweet\\uidlist.txt'
+WEIBO_FOLLOWERS_PATH = '/path/to/Weibo-Net-Tweet/weibo_network.txt'
+WEIBO_UIDLIST_PATH = '/path/to/Weibo-Net-Tweet/uidlist.txt'
+
+TUFFY_PATH = '/home/hossein/University Stuff/social/code/tuffy'
 
 DEFAULT_WORKERS = multiprocessing.cpu_count() - 1
 EVID_WORKERS = DEFAULT_WORKERS # Max number of workers for seq labeling models evidence extraction

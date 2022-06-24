@@ -96,11 +96,7 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
 
                 # Predict remaining nodes.
                 with Timer('prediction', level='debug'):
-                    # TODO: apply max_depth for all methods.
-                    if method in [Method.MLN_PRAC, Method.MLN_ALCH]:
-                        res_tree = model.predict_one_sample(cid, threshold=threshold, **params)
-                    else:
-                        res_tree = model.predict_one_sample(initial_tree, threshold, graph, max_step)
+                    res_tree = model.predict_one_sample(initial_tree, threshold, graph, max_step)
 
                 # Evaluate the results.
                 with Timer('evaluating results', level='debug'):

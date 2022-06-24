@@ -6,8 +6,6 @@ class Method(Enum):
     CTIC = 'ctic'
     EMIC = 'emic'
     DAIC = 'daic'
-    MLN_PRAC = 'mlnprac'
-    MLN_ALCH = 'mlnalch'
     LONG_MEMM = 'lmemm'
     BIN_MEMM = 'bmemm'
     TD_MEMM = 'tdmemm'
@@ -24,6 +22,9 @@ class Method(Enum):
     MULTI_STATE_BIN_CRF = 'mbcrf'
     MULTI_STATE_TD_CRF = 'mtdcrf'
     AVG = 'avg'
+    MLN_TUFFY = 'mlntuffy'
+    # MLN_PRAC = 'mlnprac'
+    # MLN_ALCH = 'mlnalch'
 
 
 class Criterion(Enum):

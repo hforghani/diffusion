@@ -22,8 +22,7 @@ from diffusion.ic_models import DAIC, EMIC
 from diffusion.models import DiffusionModel
 from seq_labeling.crf_models import *
 from seq_labeling.memm_models import *
-from mln.file_generators import FileCreator
-from mln.models import MLN
+from mln.models import TuffyICMLNModel
 from settings import logger
 from utils.time_utils import time_measure, Timer, TimeUnit
 
@@ -33,6 +32,7 @@ METHOD_MODEL_MAP = {
     Method.AVG: LTAvg,
     Method.EMIC: EMIC,
     Method.DAIC: DAIC,
+
     Method.LONG_MEMM: LongMEMMModel,
     Method.BIN_MEMM: BinMEMMModel,
     Method.TD_MEMM: TDMEMMModel,
@@ -41,12 +41,15 @@ METHOD_MODEL_MAP = {
     Method.MULTI_STATE_TD_MEMM: MultiStateTDMEMMModel,
     Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
     Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
+
     Method.LONG_CRF: CRFModel,
     Method.BIN_CRF: BinCRFModel,
     Method.TD_CRF: TDCRFModel,
     Method.MULTI_STATE_LONG_CRF: MultiStateCRFModel,
     Method.MULTI_STATE_BIN_CRF: MultiStateBinCRFModel,
     Method.MULTI_STATE_TD_CRF: MultiStateTDCRFModel,
+
+    Method.MLN_TUFFY: TuffyICMLNModel
 }
 
 
@@ -103,19 +106,13 @@ class ProjectTester(abc.ABC):
         logger.info('{0} TEST {0}'.format('=' * 20))
         graph = self.project.load_or_extract_graph(train_set)
         mean_res, res_eval, res_trees = self.test(test_set, model, graph, initial_depth, max_depth, **best_params)
+        model.clean_temp_files()
         logger.debug('type(mean_res) = %s', type(mean_res))
         return mean_res, res_eval, res_trees
 
     def _get_model(self, initial_depth=0, max_depth=None, **params):
         max_step = max_depth - initial_depth if max_depth else None
-        if self.method == Method.MLN_PRAC:
-            model = MLN(initial_depth=initial_depth, max_step=max_step, method='edge',
-                        format=FileCreator.FORMAT_PRACMLN,
-                        **params)  # TODO: Implement fit method.
-        elif self.method == Method.MLN_ALCH:
-            model = MLN(initial_depth=initial_depth, max_step=max_step, method='edge',
-                        format=FileCreator.FORMAT_ALCHEMY2, **params)
-        elif self.method in METHOD_MODEL_MAP:
+        if self.method in METHOD_MODEL_MAP:
             model_clazz = METHOD_MODEL_MAP[self.method]
             model = model_clazz(initial_depth=initial_depth, max_step=max_step, **params)
         else:
@@ -124,6 +121,7 @@ class ProjectTester(abc.ABC):
 
     def train(self, train_set, eco, **kwargs):
         model = self._get_model(**kwargs)
+        logger.info('loading trees ...')
         trees = self.project.load_trees()
         # TODO: Is is necessary to apply initial_depth and max_depth to trees?
         train_trees = [trees[cid] for cid in train_set]
@@ -191,6 +189,7 @@ class ProjectTester(abc.ABC):
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
             graph = self.project.load_or_extract_graph(train_set)
             fold_res, _, _ = self.test(val_set, model, graph, initial_depth, max_depth, threshold=threshold, **params)
+            model.clean_temp_files()
             del model
             for thr in threshold:
                 results.setdefault(thr, [])
@@ -213,6 +212,8 @@ class ProjectTester(abc.ABC):
                                 criterion=self.criterion)
 
         model = self._get_model(initial_depth, max_depth, **nontunables)
+        if isinstance(model, CRFModel):
+            model.keep_temp_files = False
 
         # search
         folds_num = 3
@@ -220,6 +221,7 @@ class ProjectTester(abc.ABC):
         # scv = GridSearchCV(model, tunables, cv=folds_num, verbose=2, n_jobs=n_jobs, scoring=f1_scorer, refit=False)
         distributions = {param: scipy.stats.uniform(loc=values[0], scale=values[1] - values[0]) for param, values in
                          tunables.items()}
+        logger.info('starting randomized search cross-validation ...')
         scv = RandomizedSearchCV(model, distributions, cv=folds_num, n_iter=n_iter, verbose=3, n_jobs=n_jobs,
                                  refit=False, scoring=f1_scorer)
 
@@ -362,9 +364,10 @@ class MultiProcTester(ProjectTester):
         Create a process pool to distribute the prediction.
         Side effect: Will clear the dictionary "tree" to free RAM.
         """
-        step = 3
+        max_workers = settings.TEST_WORKERS
+        step = max(1, min(100, len(test_set) // max_workers))
         futures = []
-        with ProcessPoolExecutor(max_workers=settings.TEST_WORKERS) as executor:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
             for i in range(0, len(test_set), step):
                 cascades_i = test_set[i:i + step]
                 trees_i = {cid: trees[cid] for cid in cascades_i}

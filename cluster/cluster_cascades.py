@@ -8,10 +8,12 @@ from typing import Dict, List, Set
 import argparse
 import json
 import os
+
+import scipy
 from bson import ObjectId
 from scipy import sparse
 from sklearn.cluster import SpectralClustering, DBSCAN
-from sklearn.decomposition import PCA, SparsePCA
+from sklearn.decomposition import PCA, SparsePCA, TruncatedSVD
 from sklearn.preprocessing import normalize
 import numpy as np
 from matplotlib import pyplot as plt
@@ -154,10 +156,15 @@ def hierarchical(mat, clust_num):
 
 
 def cluster_mat(mat, clust_num, method):
+    logger.info('clustering %d cascades with %d dimensions into %d clusters', mat.shape[0], mat.shape[1], clust_num)
     if method == 'spectral':
         clustering = SpectralClustering(n_clusters=clust_num,
-                                        assign_labels="discretize",
-                                        random_state=0).fit(mat)
+                                        assign_labels="cluster_qr",
+                                        random_state=0,
+                                        # gamma=100,
+                                        affinity='precomputed',
+                                        # n_jobs=settings.DEFAULT_WORKERS,
+                                        verbose=True).fit(mat)
         return clustering.labels_
     elif method == 'dbscan':
         clustering = DBSCAN(eps=0.001, min_samples=5, metric='precomputed', n_jobs=-1).fit(mat)
@@ -212,21 +219,44 @@ def calc_error(mat, clusters):
     return error
 
 
-def create_cascade_features(cascades: typing.List[str], users: typing.Dict[str, set]):
-    logger.info('creating cascade feature vectors ...')
-    all_users = list(reduce(lambda x, y: x | y, users.values(), set()))
-    uid_to_index = {all_users[i]: i for i in range(len(all_users))}
-    mat = sparse.csr_matrix((len(cascades), len(all_users)))
+def merge_sets(sets):
+    return set(reduce(lambda x, y: x | y, sets, set()))
 
+
+def create_cascade_features(cascades: typing.List[str], users: typing.Dict[str, set], db_name: str):
+    logger.info('creating cascade feature vectors ...')
+
+    logger.debug('gathering all users ...')
+    user_sets = list(users.values())
+    step = 1000
+    user_set_partitions = [user_sets[i:i + step] for i in range(0, len(cascades), step)]
+    # with ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
+    with ProcessPoolExecutor(max_workers=5) as executor:
+        merged_sets = executor.map(merge_sets, user_set_partitions)
+    del user_set_partitions
+    all_users = list(reduce(lambda x, y: x | y, merged_sets, set()))
+    logger.debug('creating dict of uid to index ...')
+    uid_to_index = {all_users[i]: i for i in range(len(all_users))}
+    u_count = len(all_users)
+    del all_users
+
+    mat = sparse.lil_matrix((len(cascades), u_count), dtype=bool)
+
+    logger.debug('filling matrix ...')
     for i in range(len(cascades)):
         cid = cascades[i]
         u_indexes = [uid_to_index[u] for u in users[cid]]
         mat[i, u_indexes] = 1
+        if i % 100 == 0:
+            logger.debug('%.1f%% done', i * 100 / len(cascades))
 
-    if len(all_users) > 100:
+    if u_count > 100:
         logger.info('decreasing dimensions ...')
-        pca = SparsePCA(n_components=100)
-        mat = pca.fit_transform(mat)
+        # pca = SparsePCA(n_components=100)
+        # mat = pca.fit_transform(mat)
+        svd = TruncatedSVD(n_components=100)
+        mat = svd.fit_transform(mat)
+    logger.debug('mat.shape = %s', mat.shape)
     return mat
 
 
@@ -238,8 +268,9 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
     cascades_file_name = base_file_name + '-cascades.json'
 
     if os.path.exists(mat_file_name) and os.path.exists(cascades_file_name):
+        logger.info('loading matrix ...')
         # mat = np.load(mat_file_name)
-        mat = np.load_npz(mat_file_name)
+        mat = scipy.sparse.load_npz(mat_file_name)
         with open(cascades_file_name) as f:
             cascades = json.load(f)
         logger.info('matrix loaded')
@@ -280,24 +311,23 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
         mat = mat.reshape((count, count))
         mat += sparse.eye(count, count, format='csr')
 
-        # mat = create_cascade_features(cascades, users)
+        # mat = create_cascade_features(cascades, users, db_name)
 
         with open(cascades_file_name, 'w') as f:
             json.dump(cascades, f)
         # np.save(mat_file_name, mat)
         sparse.save_npz(mat_file_name, mat)
 
+    affinity = mat
+    # if len(cascades) > 100:
+    #     logger.info('decreasing dimensions ...')
+    #     mat = TruncatedSVD(n_components=100).fit_transform(mat)
+    # logger.debug('mat.shape = %s', mat.shape)
+
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
 
     labels = cluster_mat(mat, clust_num, method)
-    affinity = mat
-
-    # clustering = SpectralClustering(n_clusters=clust_num,
-    #                                 assign_labels="discretize",
-    #                                 random_state=0).fit(mat)
-    # labels = clustering.labels_
-    # affinity = clustering.affinity_matrix_
 
     # Create the ordered indexes of cascades.
     ordered_ind = np.array([], dtype=np.int64)
@@ -316,8 +346,8 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
         clusters[val] = [cascades[i] for i in indexes]
         ordered_ind = np.concatenate((ordered_ind, indexes))
         mean = np.mean(affinity[indexes, :][:, indexes])
-        # logger.debug('mat[indexes, indexes] = %s', mat[indexes, :][:, indexes])
         logger.info('cluster %d with %d cascades and mean Jaccard value of %f', val, indexes.size, mean)
+        # logger.info('cluster %d with %d cascades', val, indexes.size)
 
     # Save the clusters into the file.
     with open(file_name + '.json', 'w') as f:

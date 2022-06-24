@@ -1,192 +1,168 @@
 import os
-import numpy
-from scipy import sparse
 from settings import logger
 
 
 class FileCreator:
     FORMAT_PRACMLN = 'pracmln'
     FORMAT_ALCHEMY2 = 'alchemy2'
+    FORMAT_TUFFY = 'tuffy'
 
     def __init__(self, project):
         self.project = project
 
-        # Load training and test sets and all cascade trees.
-        self.train_cascades, self.val_cascades, self.test_cascades = project.load_sets()
         self.trees = project.load_trees()
         self.__follow_thr = 0.1
 
         # These fields must be set in children:
+        self.declarations = []
         self.format = None
-        self.put_declarations = None
-        self.put_zero_weights = None
-        self.put_hard_formulas = None
-        self.user_prefix = None
+        self.initial_weight = None
+        self.hard_formulas = []
+        self.node_prefix = None
         self.cascade_prefix = None
-        self.user_var_name = None
+        self.node_var_name = None
         self.cascade_var_name = None
 
-    def create_rules(self, out_file):
+    def create_rules(self, train_set, out_file):
         contents = ''
-        logger.info('training set size = %d' % len(self.train_cascades))
-        if self.put_declarations:
-            logger.info('>>> writing declarations ...')
-            contents += '// predicate declarations\n' \
-                        'activates(user,user,cascade)\n' \
-                        'isActivated(user,cascade)\n\n'
+        logger.info('started to write MLN rules')
+        logger.debug('training set size = %d' % len(train_set))
+        logger.debug('>>> writing declarations ...')
+        if self.declarations:
+            contents += '\n'.join(['// predicate declarations'] + self.declarations) + '\n'
 
-        logger.info('>>> writing rules ...')
+        logger.debug('>>> writing rules ...')
 
-        if self.put_hard_formulas:
-            if self.format == self.FORMAT_PRACMLN:
-                pass  # TODO
-            elif self.format == self.FORMAT_ALCHEMY2:
-                logger.info('>>> writing hard formulas ...')
-                contents += '!activates({0}1, {0}1, {1}).\n' \
-                            'activates({0}1, {0}2, {1}) => isActivated({0}2, {1}).\n' \
-                            '!(activates({0}1, {0}3, {1}) ^ activates({0}2, {0}3, {1}) ^ ({0}1 != {0}2)).\n\n'.format(
-                    self.user_var_name, self.cascade_var_name)
-            else:
-                raise ValueError('invalid format %s' % self.format)
+        if self.hard_formulas:
+            logger.debug('>>> writing hard formulas ...')
+            contents += '\n'.join(self.hard_formulas) + '\n'
 
-        # Extract edges of all training cascades. Put indexes instead of node id's.
-        edges = set()
-        for cascade_id in self.train_cascades:
-            edges.update(self.trees[cascade_id].edges())
-
+        # Write the learnable formulas.
+        graph = self.project.load_or_extract_graph(train_set)
         contents += '//formulas\n'
-        for sender, receiver in edges:
-            if self.put_zero_weights:
-                contents += '0     '
-            contents += 'isActivated({0}{1}, {3}) => activates({0}{1}, {0}{2}, {3})\n'.format(self.user_prefix,
+        for sender, receiver in graph.edges():
+            if self.initial_weight is not None:
+                contents += f'{self.initial_weight}     '
+            contents += 'isActivated({0}{1}, {3}) => activates({0}{1}, {0}{2}, {3})\n'.format(self.node_prefix,
                                                                                               sender, receiver,
                                                                                               self.cascade_var_name)
 
         # Get the path of rules file.
-        if out_file is not None:
-            file_name = out_file
-        else:
-            file_name = 'tolearn-%s-%s.mln' % (self.project.name, self.format)
-        out_path = os.path.join(self.project.path, file_name)
-
+        # file_name = 'tolearn-%s-%s.mln' % (self.project.name, self.format)
+        out_path = os.path.join(self.project.path, out_file)
         with open(out_path, 'w') as f:
             f.write(contents)
 
-    def create_evidence(self, target_set, multiple):
-        out_dir = os.path.join(self.project.path, 'evidence-%s' % self.format)
-        if not os.path.exists(out_dir):
-            os.mkdir(out_dir)
+    def create_train_evidence(self, train_set, train_out_file):
+        logger.debug('loading graph ...')
+        graph = self.project.load_or_extract_graph(train_set)
+        predecessors = self.__pred_predicates(graph)
 
-        if target_set is None or target_set == 'train':
-            # Get and delete the content of evidence file.
-            out_file = os.path.join(out_dir, 'ev-train-%s-%s.db' % (self.project.name, self.format))
-            open(out_file, 'w').close()
+        # Create the training evidence file.
+        logger.info('started to write evidences for learning')
+        logger.debug('training set size = %d' % len(train_set))
+        # train_file = os.path.join(out_dir, 'ev-train-%s-%s.db' % (self.project.name, self.format))
+        with open(train_out_file, 'w') as f:
+            logger.debug('>>> writing "predecessor" rules ...')
+            f.write('\n'.join(predecessors) + '\n\n')
+            logger.debug('>>> writing "isActivated" rules ...')
+            f.write('\n'.join(self.__isactivated_predicates(self.trees, train_set)) + '\n\n')
+            logger.debug('>>> writing "activates" rules ...')
+            f.write('\n'.join(self.__activates_predicates(self.trees, train_set)) + '\n\n')
 
-            logger.info('rules will be created for training set')
-            logger.info('training set size = %d' % len(self.train_cascades))
+    def create_test_evidence(self, train_set, test_set, test_out_file, multiple=False):
+        logger.debug('loading graph ...')
+        graph = self.project.load_or_extract_graph(train_set)
+        predecessors = self.__pred_predicates(graph)
 
-            logger.info('>>> writing "isActivated" rules ...')
-            self.__write_isactivated(self.trees, self.train_cascades, out_file)
+        # Create the test evidence file.
+        logger.info('started to write evidences for inference')
+        logger.debug('test set size = %d' % len(test_set))
+        with open(test_out_file, 'w') as f:
+            logger.debug('>>> writing "predecessor" rules ...')
+            f.write('\n'.join(predecessors) + '\n\n')
+            logger.debug('>>> writing "isActivated" rules ...')
+            f.write('\n'.join(self.__isactivated_predicates(self.trees, test_set, initials=True)) + '\n\n')
 
-            logger.info('>>> writing "activates" rules ...')
-            self.__write_activates(self.trees, self.train_cascades, out_file)
+        # if multiple:
+        #     logger.debug('>>> writing "isActivated" rules ...')
+        #     for cascade_id in cascades:
+        #         cascade_out_file = os.path.join(self.project.path, f'evidence-{self.format}',
+        #                                         f'ev-test-{self.project.name}-{self.format}-{cascade_id}.db')
+        #         open(out_file, 'w').close()
+        #         self.__isactivated_predicates(self.trees, [cascade_id], cascade_out_file, initials=True)
 
-            # logger.info('>>> writing "follows" rules ...')
-            # user_ids = UserAccount.objects.values_list('id', flat=True)
-            # user_indexes = {user_ids[i]: i for i in range(len(user_ids))}
-            # self.__write_follows(user_ids, user_indexes, self.train_cascades, out_file)
+    def __pred_predicates(self, graph):
+        predicates = ['predecessor({0}{1}, {0}{2})'.format(self.node_prefix, edge[0], edge[1]) for edge in
+                      graph.edges()]
+        return predicates
 
-        if target_set is None or target_set == 'test':
-            # Get and delete the content of evidence file.
-            out_file = os.path.join(out_dir, 'ev-test-%s-%s.db' % (self.project.name, self.format))
-            open(out_file, 'w').close()
+    def __isactivated_predicates(self, trees, cascade_ids, initials=False):
+        predicates = []
+        for cascade_id in cascade_ids:
+            nodes = trees[cascade_id].roots if initials else trees[cascade_id].nodes()
+            predicates.extend('isActivated({0}{2}, {1}{3})'.format(self.node_prefix, self.cascade_prefix, node.user_id,
+                                                                   cascade_id) for node in nodes)
+        return predicates
 
-            logger.info('rules will be created for test set')
-            logger.info('test set size = %d' % len(self.test_cascades))
-            logger.info('>>> writing "isActivated" rules ...')
-            self.__write_isactivated(self.trees, self.test_cascades, out_file, initials=True)
-
-            if multiple:
-                logger.info('>>> writing "isActivated" rules ...')
-                for cascade_id in self.test_cascades:
-                    cascade_out_file = os.path.join(self.project.path, 'evidence-%s' % self.format,
-                                                 'ev-test-%s-%s-%s.db' % (
-                                                        self.project.name, self.format, cascade_id))
-                    open(out_file, 'w').close()
-                    self.__write_isactivated(self.trees, [cascade_id], cascade_out_file, initials=True)
-
-    def __write_follows(self, user_ids, user_indexes, train_cascades, out_file):
-        post_ids = Post.objects.filter(postcascade__cascade_id__in=train_cascades).values_list('id', flat=True).distinct()
-        reshares = Reshare.objects.filter(post__in=post_ids, reshared_post__in=post_ids)
-
-        logger.info('counting total reshares ...')
-        users_count = len(user_ids)
-        total_resh_count = numpy.zeros(users_count)
-        for resh in reshares.values('user_id').annotate(count=Count('id')):
-            total_resh_count[user_indexes[resh['user_id']]] = resh['count']
-
-        logger.info('counting pairwise reshares ...')
-        resh_count = sparse.lil_matrix((users_count, users_count))
-        for resh in reshares.values('ref_user_id', 'user_id').annotate(count=Count('id')):
-            u1 = user_indexes[resh['ref_user_id']]
-            u2 = user_indexes[resh['user_id']]
-            resh_count[u1, u2] = resh['count']
-
-        logger.info('writing followship rules ...')
-        with open(out_file, 'a') as f:
-            rows, cols = resh_count.nonzero()
-            for i in range(len(rows)):
-                u1, u2 = rows[i], cols[i]
-                if u1 == u2:
-                    continue
-                ratio = float(resh_count[u1, u2]) / total_resh_count[u2]
-                if ratio > self.__follow_thr:
-                    f.write('follows({0}{1}, {0}{2})\n'.format(self.user_prefix, user_ids[u2], user_ids[u1]))
-            f.write('\n')
-
-    def __write_isactivated(self, trees, cascade_ids, out_file, initials=False):
-        with open(out_file, 'a') as f:
-            for cascade_id in cascade_ids:
-                if initials:
-                    nodes = trees[cascade_id].roots
-                else:
-                    nodes = trees[cascade_id].nodes()
-                for node in nodes:
-                    f.write('isActivated({0}{2}, {1}{3})\n'.format(self.user_prefix, self.cascade_prefix, node.user_id,
-                                                                   cascade_id))
-            f.write('\n')
-
-    def __write_activates(self, trees, cascade_ids, out_file):
-        with open(out_file, 'a') as f:
-            for cid in cascade_ids:
-                edges = trees[cid].edges()
-                for edge in edges:
-                    f.write('activates({0}{2}, {0}{3}, {1}{4})\n'.format(self.user_prefix, self.cascade_prefix,
-                                                                         edge[0], edge[1], cid))
-            f.write('\n')
+    def __activates_predicates(self, trees, cascade_ids):
+        predicates = []
+        for cid in cascade_ids:
+            edges = trees[cid].edges()
+            predicates.extend('activates({0}{2}, {0}{3}, {1}{4})'.format(self.node_prefix, self.cascade_prefix,
+                                                                         edge[0], edge[1], cid) for edge in edges)
+        return predicates
 
 
 class PracmlnCreator(FileCreator):
     def __init__(self, project):
         super().__init__(project)
         self.format = FileCreator.FORMAT_PRACMLN
-        self.put_declarations = True
-        self.put_zero_weights = True
-        self.put_hard_formulas = False
-        self.user_prefix = 'u'
-        self.cascade_prefix = 'm'
-        self.user_var_name = '?u'
-        self.cascade_var_name = '?m'
+        self.declarations = [
+            'activates(node,node,cascade)',
+            'isActivated(node,cascade)',
+            'predecessor(node, node)'
+        ]
+
+        self.initial_weight = 0
+        self.node_prefix = 'n'
+        self.cascade_prefix = 'c'
+        self.node_var_name = '?n'
+        self.cascade_var_name = '?c'
 
 
 class Alchemy2Creator(FileCreator):
     def __init__(self, project):
         super().__init__(project)
         self.format = FileCreator.FORMAT_ALCHEMY2
-        self.put_declarations = True
-        self.put_zero_weights = False
-        self.put_hard_formulas = True
-        self.user_prefix = 'U'
-        self.cascade_prefix = 'M'
-        self.user_var_name = 'u'
-        self.cascade_var_name = 'm'
+        self.declarations = [
+            'activates(node,node,cascade)',
+            'isActivated(node,cascade)',
+            'predecessor(node, node)'
+        ]
+        self.hard_formulas = [
+            '!activates(n1, n1, c).',
+            'activates(n1, n2, c) => isActivated(n2, c).',
+            '!(activates(n1, n3, c) ^ activates(n2, n3, c) ^ (n1 != n2)).'
+        ]
+        self.node_prefix = 'N'
+        self.cascade_prefix = 'C'
+        self.node_var_name = 'n'
+        self.cascade_var_name = 'c'
+
+
+class TuffyCreator(Alchemy2Creator):
+    def __init__(self, project):
+        super().__init__(project)
+        self.format = FileCreator.FORMAT_TUFFY
+        self.declarations = [
+            'activates(node!, node, cascade)',
+            'isActivated(node, cascade)',
+            'predecessor(node, node)'
+        ]
+        self.hard_formulas = [
+            '!activates(n1, n1, c).',
+            'activates(n1, n2, c) => isActivated(n2, c).',
+            'activates(n1, n2, c) := predecessor(n1, n2), isActivated(n1, c), isActivated(n2, c).'
+        ]
+        self.initial_weight = 1

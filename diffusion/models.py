@@ -35,11 +35,14 @@ class DiffusionModel(BaseEstimator, abc.ABC):
         """
         trees = self.project.load_trees()
         results = []
+        i = 0
+        logger.info('predicting %d cascades ...', len(test_set))
 
         for cid in test_set:
             initial_tree = trees[cid].copy(self.initial_depth)
-            logger.info('running prediction on cascade <%s>', cid)
             res = self.predict_one_sample(initial_tree, self.threshold, self.graph, self.max_step)
+            i += 1
+            logger.info('%d cascades predicted', i)
             results.append(res)
 
         return results
@@ -55,6 +58,11 @@ class DiffusionModel(BaseEstimator, abc.ABC):
         :param max_step: the maximum steps the prediction is done
         :return: If thresholds is a number, return the predicted tree. If it is a list, return the dict of thresholds
         to trees.
+        """
+
+    def clean_temp_files(self):
+        """
+        Clean the temporary files if existed.
         """
 
 
@@ -270,7 +278,7 @@ class IC(DiffusionModel, abc.ABC):
                 pass
 
         if not data_loaded:
-            graph, sequences = project.load_or_extract_graph_seq(train_set)
+            graph = project.load_or_extract_graph(train_set)
             self.graph = graph
             self.calc_parameters(train_set, project, multi_processed, eco, **kwargs)
 

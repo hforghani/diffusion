@@ -121,10 +121,9 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             states = node_id_to_states[node_id]
             model = cls.train_model(ev, iterations, states, node_id, project, eco, **kwargs)
             models[node_id] = model
-            if count % 500 == 0:
+            if count % 500 == 0 or count == len(evidences):
                 logger.info('%d models trained', count)
 
-        logger.info('%d models trained', len(evidences))
         return models
 
     def _fit_multiproc(self, evidences, iterations, graph, project, eco=False, **kwargs):
@@ -135,7 +134,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         random.shuffle(node_ids)
 
         futures = []
-        step = 1000
+        step = 10000
         with ProcessPoolExecutor(max_workers=settings.TRAIN_WORKERS) as executor:
             for i in range(0, len(node_ids), step):
                 evidences_i = {nid: evidences[nid] for nid in node_ids[i:i + step]}
@@ -174,6 +173,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             models = self._fit_multiproc(evidences, max_iteration, graph, project, eco, **kwargs)
         else:
             models = self.train_models(evidences, max_iteration, graph, project, eco, **kwargs)
+        del evidences
 
         if eco and manager is not None:
             logger.info('inserting seq labeling models into db ...')
