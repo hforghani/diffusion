@@ -231,12 +231,20 @@ class DAIC(EMIC):
             pos_indexes_u_v = pos_indexes[(u_index, v_index)]
             neg_count = neg_counts[(u_index, v_index)]
             beta = pos_indexes_u_v.size + neg_count + self.lambdaa
-            if np.any(p[pos_indexes_u_v, v_index].toarray() == 0):
-                logger.debug('u_index = %s', u_index)
-                logger.debug('v_index = %s', v_index)
-                logger.debug('pos_indexes_u_v = %s', pos_indexes_u_v)
-                logger.debug('p of pos indexes = %s', p[pos_indexes_u_v, v_index].toarray())
-            gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes_u_v, v_index].toarray())
+            # if (len(pos_indexes_u_v) == 1 and p[pos_indexes_u_v[0], v_index] == 0) \
+            #         or (len(pos_indexes_u_v) > 1 and np.any(p[pos_indexes_u_v, v_index].toarray() == 0)):
+            #     logger.debug('u_index = %s', u_index)
+            #     logger.debug('v_index = %s', v_index)
+            #     logger.debug('pos_indexes_u_v = %s', pos_indexes_u_v)
+            #     if len(pos_indexes_u_v) == 1:
+            #         logger.debug('p of pos indexes = %s', p[pos_indexes_u_v[0], v_index])
+            #     else:
+            #         logger.debug('p of pos indexes = %s', p[pos_indexes_u_v, v_index].toarray())
+
+            if len(pos_indexes_u_v) == 1:
+                gamma = k[u_index, v_index] * 1 / p[pos_indexes_u_v[0], v_index]
+            else:
+                gamma = k[u_index, v_index] * np.sum(1 / p[pos_indexes_u_v, v_index].toarray())
             delta = beta ** 2 - 4 * self.lambdaa * gamma
             if abs(delta) < 10 ** -10:
                 delta = 0
@@ -252,6 +260,7 @@ class DAIC(EMIC):
             # logger.debugv('np.sum(1 / p[pos_indexes_u_v, v_index] = %s', np.sum(1 / p[pos_indexes_u_v, v_index]))
             # logger.debugv('gamma = %s', gamma)
             # logger.debugv('delta = %s', delta)
+
             i += 1
             if i % 1000 == 0:
                 logger.debug('calculating k: %d edges done', i)
@@ -298,10 +307,14 @@ class DAIC(EMIC):
                 prev_par_indexes = [user_map[p] for p in seq.get_active_parents(v, graph)]
                 logger.debugv('prev_par_indexes = %s', prev_par_indexes)
                 if prev_par_indexes:
-                    val = 1 - np.prod(1 - k[prev_par_indexes, vindex].toarray())
+                    if len(prev_par_indexes) == 1:
+                        logger.debugv('k[prev_par_indexes, vindex] = %s', k[prev_par_indexes[0], vindex])
+                        val = k[prev_par_indexes[0], vindex]
+                    else:
+                        logger.debugv('k[prev_par_indexes, vindex] = %s', k[prev_par_indexes, vindex])
+                        val = 1 - np.prod(1 - k[prev_par_indexes, vindex].toarray())
+                    logger.debugv('val = %f', val)
                     p[cindex, vindex] = val
-                    # logger.debugv('k[prev_par_indexes, vindex] = %s', k[prev_par_indexes, vindex])
-                    # logger.debugv('p[cindex, vindex] = %f', p[cindex, vindex])
 
             i += 1
             if i % 100 == 0:

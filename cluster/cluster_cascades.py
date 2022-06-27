@@ -79,7 +79,7 @@ def get_jaccard_mat_mp(cascades: List[str], users: Dict[str, set]):
         for i, j in jaccard_values:
             mat[i, j] = jaccard_values[(i, j)]
 
-    # mat += mat.transpose() + np.eye(count)
+    mat += mat.transpose() + sparse.eye(count, count, format='csr')
     return mat.tocsr()
 
 
@@ -97,11 +97,11 @@ def get_jaccard_mat(cascades: List[str], users: Dict[str, set]):
             mat[i, j] = len(users[cascades[i]] & users[cascades[j]]) / len(users[cascades[i]] | users[cascades[j]])
             counter += 1
             if counter % step == 0:
-                logger.debug('%d%% done', counter / pairs_count * 100)
+                logger.debug('%.1f%% done', counter / pairs_count * 100)
 
     # mat += mat.transpose() + np.eye(count)
-    # mat += mat.transpose() + sparse.eye(count, count, format='csr')
-    mat += mat.transpose()
+    mat += mat.transpose() + sparse.eye(count, count, format='csr')
+    # mat += mat.transpose()
 
     return mat.tocsr()
 
@@ -161,8 +161,9 @@ def cluster_mat(mat, clust_num, method):
         clustering = SpectralClustering(n_clusters=clust_num,
                                         assign_labels="cluster_qr",
                                         random_state=0,
-                                        # gamma=100,
+                                        # gamma=10,
                                         affinity='precomputed',
+                                        eigen_solver='lobpcg',
                                         # n_jobs=settings.DEFAULT_WORKERS,
                                         verbose=True).fit(mat)
         return clustering.labels_
@@ -223,44 +224,44 @@ def merge_sets(sets):
     return set(reduce(lambda x, y: x | y, sets, set()))
 
 
-def create_cascade_features(cascades: typing.List[str], users: typing.Dict[str, set], db_name: str):
-    logger.info('creating cascade feature vectors ...')
+# def create_cascade_features(cascades: typing.List[str], users: typing.Dict[str, set], db_name: str):
+#     logger.info('creating cascade feature vectors ...')
+#
+#     logger.debug('gathering all users ...')
+#     user_sets = list(users.values())
+#     step = 1000
+#     user_set_partitions = [user_sets[i:i + step] for i in range(0, len(cascades), step)]
+#     # with ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
+#     with ProcessPoolExecutor(max_workers=5) as executor:
+#         merged_sets = executor.map(merge_sets, user_set_partitions)
+#     del user_set_partitions
+#     all_users = list(reduce(lambda x, y: x | y, merged_sets, set()))
+#     logger.debug('creating dict of uid to index ...')
+#     uid_to_index = {all_users[i]: i for i in range(len(all_users))}
+#     u_count = len(all_users)
+#     del all_users
+#
+#     mat = sparse.lil_matrix((len(cascades), u_count), dtype=bool)
+#
+#     logger.debug('filling matrix ...')
+#     for i in range(len(cascades)):
+#         cid = cascades[i]
+#         u_indexes = [uid_to_index[u] for u in users[cid]]
+#         mat[i, u_indexes] = 1
+#         if i % 100 == 0:
+#             logger.debug('%.1f%% done', i * 100 / len(cascades))
+#
+#     if u_count > 100:
+#         logger.info('decreasing dimensions ...')
+#         # pca = SparsePCA(n_components=100)
+#         # mat = pca.fit_transform(mat)
+#         svd = TruncatedSVD(n_components=100)
+#         mat = svd.fit_transform(mat)
+#     logger.debug('mat.shape = %s', mat.shape)
+#     return mat
 
-    logger.debug('gathering all users ...')
-    user_sets = list(users.values())
-    step = 1000
-    user_set_partitions = [user_sets[i:i + step] for i in range(0, len(cascades), step)]
-    # with ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
-    with ProcessPoolExecutor(max_workers=5) as executor:
-        merged_sets = executor.map(merge_sets, user_set_partitions)
-    del user_set_partitions
-    all_users = list(reduce(lambda x, y: x | y, merged_sets, set()))
-    logger.debug('creating dict of uid to index ...')
-    uid_to_index = {all_users[i]: i for i in range(len(all_users))}
-    u_count = len(all_users)
-    del all_users
 
-    mat = sparse.lil_matrix((len(cascades), u_count), dtype=bool)
-
-    logger.debug('filling matrix ...')
-    for i in range(len(cascades)):
-        cid = cascades[i]
-        u_indexes = [uid_to_index[u] for u in users[cid]]
-        mat[i, u_indexes] = 1
-        if i % 100 == 0:
-            logger.debug('%.1f%% done', i * 100 / len(cascades))
-
-    if u_count > 100:
-        logger.info('decreasing dimensions ...')
-        # pca = SparsePCA(n_components=100)
-        # mat = pca.fit_transform(mat)
-        svd = TruncatedSVD(n_components=100)
-        mat = svd.fit_transform(mat)
-    logger.debug('mat.shape = %s', mat.shape)
-    return mat
-
-
-def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_name):
+def run_clustering(clust_num, db_name, min_size, max_size, depth, method, file_name):
     base_file_name = os.path.join(BASE_PATH, 'data', 'clusters',
                                   f'{db_name}-{min_size}to{max_size}-{depth}')
     # mat_file_name = base_file_name + '-mat.npy'
@@ -306,19 +307,14 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
 
         # Normalize the matrix.
         logger.info('normalizing the matrix ...')
-        mat = mat.reshape((1, count ** 2))
-        mat = normalize(mat, norm='max')
-        mat = mat.reshape((count, count))
-        mat += sparse.eye(count, count, format='csr')
 
         # mat = create_cascade_features(cascades, users, db_name)
 
         with open(cascades_file_name, 'w') as f:
             json.dump(cascades, f)
-        # np.save(mat_file_name, mat)
         sparse.save_npz(mat_file_name, mat)
 
-    affinity = mat
+    affinity = mat.copy()
     # if len(cascades) > 100:
     #     logger.info('decreasing dimensions ...')
     #     mat = TruncatedSVD(n_components=100).fit_transform(mat)
@@ -326,9 +322,14 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
 
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
-
     labels = cluster_mat(mat, clust_num, method)
 
+    clusters = save_results(affinity, cascades, file_name, labels)
+
+    return clusters
+
+
+def save_results(affinity, cascades, file_name, labels):
     # Create the ordered indexes of cascades.
     ordered_ind = np.array([], dtype=np.int64)
     uni_val = np.unique(labels)
@@ -338,7 +339,6 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
     file_handler = logging.FileHandler(file_name + '.out', 'w', 'utf-8')
     file_handler.setFormatter(logging.Formatter(settings.LOG_FORMAT))
     logger.addHandler(file_handler)
-
     logger.info('%d cluster(s) found', uni_val.size)
     for val in uni_val:
         indexes = np.nonzero(labels == val)[0]
@@ -348,18 +348,21 @@ def save_clusters(clust_num, db_name, min_size, max_size, depth, method, file_na
         mean = np.mean(affinity[indexes, :][:, indexes])
         logger.info('cluster %d with %d cascades and mean Jaccard value of %f', val, indexes.size, mean)
         # logger.info('cluster %d with %d cascades', val, indexes.size)
-
     # Save the clusters into the file.
     with open(file_name + '.json', 'w') as f:
         json.dump({str(key): clust for key, clust in clusters.items()}, f, indent=4)
-
     new_mat = affinity[:, ordered_ind]
     new_mat = new_mat[ordered_ind, :]
+
+    # new_mat -= sparse.eye(count, count, format='csr')
+    # new_mat = new_mat.reshape((1, count ** 2))
+    # new_mat = normalize(new_mat, norm='max')
+    # new_mat = mat.reshape((count, count))
+    # new_mat += sparse.eye(count, count, format='csr')
 
     # Calculate the clustering error.
     error = calc_error(new_mat, clusters)
     logger.info('error = %f', error)
-
     heat_map(new_mat, file_name + '.png')
 
     return clusters
@@ -397,7 +400,7 @@ def main():
         with open(clusters_file_name) as f:
             clusters = {int(key): value for key, value in json.load(f).items()}
     else:
-        clusters = save_clusters(args.clusters, args.db, args.min, args.max, args.depth, method, file_name)
+        clusters = run_clustering(args.clusters, args.db, args.min, args.max, args.depth, method, file_name)
 
     if args.create_by_index:
         if args.project is None:

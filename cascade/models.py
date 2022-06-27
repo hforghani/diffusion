@@ -398,7 +398,7 @@ class Project:
             Create diffusion edge if a user reshares to another for the first time. Note that reshares are 
             sorted by time.
             """
-            logger.debug('TREE: reshares count = %d' % reshares.count())
+            # logger.debug('TREE: reshares count = %d' % reshares.count())
             roots = []
             for reshare in reshares:
                 child_id = reshare['user_id']

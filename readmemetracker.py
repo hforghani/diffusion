@@ -114,7 +114,7 @@ class Command:
 
         logger.info('extracting new cascades ...')
         step = 3 * 10 ** 6
-        m_count = db.cascades.count()
+        m_count = db.cascades.count_documents({})
         cursor = db.cascades.find({}, {'_id': 0, 'text': 1}, no_cursor_timeout=True)
         i = 0
         for m in cursor:
@@ -143,7 +143,7 @@ class Command:
 
         logger.info('extracting new urls ...')
         step = 10 ** 7
-        p_count = db.posts.count()
+        p_count = db.posts.count_documents({})
         for i in range(0, p_count, step):
             cursor = db.posts.find({}, {'_id': 0, 'url': 1}, no_cursor_timeout=True)
             existing_urls = {p['url'] for p in cursor.skip(i).limit(step)}
@@ -340,7 +340,7 @@ class Command:
         src_ids = set(source_ids) - {post_id}
         if src_ids:
             src_posts = db.posts.find({'_id': {'$in': list(src_ids)}})
-            count = src_posts.count()
+            count = src_posts.count_documents({})
             src_posts.rewind()
             if count != len(src_ids):  # Raise an error if some of link posts do not exist.
                 not_existing = src_ids - {p['_id'] for p in src_posts}
@@ -357,7 +357,7 @@ class Command:
 
         # Replace cascade texts with cascade ids and create temporary data files.
         from_path = path
-        cascades_count = db.cascades.count()
+        cascades_count = db.cascades.count_documents({})
         step = 10 ** 7
         i = 0
         t0 = time.time()
@@ -376,7 +376,7 @@ class Command:
             t0 = time.time()
 
         # Replace post urls with post ids and create temporary data files.
-        posts_count = db.posts.count()
+        posts_count = db.posts.count_documents({})
         step = 10 ** 7
         i = 0
         t0 = time.time()
@@ -469,7 +469,7 @@ class Command:
 
     def calc_cascade_values(self, db_name):
         db = DBManager(db_name).db
-        count = db.cascades.count()
+        count = db.cascades.count_documents({})
         save_step = 10 ** 6
 
         logger.info('query of cascade sizes (number of users) ...')

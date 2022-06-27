@@ -72,7 +72,7 @@ class Command:
 
     def calc_depths(self, db_name, do_continue=False):
         db = DBManager(db_name).db
-        count = db.reshares.count()
+        count = db.reshares.count_documents({})
         logger.info('number of all reshares: {}'.format(count))
 
         reshares = db.reshares.find({},

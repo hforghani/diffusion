@@ -60,7 +60,7 @@ class EvidenceManager(DBManager):
             raise DataDoesNotExist('No evidences exist for training set given')
 
         documents = self.__find_by_set_id(set_id)
-        if documents.count():
+        if documents.count_documents({}):
             return {
                 doc.user_id: self._str_to_sequences(doc.read()) for doc in documents
             }
@@ -78,7 +78,7 @@ class EvidenceManager(DBManager):
             raise DataDoesNotExist('No evidences exist for training set given')
 
         documents = self.__find_by_set_id(set_id)
-        if documents.count():
+        if documents.count_documents({}):
             for doc in documents:
                 yield doc['user_id'], self._str_to_sequences(doc.read())
         else:

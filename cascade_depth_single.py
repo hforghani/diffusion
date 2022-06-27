@@ -33,7 +33,7 @@ class Command:
 
     def calc_depths(self, cascade_id):
         db = DBManager(args.db).db
-        count = db.reshares.count()
+        count = db.reshares.count_documents({})
         logger.info('number of all reshares: {}'.format(count))
 
         post_ids = [pm['post_id'] for pm in

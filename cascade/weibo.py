@@ -141,7 +141,7 @@ def create_retweets(path, start_index, users_map, user_ids, cascades_map, db_nam
     i = 0
     t0 = time.time()
     db = DBManager(db_name).db
-    cascades_count = db.cascades.count()
+    cascades_count = db.cascades.count_documents({})
     post_cascades = []
     reshares = []
 
@@ -316,7 +316,7 @@ def read_one_reshare_seq(f, cascade_id, original_uid, users_map, posts_map, db_n
 
 def calc_cascades_values(db_name):
     db = DBManager(db_name).db
-    count = db.cascades.count()
+    count = db.cascades.count_documents({})
     save_step = 10 ** 6
 
     logger.info('query of cascade sizes (number of users) ...')
