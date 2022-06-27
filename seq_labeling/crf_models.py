@@ -151,7 +151,8 @@ class CRFModel(NodeSeqLabelModel):
                     count += 1
                 except FileNotFoundError:
                     pass
-        logger.info('%d files cleaned up', count)
+        if count:
+            logger.info('%d files cleaned up', count)
 
     def __del__(self):
         if not self.keep_temp_files:
