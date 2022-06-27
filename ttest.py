@@ -25,8 +25,7 @@ def run_method(method, project_name, eco, criterion):
     return mean_f1, f1_values
 
 
-def multiple_run(methods1: list, methods2: list, project_name: str, eco: bool,
-                 criterion: Criterion) -> dict:
+def multiple_run(methods1: list, methods2: list, project_name: str, eco: bool, criterion: Criterion) -> dict:
     methods = methods1 + methods2
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:

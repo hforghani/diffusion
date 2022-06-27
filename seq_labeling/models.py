@@ -9,7 +9,6 @@ from itertools import repeat
 
 import numpy as np
 import psutil
-from networkx import DiGraph
 from pympler.asizeof import asizeof
 
 import settings

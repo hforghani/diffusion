@@ -82,7 +82,7 @@ class ProjectTester(abc.ABC):
         self.criterion = criterion
         self.eco = eco
 
-    def run(self, initial_depth: int, max_depth: int, n_iter: int, **kwargs) -> tuple:
+    def run(self, initial_depth: int, max_depth: int, n_iter: int = None, **kwargs) -> tuple:
         """ Run cross-validation for the project """
         tunables = {key: kwargs[key] for key in kwargs if isinstance(kwargs[key], tuple)}
         nontunables = {key: kwargs[key] for key in kwargs if key not in tunables}
