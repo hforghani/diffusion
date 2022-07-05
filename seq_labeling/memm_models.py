@@ -40,7 +40,7 @@ class LongMEMMModel(NodeMEMMModel):
     def get_memm_instance(cls, *args, **kwargs):
         return LongMEMM()
 
-    def _get_predicted_node_id(self, obs_seq, model, tree, obs_node_ids):
+    def _predict_parent_id(self, obs_seq, model, tree, obs_node_ids):
         # Set the parent with the maximum value of Lambda which is also activated at the current step as the
         # predicted parent of this child.
         obs_dim = len(obs_node_ids)

@@ -61,5 +61,6 @@ target/
 .idea/*
 *.lprof
 local_settings.py
+local_params.py
 data/*
 venv/*

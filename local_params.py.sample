@@ -1,0 +1,7 @@
+from diffusion.enum import Method
+
+PARAM = {
+    Method.SOME_METHOD: {
+        'project_name': {} # Parameters
+    }
+} # Used only in multi_predict.py & ttest.py

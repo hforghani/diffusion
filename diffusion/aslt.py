@@ -334,17 +334,12 @@ class AsLT(LT):
             with Timer('iteration time'):
                 logger.info('#%d' % (i + 1))
 
-                h = self._load_or_calc_h(sequences, graph, w, r, train_set, cascade_map, user_map, project,
-                                         multi_processed, eco)
-                phi_h = self.__load_or_calc_phi_h(sequences, graph, w, r, h, train_set, cascade_map, user_map, project,
-                                                  multi_processed, eco)
-                g = self.__load_or_calc_g(sequences, graph, w, r, train_set, cascade_map, user_map, project,
-                                          multi_processed,
-                                          eco)
-                phi_g = self.__load_or_calc_phi_g(sequences, graph, w, g, train_set, cascade_map, user_map, project,
-                                                  multi_processed, eco)
-                psi = self.__load_or_calc_psi(sequences, graph, w, r, g, train_set, cascade_map, user_map, project,
-                                              multi_processed, eco)
+                h = self.__calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
+                phi_h = self.__calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map,
+                                             multi_processed)
+                g = self.__calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
+                phi_g = self.__calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed)
+                psi = self.__calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed)
                 del g
 
                 logger.debug('estimating r ...')
@@ -352,10 +347,6 @@ class AsLT(LT):
                 r_multi_processed = multi_processed and len(user_ids) < 2 * 10 ** 7
                 r = self.__calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, cascade_map, user_map,
                                      r_multi_processed)
-
-                if eco:
-                    phi_g = project.load_param('phi_g', ParamTypes.SPARSE_LIST)
-                    logger.debug('phi_g loaded')
 
                 logger.debug('estimating w ...')
                 last_w = w
@@ -385,77 +376,6 @@ class AsLT(LT):
 
         self.w = w.toarray()
         self.r = r
-
-    def __load_or_calc_psi(self, sequences, graph, w, r, g, train_set, cascade_map, user_map, project, multi_processed,
-                           eco):
-        data_loaded = False
-        if eco:
-            try:
-                psi = project.load_param('psi', ParamTypes.SPARSE_LIST)
-                logger.debug('psi loaded')
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.debug('calculating psi ...')
-            psi = self.__calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed)
-        return psi
-
-    def __load_or_calc_phi_g(self, sequences, graph, w, g, train_set, cascade_map, user_map, project, multi_processed,
-                             eco):
-        data_loaded = False
-        if eco:
-            try:
-                phi_g = project.load_param('phi_g', ParamTypes.SPARSE_LIST)  # Just check if exists.
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.debug('calculating phi_g ...')
-            phi_g = self.__calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed)
-        return phi_g
-
-    def __load_or_calc_phi_h(self, sequences, graph, w, r, h, train_set, cascade_map, user_map, project,
-                             multi_processed, eco):
-        data_loaded = False
-        if eco:
-            try:
-                phi_h = project.load_param('phi_h', ParamTypes.SPARSE_LIST)  # Just check if exists.
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.debug('calculating phi_h ...')
-            phi_h = self.__calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map, multi_processed)
-        return phi_h
-
-    def __load_or_calc_g(self, sequences, graph, w, r, train_set, cascade_map, user_map, project, multi_processed, eco):
-        data_loaded = False
-        if eco:
-            try:
-                g = project.load_param('g', ParamTypes.SPARSE)
-                logger.debug('g loaded')
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.debug('calculating g ...')
-            g = self.__calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
-        return g
-
-    def _load_or_calc_h(self, sequences, graph, w, r, train_set, cascade_map, user_map, project, multi_processed, eco):
-        data_loaded = False
-        if eco:
-            try:
-                h = project.load_param('h', ParamTypes.SPARSE)
-                logger.debug('h loaded')
-                data_loaded = True
-            except FileNotFoundError:
-                pass
-        if not data_loaded:
-            logger.debug('calculating h ...')
-            h = self.__calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
-        return h
 
     def __initialize(self, user_ids, user_map, graph, project, eco):
         data_loaded = False

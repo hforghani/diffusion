@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
-from local_settings import *
+from local_settings import *  # Do not remove!
+from local_params import *  # Do not remove!
 
 BASE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '')
 

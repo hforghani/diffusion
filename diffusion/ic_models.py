@@ -133,8 +133,12 @@ class EMIC(IC):
                 new_k[u_index, v_index] = 0
             else:
                 neg_count = neg_counts[(u_index, v_index)]
-                new_k[u_index, v_index] = k[u_index, v_index] * np.sum(1 / p[pos_indexes_u_v, v_index].toarray()) / (
-                        pos_indexes_u_v.size + neg_count)
+                if pos_indexes_u_v.size == 1:
+                    new_k[u_index, v_index] = k[u_index, v_index] / (p[pos_indexes_u_v[0], v_index] * (1 + neg_count))
+                else:
+                    new_k[u_index, v_index] = k[u_index, v_index] * np.sum(
+                        1 / p[pos_indexes_u_v, v_index].toarray()) / (
+                                                      pos_indexes_u_v.size + neg_count)
                 logger.debugv('negatives count = %d', neg_count)
 
             logger.debugv('positives count = %d', pos_indexes_u_v.size)
@@ -175,7 +179,10 @@ class EMIC(IC):
                     # logger.debugv('previous step users =\n%s', pprint.pformat(prev_step))
                     prev_par_indexes = [user_map[u] for u in parents & prev_step]
                     if prev_par_indexes:
-                        p[cindex, vindex] = 1 - np.prod(1 - k[prev_par_indexes, vindex].toarray())
+                        if len(prev_par_indexes) == 1:
+                            p[cindex, vindex] = k[prev_par_indexes[0], vindex]
+                        else:
+                            p[cindex, vindex] = 1 - np.prod(1 - k[prev_par_indexes, vindex].toarray())
                         logger.debugv('prev_par_indexes = %s', prev_par_indexes)
                         # logger.debugv('k[prev_par_indexes, vindex] = %s', k[prev_par_indexes, vindex])
                         # logger.debugv('p[cindex, vindex] = %f', p[cindex, vindex])

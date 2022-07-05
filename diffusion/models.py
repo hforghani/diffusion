@@ -25,7 +25,20 @@ class DiffusionModel(BaseEstimator, abc.ABC):
 
     @abc.abstractmethod
     def fit(self, train_set, train_trees, project, multi_processed=False, eco=False, **kwargs):
-        pass
+        """
+        Fit the model. Must return self instance. Be sure to run the super's "fit" in every overridden method.
+        :param train_set: collection of training cascade ids.
+        :param train_trees: collection of training trees in the same order as train_set
+        :param project: the project for which we want to fit the model
+        :param multi_processed: If true the training is done using multiple cores.
+        :param eco: If true the saved model will be fetched from disk if exists and the model will be saved into disk if not.
+        :param kwargs:
+        :return: self
+        """
+        logger.info('params = %s', self.get_params())
+        self.project = project
+        self.graph = self.project.load_or_extract_graph(train_set)
+        return self
 
     def predict(self, test_set: list):
         """
@@ -77,8 +90,7 @@ class LT(DiffusionModel, abc.ABC):
         self.r_param_name = None  # Must be implemented in subclasses.
 
     def fit(self, train_set, train_trees, project, multi_processed=False, eco=False, **kwargs):
-        logger.info('params = %s', self.get_params())
-        self.project = project
+        super().fit(train_set, train_trees, project, multi_processed, eco)
         data_loaded = False
         if eco:
             try:
@@ -265,8 +277,7 @@ class IC(DiffusionModel, abc.ABC):
         self.r_param_name = None  # Must be implemented in subclasses.
 
     def fit(self, train_set, train_trees, project, multi_processed=False, eco=False, **kwargs):
-        logger.info('params = %s', self.get_params())
-        self.project = project
+        super().fit(train_set, train_trees, project, multi_processed, eco)
         data_loaded = False
         if eco:
             try:

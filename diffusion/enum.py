@@ -25,6 +25,7 @@ class Method(Enum):
     MLN_TUFFY = 'mlntuffy'
     # MLN_PRAC = 'mlnprac'
     # MLN_ALCH = 'mlnalch'
+    UNI_MRF = 'unimrf'
 
 
 class Criterion(Enum):

@@ -133,7 +133,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         random.shuffle(node_ids)
 
         futures = []
-        step = 10000
+        step = 1000
         with ProcessPoolExecutor(max_workers=settings.TRAIN_WORKERS) as executor:
             for i in range(0, len(node_ids), step):
                 evidences_i = {nid: evidences[nid] for nid in node_ids[i:i + step]}
@@ -198,9 +198,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         Load models from DB if existed, otherwise train a seq labeling model for each user in the training set.
         :return: self
         """
-        logger.debug('kwargs = %s', kwargs)
-        logger.info('params = %s', self.get_params())
-        self.project = project
+        super().fit(train_set, train_trees, project, multi_processed, eco)
         graph = project.load_or_extract_graph(train_set)
         self.graph = graph
 
@@ -397,7 +395,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                 model = self._get_model(child_id)
 
                 if model is not None:
-                    logger.debugv('testing reshare to %s ...', child_id)
+                    logger.debugv('testing diffusion to %s ...', child_id)
                     parents = list(graph.predecessors(child_id))
 
                     if child_id not in active_ids:
@@ -409,9 +407,9 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                             obs_seq.append(obs)
                             if settings.LOG_LEVEL <= DEBUG_LEVELV_NUM:
                                 logger.debugv('obs_seq = \n%s', [arr_to_str(obs) for obs in obs_seq])
-                            node_id, pred = self._predict_by_obs(obs_seq, thr, model, tree, parents)
-                            if node_id:
-                                node = tree.add_node(child_id, parent_id=node_id)
+                            parent_id, pred = self._predict_by_obs(obs_seq, thr, model, tree, parents)
+                            if parent_id:
+                                node = tree.add_node(child_id, parent_id=parent_id)
                                 node.probability = pred.prob
                                 active_ids.add(child_id)
                                 next_step.add(child_id)
@@ -487,7 +485,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                 model = self._get_model(child_id)
 
                 if model is not None:
-                    logger.debugv('testing reshare to %s ...', child_id)
+                    logger.debugv('testing diffusion to %s ...', child_id)
                     parents = list(graph.predecessors(child_id))
                     activated = False
                     last_pred = None
@@ -507,11 +505,11 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                                 #     logger.debugv('obs = \n%s', arr_to_str(obs))
                                 logger.debugv('threshold %f ...', thr)
                                 # with timers[3]:
-                                node_id, pred = self._predict_by_obs(obs_seq, thr, model, trees[thr], parents,
-                                                                     last_pred)
+                                parent_id, pred = self._predict_by_obs(obs_seq, thr, model, trees[thr], parents,
+                                                                       last_pred)
                                 last_pred = pred
-                                if node_id:
-                                    trees[thr].add_node(child_id, parent_id=node_id)
+                                if parent_id:
+                                    trees[thr].add_node(child_id, parent_id=parent_id)
                                     thr_active_ids.add(child_id)
                                     activated = True
                         else:
@@ -534,7 +532,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
 
         return trees
 
-    def _get_predicted_node_id(self, obs_seq, model, tree, obs_node_ids):
+    def _predict_parent_id(self, obs_seq, model, tree, obs_node_ids):
         # Set the parent with the maximum value of Lambda which is also activated at the current step as the
         # predicted parent of this child.
         conv_indexes = [model.orig_indexes_map.get(ind) for ind in obs_seq[0]]
@@ -571,10 +569,10 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
         pred = Prediction(obs_seq, prob)
 
         if prob >= thr:
-            node_id = self._get_predicted_node_id(obs_seq, model, tree, obs_node_ids)
-            if node_id:
-                logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
-            return node_id, pred
+            parent_id = self._predict_parent_id(obs_seq, model, tree, obs_node_ids)
+            if parent_id:
+                logger.debugv('a diffusion predicted from %s with prob %f >= %f', parent_id, prob, thr)
+            return parent_id, pred
 
         return None, pred
 
@@ -669,7 +667,7 @@ class MultiStateModel(NodeSeqLabelModel, abc.ABC):
         if state > 0 and prob >= thr:
             node_id = obs_node_ids[state - 1]
             if tree.get_node(node_id):
-                logger.debugv('a reshare predicted from %s with prob %f >= %f', node_id, prob, thr)
+                logger.debugv('a diffusion predicted from %s with prob %f >= %f', node_id, prob, thr)
                 return node_id, pred
             else:
                 logger.warning('parent node %s does not exist', node_id)

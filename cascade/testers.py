@@ -23,6 +23,7 @@ from diffusion.models import DiffusionModel
 from seq_labeling.crf_models import *
 from seq_labeling.memm_models import *
 from mln.models import TuffyICMLNModel
+from seq_labeling.unified_models import UnifiedMRFModel
 from settings import logger
 from utils.time_utils import time_measure, Timer, TimeUnit
 
@@ -49,7 +50,9 @@ METHOD_MODEL_MAP = {
     Method.MULTI_STATE_BIN_CRF: MultiStateBinCRFModel,
     Method.MULTI_STATE_TD_CRF: MultiStateTDCRFModel,
 
-    Method.MLN_TUFFY: TuffyICMLNModel
+    Method.MLN_TUFFY: TuffyICMLNModel,
+
+    Method.UNI_MRF: UnifiedMRFModel
 }
 
 
@@ -195,9 +198,9 @@ class ProjectTester(abc.ABC):
                 results.setdefault(thr, [])
                 results[thr].append(fold_res[thr].f1)
 
-        logger.debug('results = %s', results)
+        # logger.debug('results = %s', results)
         mean_res = {thr: np.mean(np.array(results[thr])) for thr in results}
-        logger.debug('mean_res = %s', mean_res)
+        logger.debug('mean_res = %s', pprint.pformat(mean_res))
         best_thr = max(mean_res, key=lambda thr: mean_res[thr])
         best_params = params.copy()
         best_params['threshold'] = best_thr

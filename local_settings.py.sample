@@ -20,9 +20,3 @@ EVID_WORKERS = DEFAULT_WORKERS # Max number of workers for seq labeling models e
 TRAIN_WORKERS = DEFAULT_WORKERS # Max number of workers for training
 TEST_WORKERS = DEFAULT_WORKERS # Max number of workers for test
 RSCV_WORKERS = DEFAULT_WORKERS # Max number of workers for randomized search cross-validation
-
-PARAM = {
-    Method.MULTI_STATE_BIN_CRF: {
-        'project_name': {} # Parameters
-    }
-} # Used only in multi_predict.py & ttest.py
