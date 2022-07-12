@@ -26,6 +26,12 @@ def merge(dict1, dict2):
     return dict(list(dict1.items()) + list(dict2.items()))
 
 
+def report_sum():
+    for timer in timers:
+        if timer.sum:
+            timer.report_sum()
+
+
 class UnifiedMRFModel(DiffusionModel):
     method = Method.UNI_MRF
     max_iterations = 20
@@ -71,6 +77,8 @@ class UnifiedMRFModel(DiffusionModel):
             if np.max(dif_values) < self.epsilon:
                 logger.info('stop criterion met')
                 break
+
+        return self
 
     def predict_one_sample(self, initial_tree, threshold, graph, max_step=None):
         if not isinstance(threshold, list):
@@ -225,8 +233,13 @@ class UnifiedMRFModel(DiffusionModel):
                     states_m = states[m]
                     pot_sum_i += np.add.reduce([
                         self.__feature(i, t,
-                                       merge({(i, t): states_m[i, t - 1], (i, t - 1): states_m[i, t - 2]},
-                                             {(j, t - 1): states_m[j, t - 2] for j in pred_indexes}),
+                                       np.concatenate(
+                                           (
+                                               np.array([states_m[i, t - 2], states_m[i, t - 1]]),
+                                               states_m[pred_indexes, t - 2].toarray().squeeze() if len(
+                                                   pred_indexes) > 1 else np.array([states_m[pred_indexes[0], t - 2]])
+                                           )
+                                       ),
                                        pred_indexes)
                         for t in range(2, max_depth + 1)])
                 potential_sums[node_id] = pot_sum_i
@@ -238,25 +251,6 @@ class UnifiedMRFModel(DiffusionModel):
             return np.array([states[m][node_indexes[0], t]])
         else:
             return states[m][node_indexes, t].toarray().squeeze()
-
-    def __feature(self, i: int, t: int, values: typing.Dict[tuple, object], pred_indexes: list):
-        """
-        Get the feature vector f(S_i_t, S_Pa(i)_(t-1)).
-        :param i:
-        :param t:
-        :param values: dict of tuples (i',t') to the values S_i'_t'
-        :param pred_indexes: indexes of predecessors of node i
-        :return: numpy array of the feature
-        """
-        # logger.debug('i, t = %s', (i, t))
-        # logger.debug('values = %s', values)
-        if values[(i, t)]:
-            f = np.array([values[i, t - 1]] + [values[(j, t - 1)] for j in pred_indexes])
-        else:
-            f = np.zeros(len(pred_indexes) + 1, dtype=bool)
-            # return np.logical_not(np.array([values[i, t - 1]] + [values[(j, t - 1)] for j in pred_indexes]))
-        # logger.debug('feature = %s', arr_to_str(f))
-        return f
 
     def __predict(self, thr, node_id, tree, parent_states, new_active_ids, parents, last_pred):
         if last_pred is not None and np.array_equal(parent_states, last_pred.parent_states):
@@ -273,6 +267,25 @@ class UnifiedMRFModel(DiffusionModel):
             return node_id, pred
 
         return None, pred
+
+    def __feature(self, i: int, t: int, values: np.ndarray, pred_indexes: list):
+        """
+        Get the feature vector f(S_i_t, S_Pa(i)_(t-1)).
+        :param i:
+        :param t:
+        :param values: dict of tuples (i',t') to the values S_i'_t'
+        :param pred_indexes: indexes of predecessors of node i
+        :return: numpy array of the feature
+        """
+        # logger.debug('i, t = %s', (i, t))
+        # logger.debug('values = %s', values)
+        if values[0]:
+            f = values[1:]
+        else:
+            f = np.zeros(values.size - 1, dtype=bool)
+            # f = np.logical_not(np.array([values[i, t - 1]] + [values[(j, t - 1)] for j in pred_indexes]))
+        # logger.debug('feature = %s', arr_to_str(f))
+        return f
 
     def __act_prob(self, i, t, pred_indexes, pred_states, lambdaa):
         pred_values = merge({(j, t - 1): pred_states[j] for j in pred_indexes}, {(i, t - 1): False})
@@ -311,7 +324,7 @@ class UnifiedMRFModel(DiffusionModel):
             logger.warning('parent node %s does not exist', predicted_node_id)
 
     def __state_values(self, i: int, t: int, pred_indexes: list, fix_values: typing.Dict[tuple, object] = None) -> \
-            typing.List[dict]:
+            typing.Generator[np.ndarray, None, None]:
         """
         Get the tuples of valid (S_i_t, S_Pa(i)_(t-1)) values. if fix_var is given, the value of fix_var is fixed to
         the given fix_val.
@@ -325,39 +338,35 @@ class UnifiedMRFModel(DiffusionModel):
         i_values = [(False, False), (False, True), (True, True)]
         pred_val_ranges = [[False, True]] * len(pred_indexes)
         if fix_values:
+            # logger.debug('fix_values = %s', fix_values)
             for var, value in fix_values.items():
                 if len(var) != 2:
                     raise ValueError('length of each element of fix_vars must be 2')
                 elif var == (i, t):
                     i_values = [val for val in i_values if val[1] == value]
+                    # logger.debug('(i,t) fixed')
                 elif var == (i, t - 1):
                     i_values = [val for val in i_values if val[0] == value]
+                    # logger.debug('(i,t-1) fixed')
                 elif var[0] in pred_indexes and var[1] == t - 1:
                     pred_val_ranges[pred_indexes.index(var[0])] = [value]
+                    # logger.debug('(j,t-1) fixed')
                 else:
                     raise ValueError(f'invalid value {value} for the click {(i, t)}')
         # logger.debug('i_values = %s', i_values)
         # logger.debug('pred_val_ranges = %s', pred_val_ranges)
         pred_values = itertools.product(*pred_val_ranges)
         num = np.prod(np.array([len(r) for r in pred_val_ranges])) * len(i_values)
-        logger.debug('iterating over %d values', num)
+        # logger.debug('iterating over %d values', num)
         counter = 0
         for pred_val in pred_values:
-            with timers[0]:
-                pred_val_dict = {(pred_indexes[j], t - 1): pred_val[j] for j in range(len(pred_indexes))}
             for s_i_t_minus_1, s_i_t in i_values:
                 counter += 1
-                if num > 10 ** 6 and counter % 10 ** 6 == 0:
+                if counter % 10 ** 5 == 0:
                     logger.debug('%d%% of values done', counter / num * 100)
-                if counter % 10 ** 6 == 0:
-                    for timer in timers:
-                        if timer.sum:
-                            timer.report_sum()
-                with timers[1]:
-                    # yield merge({(i, t): s_i_t, (i, t - 1): s_i_t_minus_1}, pred_val_dict)
-                    values = pred_val_dict.copy()
-                    values.update({(i, t): s_i_t, (i, t - 1): s_i_t_minus_1})
-                    yield values
+                    report_sum()
+                with timers[0]:
+                    yield np.array((s_i_t, s_i_t_minus_1) + pred_val)
 
     def __joint_prob_i_t(self, i, t, values_i_t, pred_indexes, junction_tree, node_ids, nodes_map, graph):
         """
@@ -366,15 +375,15 @@ class UnifiedMRFModel(DiffusionModel):
         """
         root = (i, t)
         logger.debug('root = %s', root)
-        logger.debug('values = %s', values_i_t)
+        logger.debug('values = %s', arr_to_str(values_i_t))
 
         # If the last state is active, the current step must be deterministically 1.
-        if values_i_t[(i, t - 1)]:
-            return 1 if values_i_t[(i, t)] else 0
+        if values_i_t[1]:  # S_i^{t - 1}
+            return 1 if values_i_t[0] else 0
 
         bfs_tree = networkx.bfs_tree(junction_tree, root)
         leaves = {click for click in bfs_tree if bfs_tree.out_degree(click) == 0}
-        logger.debug('leaves = %s', leaves)
+        # logger.debug('leaves = %s', leaves)
         del bfs_tree
         current_clicks = leaves.copy()
         next_clicks = set()
@@ -382,57 +391,103 @@ class UnifiedMRFModel(DiffusionModel):
         unmet = set(junction_tree.nodes())
         it = 0
 
-        while len(unmet) > 1:
+        while current_clicks:
+            logger.debug('current_clicks = %s', current_clicks)
+            logger.debug('num of current_clicks = %d', len(current_clicks))
+            logger.debug('num of unmet = %d', len(unmet))
+
             for src in current_clicks:
+                unmet.remove(src)
                 i_src, t_src = src
                 src_pred_indexes = [nodes_map[j] for j in graph.predecessors(node_ids[i_src])]
+                src_pred_ind_map = {src_pred_indexes[i]: i for i in range(len(src_pred_indexes))}
                 node_id = node_ids[i_src]
                 lambda_src = self.__lambda[node_id] if node_id in self.__lambda else 1
                 # logger.debug('lambda of src = %s', arr_to_str(lambda_src))
+
                 for dst in set(junction_tree.neighbors(src)) & unmet:
                     i_dst, t_dst = dst
                     if (src, dst) not in messages:
                         sep = src if t_src < t_dst else dst
                         messages[(src, dst)] = {}
                         for sep_val in [False, True]:
-                            src_values = self.__state_values(i_src, t_src, src_pred_indexes, {sep: sep_val})
-                            logger.debug('calculating message of %s to %s (%d)', src, dst, sep_val)
-                            m = 0  # message
-                            for src_val in src_values:
-                                if not src_val[(i_src, t_src)]:  # TODO: correct only if f=0 when S_i^t=0
-                                    continue
-                                # logger.debug('src_val = %s', src_val)
-                                with timers[2]:
-                                    m_prod = 1
-                                    if src not in leaves:
-                                        # logger.debug('calculating product of neighbor messages ...')
-                                        for nei in junction_tree.neighbors(src):
-                                            if nei != dst:
-                                                i_nei, t_nei = nei
-                                                sep_nei_src = src if t_src < t_nei else nei
-                                                m_prod *= messages[(nei, root)][src_val[sep_nei_src]]
-                                                # logger.debug('message of nei %s (%s = %s) = %f', nei, sep_nei_src,
-                                                #              src_val[sep_nei_src],
-                                                #              messages[(nei, root)][src_val[sep_nei_src]])
-                                with timers[3]:
-                                    f = self.__feature(i_src, t_src, src_val, src_pred_indexes)
-                                # logger.debug('feature = %s', arr_to_str(f))
+                            if src == sep and not sep_val:  # TODO: correct only if f=0 when S_i^t=0
+                                src_values = []
+                                src_values_num = 0
+                            else:
+                                src_values = self.__state_values(i_src, t_src, src_pred_indexes, fix_values={
+                                    sep: sep_val,
+                                    src: True  # TODO: correct only if f=0 when S_i^t=0
+                                })
+                                src_values_num = 2 ** len(src_pred_indexes)
+                                if sep == src:
+                                    src_values_num *= 2
+                            logger.debug('calculating message of %s to %s (%s = %d)', src, dst, sep, sep_val)
+                            logger.debug('num of predecessors = %d', len(src_pred_indexes))
+                            logger.debug('num of src values = %d', src_values_num)
+
+                            if src_values_num and src in leaves:
+                                logger.debug('creating state values matrix ...')
                                 with timers[4]:
-                                    m += np.dot(lambda_src, f) * m_prod
+                                    # TODO: correct only with binary/zero feature function.
+                                    if not isinstance(lambda_src, np.ndarray):  # lambda = 1 and there is no predecessor
+                                        m = src_values_num
+                                    elif src == sep:
+                                        m = src_values_num / 2 * np.sum(lambda_src)
+                                    else:
+                                        mul = src_values_num / 2 * lambda_src
+                                        sep_index = 0 if sep == (i_src, t_src - 1) else src_pred_ind_map[sep[0]] + 1
+                                        mul[sep_index] = sep_val * lambda_src[sep_index] * src_values_num
+                                        m = np.sum(mul)
+                            else:
+                                m = 0  # message
+                                src_neighbors = set(junction_tree.neighbors(src)) - {dst}
+                                logger.debug('src neighbors except dst: %s', src_neighbors)
+                                src_nei_msg = {(nei, val): messages[(nei, src)][val] for nei in src_neighbors for val in
+                                               [False, True]}
+                                for src_val in src_values:
+                                    # logger.debug('src_val = %s', arr_to_str(src_val))
+                                    with timers[1]:
+                                        m_prod = np.multiply.reduce(
+                                            [src_nei_msg[
+                                                 (
+                                                     nei,
+                                                     self.__get_var_val(src_val,
+                                                                        src if t_src < nei[1] else nei,
+                                                                        i_src, t_src, src_pred_ind_map)
+                                                 )
+                                             ] for nei in src_neighbors]
+                                        )
+                                    with timers[2]:
+                                        # TODO: correct only with binary/zero feature function.
+                                        if isinstance(lambda_src, np.ndarray):
+                                            # logger.debug('src_val[1:] = %s', src_val[1:])
+                                            # logger.debug('lambda_src = %s', lambda_src)
+                                            # logger.debug('src_val[1:] shape = %s', src_val[1:].shape)
+                                            # logger.debug('lambda_src shape = %s', lambda_src.shape)
+                                            m += np.sum(lambda_src[src_val[1:]]) * m_prod
+                                        else:
+                                            m += lambda_src * src_val[1] * m_prod
                             messages[(src, dst)][sep_val] = m
-                            logger.debug('message of %s to %s (%d) = %f', src, dst, sep_val, m)
-                    next_clicks.add(dst)
-                unmet.remove(src)
+                            logger.debug('message of %s to %s (%s = %d) = %f', src, dst, sep, sep_val, m)
+
+                    if len(set(junction_tree.neighbors(dst)) & unmet) <= 1:
+                        next_clicks.add(dst)  # Means all messages have been received from the children.
+
             current_clicks = next_clicks
             next_clicks = set()
             it += 1
             logger.debug('%d iter of Shafer-Shenoy done', it)
+            report_sum()
 
+        logger.debug('summing up root prob ...')
+        logger.debug('root neighbors: %s', list(junction_tree.neighbors(root)))
+        pred_indexes_map = {pred_indexes[i]: i for i in range(len(pred_indexes))}
         m_prod = 1
         for nei in junction_tree.neighbors(root):
             i_nei, t_nei = nei
             sep = root if t < t_nei else nei
-            m_prod *= messages[(nei, root)][values_i_t[sep]]
+            m_prod *= messages[(nei, root)][self.__get_var_val(values_i_t, sep, i, t, pred_indexes_map)]
         prob = np.dot(self.__lambda[node_ids[i]], self.__feature(i, t, values_i_t, pred_indexes)) * m_prod
         logger.debug('prob of click %s = %f', root, prob)
         return prob
@@ -473,6 +528,27 @@ class UnifiedMRFModel(DiffusionModel):
         # plt.savefig('junction_tree.jpg', format="JPG")
         # logger.debug('done')
         return j_tree
+
+    def __get_var_val(self, values, var, i, t, pred_indexes_map):
+        """
+        Get the value of the given variable in the array of click variables values.
+        :param values: A P+2 length array of values of the click variables where P is number of predecessors. values[0]
+        is S_i^t, values[1] is S_i^{t-1} and the rest are S_j^{t-1} for each j in predecessors of i.
+        :param var: the query variable
+        :param i: i of click
+        :param t: t of click
+        :param pred_indexes_map: dict of predecessor index to the index in Pa(i). i.e values[2+pred_indexes_map[j]] is
+        related to S_j^{t-1}
+        :return: the value of var
+        """
+        if var == (i, t):
+            return values[0]
+        elif var == (i, t - 1):
+            return values[1]
+        elif var[1] == t - 1:
+            return values[2 + pred_indexes_map[var[0]]]
+        else:
+            raise ValueError('invalid query of var %s in click %s', var, (i, t))
 
 
 class Prediction:
