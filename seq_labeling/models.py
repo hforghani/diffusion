@@ -56,7 +56,8 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             logger.info('extracting sequences from %d cascades ...', len(train_trees))
 
             if multi_processed:
-                step = 3
+                # step = 3 # For large subsets of Weibo and Memetracker
+                step = 10000  # For twitter and small subsets of all datasets
                 trees_parts = [train_trees[i:i + step] for i in range(0, len(train_trees), step)]
                 with ProcessPoolExecutor(max_workers=settings.EVID_WORKERS) as executor:
                     results = list(executor.map(extract_evidences, repeat(type(self)), repeat(graph), trees_parts))

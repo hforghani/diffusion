@@ -203,13 +203,13 @@ class CascadeTree:
     def get_node(self, user_id: ObjectId) -> CascadeNode:
         return self._id_to_node.get(user_id, None)
 
-    def add_node(self, node_id: ObjectId, act_time: str = None, parent_id: ObjectId = None) -> CascadeNode:
+    def add_node(self, node_id: ObjectId, act_time: datetime = None, parent_id: ObjectId = None) -> CascadeNode:
         """
         Add the child node to the tree. If the parent is given add it into its children.
         :param node_id: user id
         :param parent_id: parent user id
-        :param act_time: child activation time as string
-        :return: the child node
+        :param act_time: node activation time
+        :return: the created node
         """
         if node_id == parent_id:
             raise ValueError('node id and parent id must not be equal')
