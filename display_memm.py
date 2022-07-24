@@ -59,7 +59,7 @@ def get_dim_users(key, graph, method):
         dest_parents = graph.predecessors(key[1])
         dim_users = sorted(set(src_children) | set(dest_parents) - {key[1]})
     elif method == Method.FULL_TD_MEMM:
-        dim_users = list(graph.nodes())
+        dim_users = sorted(graph.nodes())
     else:
         dim_users = list(graph.predecessors(key))
     return dim_users

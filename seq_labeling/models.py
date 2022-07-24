@@ -56,11 +56,12 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             logger.info('extracting sequences from %d cascades ...', len(train_trees))
 
             if multi_processed:
-                # step = 3 # For large subsets of Weibo and Memetracker
-                step = 10000  # For twitter and small subsets of all datasets
+                step = 10  # For large subsets of Weibo and Memetracker
+                # step = 10000  # For twitter and small subsets of all datasets
                 trees_parts = [train_trees[i:i + step] for i in range(0, len(train_trees), step)]
                 with ProcessPoolExecutor(max_workers=settings.EVID_WORKERS) as executor:
-                    results = list(executor.map(extract_evidences, repeat(type(self)), repeat(graph), trees_parts))
+                    results = list(
+                        executor.map(extract_evidences, repeat(type(self)), repeat(graph), trees_parts))
                 logger.debug('len(results) = %d', len(results))
 
                 evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
@@ -200,9 +201,6 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         :return: self
         """
         super().fit(train_set, train_trees, project, multi_processed, eco)
-        graph = project.load_or_extract_graph(train_set)
-        self.graph = graph
-
         manager = self._get_seq_label_manager(project)
 
         # If it is in economical mode, train the models only if they are not saved in DB.
@@ -212,8 +210,8 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         else:
             if eco and manager is not None and not manager.db_exists():
                 logger.info('Seq labeling models do not exist in db.')
-            self._models = self._fit_by_evidences(train_set, train_trees, project, graph, iterations, multi_processed,
-                                                  eco, **kwargs)
+            self._models = self._fit_by_evidences(train_set, train_trees, project, self.graph, iterations,
+                                                  multi_processed, eco, **kwargs)
 
         logger.debug('memory usage: %f%%', psutil.virtual_memory()[2])
         return self
@@ -221,10 +219,10 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
     @classmethod
     def _extract_obs(cls, cur_step_ids: collections.Iterable, obs_node_ids: list, timers=None) -> np.ndarray:
         """
-        Add a row to obs as the first row specifying current step active nodes.
+        Get the observation array corresponding to the active node ids in the current step.
         :param cur_step_ids: current step node ids
         :param obs_node_ids: list of node ids related to the observation dimensions
-        :return: a boolean showing whether an update is done, and the new observation array
+        :return: the boolean observation array
         """
         # if timers is None:
         #     timers = [Timer(f'code {i}', level='debug') for i in range(10)]
@@ -358,6 +356,10 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
                     evidences[uid].append(cascade_seqs[uid])
 
             logger.info('evidences extracted from %d cascades', len(trees))
+            # logger.debug('size of trees : %d', asizeof(trees))
+            # # logger.debug('size of graph : %d', asizeof(graph))
+            # logger.debug('size of pred & succ : %d', asizeof(predecessors) + asizeof(successors))
+            # logger.debug('size of evidences : %d', asizeof(evidences))
             return evidences
         except:
             logger.error(traceback.format_exc())

@@ -315,18 +315,18 @@ class AsLT(LT):
         if iterations is None:
             iterations = self.max_iterations
 
-        graph, sequences = project.load_or_extract_graph_seq(train_set)
+        sequences = project.load_or_extract_act_seq(train_set)
 
         # Create maps from users and cascades db id's to their matrix id's.
         logger.debug('creating user and cascade id maps ...')
-        user_ids = sorted(graph.nodes())
+        user_ids = sorted(self.graph.nodes())
         user_map = {str(user_ids[i]): i for i in range(len(user_ids))}
         cascade_map = {str(train_set[i]): i for i in range(len(train_set))}
         logger.info('train set size = %d', len(train_set))
         logger.info('user space size = %d', len(user_map))
 
         # Set initial values of w and r.
-        w, r = self.__initialize(user_ids, user_map, graph, project, eco)
+        w, r = self.__initialize(user_ids, user_map, self.graph, project, eco)
 
         # Run EM algorithm.
         logger.info('running algorithm ...')
@@ -334,23 +334,25 @@ class AsLT(LT):
             with Timer('iteration time'):
                 logger.info('#%d' % (i + 1))
 
-                h = self.__calc_h_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
-                phi_h = self.__calc_phi_h_mp(sequences, graph, w, r, h, train_set, cascade_map, user_map,
+                h = self.__calc_h_mp(sequences, self.graph, w, r, train_set, cascade_map, user_map, multi_processed)
+                phi_h = self.__calc_phi_h_mp(sequences, self.graph, w, r, h, train_set, cascade_map, user_map,
                                              multi_processed)
-                g = self.__calc_g_mp(sequences, graph, w, r, train_set, cascade_map, user_map, multi_processed)
-                phi_g = self.__calc_phi_g_mp(sequences, graph, w, g, train_set, cascade_map, user_map, multi_processed)
-                psi = self.__calc_psi_mp(sequences, graph, w, r, g, train_set, cascade_map, user_map, multi_processed)
+                g = self.__calc_g_mp(sequences, self.graph, w, r, train_set, cascade_map, user_map, multi_processed)
+                phi_g = self.__calc_phi_g_mp(sequences, self.graph, w, g, train_set, cascade_map, user_map,
+                                             multi_processed)
+                psi = self.__calc_psi_mp(sequences, self.graph, w, r, g, train_set, cascade_map, user_map,
+                                         multi_processed)
                 del g
 
                 logger.debug('estimating r ...')
                 last_r = r
                 r_multi_processed = multi_processed and len(user_ids) < 2 * 10 ** 7
-                r = self.__calc_r_mp(sequences, graph, phi_h, psi, user_ids, train_set, cascade_map, user_map,
+                r = self.__calc_r_mp(sequences, self.graph, phi_h, psi, user_ids, train_set, cascade_map, user_map,
                                      r_multi_processed)
 
                 logger.debug('estimating w ...')
                 last_w = w
-                w = self.__calc_w(sequences, graph, phi_h, phi_g, psi, user_ids, user_map, train_set, cascade_map)
+                w = self.__calc_w(sequences, self.graph, phi_h, phi_g, psi, user_ids, user_map, train_set, cascade_map)
 
                 del phi_h
                 del phi_g

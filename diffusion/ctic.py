@@ -304,20 +304,20 @@ class CTIC(IC):
         if iterations is None:
             iterations = self.max_iterations
 
-        graph, sequences = project.load_or_extract_graph_seq(train_set)
+        sequences = project.load_or_extract_act_seq(train_set)
 
         # Create maps from users and cascades db id's to their matrix id's.
         logger.debug('creating user and cascade id maps ...')
-        user_ids = sorted(graph.nodes())
+        user_ids = sorted(self.graph.nodes())
         user_map = {user_ids[i]: i for i in range(len(user_ids))}
         logger.info('train set size = %d', len(train_set))
         logger.info('user space size = %d', len(user_map))
 
         logger.info('extracting positive and negative examples ...')
-        edge_pos_cascades, edge_neg_counts = self.__get_pos_neg_examples(sequences, graph, multi_processed)
+        edge_pos_cascades, edge_neg_counts = self.__get_pos_neg_examples(sequences, self.graph, multi_processed)
 
         # Set initial values of k and r.
-        k, r = self.__set_initial_values(graph, user_ids, user_map)
+        k, r = self.__set_initial_values(self.graph, user_ids, user_map)
 
         # Run EM algorithm.
         logger.info('running algorithm ...')
@@ -326,15 +326,16 @@ class CTIC(IC):
                 logger.info('#%d' % (i + 1))
 
                 logger.debug('calculating alpha ...')
-                alpha = self.__calc_alpha_mp(sequences, graph, k, r, train_set, user_map, multi_processed)
+                alpha = self.__calc_alpha_mp(sequences, self.graph, k, r, train_set, user_map, multi_processed)
                 logger.debug('calculating beta ...')
-                beta = self.__calc_beta_mp(sequences, graph, k, r, train_set, user_map, multi_processed)
+                beta = self.__calc_beta_mp(sequences, self.graph, k, r, train_set, user_map, multi_processed)
                 logger.debug('estimating r ...')
                 last_r = r
-                r = self.__calc_r_mp(sequences, graph, alpha, beta, user_map, edge_pos_cascades, multi_processed)
+                r = self.__calc_r_mp(sequences, self.graph, alpha, beta, user_map, edge_pos_cascades, multi_processed)
                 logger.debug('estimating k ...')
                 last_k = k
-                k = self.__calc_k_mp(graph, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts, multi_processed)
+                k = self.__calc_k_mp(self.graph, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts,
+                                     multi_processed)
 
                 if eco:
                     # Save r and k.

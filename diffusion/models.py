@@ -7,6 +7,7 @@ from sklearn.base import BaseEstimator
 
 from cascade.models import ParamTypes, CascadeTree
 from settings import logger
+from utils.graph_utils import Graph
 
 
 class DiffusionModel(BaseEstimator, abc.ABC):
@@ -37,7 +38,8 @@ class DiffusionModel(BaseEstimator, abc.ABC):
         """
         logger.info('params = %s', self.get_params())
         self.project = project
-        self.graph = self.project.load_or_extract_graph(train_set)
+        digraph = self.project.load_or_extract_graph(train_set)
+        self.graph = Graph(digraph)
         return self
 
     def predict(self, test_set: list):
@@ -101,8 +103,6 @@ class LT(DiffusionModel, abc.ABC):
                 pass
 
         if not data_loaded:
-            graph, sequences = project.load_or_extract_graph_seq(train_set)
-            self.graph = graph
             self.calc_parameters(train_set, project, multi_processed, eco, **kwargs)
 
         return self
@@ -289,8 +289,6 @@ class IC(DiffusionModel, abc.ABC):
                 pass
 
         if not data_loaded:
-            graph = project.load_or_extract_graph(train_set)
-            self.graph = graph
             self.calc_parameters(train_set, project, multi_processed, eco, **kwargs)
 
         return self

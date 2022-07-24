@@ -24,9 +24,9 @@ class EMIC(IC):
             iterations = self.max_iterations
 
         trees = project.load_trees()
-        graph, sequences = project.load_or_extract_graph_seq(train_set)
+        sequences = project.load_or_extract_act_seq(train_set)
 
-        user_ids = sorted(graph.nodes())
+        user_ids = sorted(self.graph.nodes())
         u_count = len(user_ids)
         user_map = {user_ids[i]: i for i in range(u_count)}
         cascade_map = {train_set[i]: i for i in range(len(train_set))}
@@ -35,19 +35,19 @@ class EMIC(IC):
 
         logger.info('extracting positive indexes and negative counts ...')
         user_times = self._extract_user_times(train_set, user_ids, cascade_map, user_map, sequences, trees)
-        edge_indexes = [(user_map[u], user_map[v]) for (u, v) in graph.edges()]
+        edge_indexes = [(user_map[u], user_map[v]) for (u, v) in self.graph.edges()]
         pos_indexes = {(ui, vi): self._get_pos_indexes(ui, vi, user_times) for (ui, vi) in edge_indexes}
         neg_counts = {(ui, vi): self._get_neg_count(ui, vi, user_times) for (ui, vi) in edge_indexes}
 
-        k = self.__initialize(graph, user_ids, user_map)
+        k = self.__initialize(self.graph, user_ids, user_map)
 
         for it in range(iterations):
             logger.info('#%d', it + 1)
 
-            p = self._calc_p(k, train_set, user_ids, user_map, cascade_map, graph, sequences, trees)
+            p = self._calc_p(k, train_set, user_ids, user_map, cascade_map, self.graph, sequences, trees)
 
             last_k = k.copy()
-            k = self._calc_k(p, k, user_ids, user_map, graph, pos_indexes, neg_counts)
+            k = self._calc_k(p, k, user_ids, user_map, self.graph, pos_indexes, neg_counts)
 
             k_dif = np.sqrt((k - last_k).power(2).sum())
             del last_k

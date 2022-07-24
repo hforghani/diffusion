@@ -125,8 +125,7 @@ class TuffyICMLNModel(IC, TuffyMLN):
         learn_results = {edge: (weight - min_w) / (max_w - min_w) for edge, weight in learn_results.items()}
 
         # Save the results in matrix k (probabilities).
-        graph = project.load_or_extract_graph(train_set)
-        user_ids = sorted(graph.nodes())
+        user_ids = sorted(self.graph.nodes())
         u_count = len(user_ids)
         user_map = {user_ids[i]: i for i in range(u_count)}
         self.k = sparse.lil_matrix((u_count, u_count))
