@@ -448,8 +448,6 @@ class Project:
         """
         if train_set is None:
             train_set, _ = self.load_sets()
-        if post_ids is None:
-            post_ids = []
 
         graph = None
         graph_info_fname = 'graph_info'
@@ -468,13 +466,13 @@ class Project:
             graph_info = {}
 
         if graph is None:
+            if post_ids is None:
+                post_ids = []
             if len(post_ids) == 0:
                 post_ids.extend(self.__get_cascades_post_ids(train_set))
-            if not graph_info:
-                fname = 'graph1'
-            else:
-                fname = 'graph' + str(max(int(name[5:]) for name in graph_info.keys()) + 1)
-            graph = self.__extract_reshare_graph(post_ids, train_set)
+            graph = self.__extract_graph_from_reshares(post_ids, train_set)
+            # graph = self.__extract_graph_from_trees(train_set)
+            fname = 'graph' + str(max(int(name[5:]) for name in graph_info.keys()) + 1) if graph_info else 'graph1'
             logger.info('saving graph ...')
             self.save_param(graph, fname, ParamTypes.GRAPH)
             graph_info[fname] = [str(cid) for cid in train_set]
@@ -642,7 +640,7 @@ class Project:
             return reshares
 
     @time_measure(level='debug')
-    def __extract_reshare_graph(self, post_ids, cascade_ids):
+    def __extract_graph_from_reshares(self, post_ids, cascade_ids):
         """
         Extract graph from given cascade id's.
         :param post_ids:    list of the post ids related to the cascades
@@ -681,6 +679,18 @@ class Project:
         graph = DiGraph()
         graph.add_edges_from(edges)
 
+        return graph
+
+    def __extract_graph_from_trees(self, train_set):
+        trees = self.load_trees()
+        trees = [trees[cid] for cid in train_set] if train_set else list(trees.values())
+        graph = DiGraph()
+        i = 0
+        for tree in trees:
+            graph.add_edges_from(tree.edges())
+            i += 1
+            if i % 100 == 0:
+                logger.debug('%d%% done', i / len(trees) * 100)
         return graph
 
     def get_all_nodes(self):

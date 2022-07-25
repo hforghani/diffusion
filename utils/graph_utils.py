@@ -22,6 +22,9 @@ class Graph:
     def edges(self):
         return ((pred, node) for node, pred_list in self.__predecessors.items() for pred in pred_list)
 
+    def number_of_edges(self):
+        return sum(len(pred_list) for pred_list in self.__predecessors.values())
+
     def __contains__(self, node):
         return node in self.__predecessors
 

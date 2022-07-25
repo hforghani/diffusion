@@ -49,7 +49,7 @@ class UnifiedMRFModel(DiffusionModel):
     def fit(self, train_set, train_trees, project, multi_processed=False, eco=False, iterations=None, **kwargs):
         super().fit(train_set, train_trees, project, multi_processed, eco)
 
-        node_ids = list(self.graph.nodes())
+        node_ids = sorted(self.graph.nodes())
         nodes_map = {node_ids[i]: i for i in range(len(node_ids))}
         nodes_num = len(node_ids)
         logger.debug('nodes_num = %d', nodes_num)
@@ -263,9 +263,9 @@ class UnifiedMRFModel(DiffusionModel):
                     self.__feature(states[m][([i, i] + pred_indexes_i, [1] + [0] * (pred_num + 1))], pred_num)
                     for m in range(data_size)
                 ])
+                # logger.debug('values of click %d :', i)
                 # for m in range(data_size):
-                #     logger.debug('value of click i:\n%s',
-                #                  arr_to_str(states[m][([i, i] + pred_indexes_i, [1] + [0] * (pred_num + 1))]))
+                #     logger.debug(arr_to_str(states[m][([i, i] + pred_indexes_i, [1] + [0] * (pred_num + 1))]))
                 # logger.debug('feat_sum_i = %s', arr_to_str(feat_sum_i))
             else:
                 feat_sum_i = 0
@@ -354,7 +354,7 @@ class UnifiedMRFModel(DiffusionModel):
         # with timers[2]:
         #     joint_probs = cls.__normalize_pot_sigma(pot_sigma)
         # logger.debug('normalized joint_probs = %s', joint_probs)
-        pred_indexes_i = pred_indexes[i]
+        # pred_indexes_i = pred_indexes[i]
         # logger.debug('creating sample features ...')
         # with timers[3]:
         #     # features = cls.__gibbs_samples_feat_i(samples, i, pred_indexes_i)
@@ -370,43 +370,43 @@ class UnifiedMRFModel(DiffusionModel):
         # logger.debug('grad_ln_z = \n%s', arr_to_str(grad_ln_z))
         return grad_ln_z
 
-    @classmethod
-    def __gibbs_samples(cls, samples_num, pred_indexes, child_indexes, lambdaa):
-        nodes_num = len(pred_indexes)
-        # sample = np.ones((nodes_num, 2), dtype=bool)
-        sample = np.zeros((nodes_num, 2), dtype=bool)
-        # rows = [[False, False], [False, True], [True, True]]
-        # sample = np.array([rows[n] for n in np.random.randint(0, 3, nodes_num)])
-        # logger.debug('sample.T = \n%s', two_d_arr_to_str(sample.T))
-        samples = [sample]
-        variables = [(i, t) for i in range(nodes_num) for t in range(2)]
-        count = 1
-
-        while count < samples_num:
-            for var in variables:
-                # logger.debug('var = %s', var)
-                i, t = var
-                if (t == 1 and sample[i, 0]) or not pred_indexes[i]:
-                    sample = sample.copy()
-                else:
-                    sigma_dif = cls.__sigma_dif(sample, var, pred_indexes, child_indexes, lambdaa)
-                    prob1 = 1 / (1 + np.exp(-sigma_dif))
-                    # logger.debug('sigma_dif = %f', sigma_dif)
-                    # logger.debug('prob1 = %f', prob1)
-                    sample = sample.copy()
-                    if random() < prob1:
-                        sample[var] = True
-                    else:
-                        sample[var] = False
-                # logger.debug('sample.T = \n%s', two_d_arr_to_str(sample.T))
-                samples.append(sample)
-                count += 1
-                # if count % 10 ** 5 == 0:
-                #     logger.debug('%d%% done', count / samples_num * 100)
-                if count >= samples_num:
-                    break
-
-        return samples
+    # @classmethod
+    # def __gibbs_samples(cls, samples_num, pred_indexes, child_indexes, lambdaa):
+    #     nodes_num = len(pred_indexes)
+    #     # sample = np.ones((nodes_num, 2), dtype=bool)
+    #     sample = np.zeros((nodes_num, 2), dtype=bool)
+    #     # rows = [[False, False], [False, True], [True, True]]
+    #     # sample = np.array([rows[n] for n in np.random.randint(0, 3, nodes_num)])
+    #     # logger.debug('sample.T = \n%s', two_d_arr_to_str(sample.T))
+    #     samples = [sample]
+    #     variables = [(i, t) for i in range(nodes_num) for t in range(2)]
+    #     count = 1
+    #
+    #     while count < samples_num:
+    #         for var in variables:
+    #             # logger.debug('var = %s', var)
+    #             i, t = var
+    #             if (t == 1 and sample[i, 0]) or not pred_indexes[i]:
+    #                 sample = sample.copy()
+    #             else:
+    #                 sigma_dif = cls.__sigma_dif(sample, var, pred_indexes, child_indexes, lambdaa)
+    #                 prob1 = 1 / (1 + np.exp(-sigma_dif))
+    #                 # logger.debug('sigma_dif = %f', sigma_dif)
+    #                 # logger.debug('prob1 = %f', prob1)
+    #                 sample = sample.copy()
+    #                 if random() < prob1:
+    #                     sample[var] = True
+    #                 else:
+    #                     sample[var] = False
+    #             # logger.debug('sample.T = \n%s', two_d_arr_to_str(sample.T))
+    #             samples.append(sample)
+    #             count += 1
+    #             # if count % 10 ** 5 == 0:
+    #             #     logger.debug('%d%% done', count / samples_num * 100)
+    #             if count >= samples_num:
+    #                 break
+    #
+    #     return samples
 
     @classmethod
     def __gibbs_samples_sum(cls, node_index, samples_num, pred_indexes, child_indexes, lambdaa):
@@ -463,25 +463,25 @@ class UnifiedMRFModel(DiffusionModel):
 
         return samples_sum
 
-    @staticmethod
-    def __potentials_sigma(value, pred_indexes, lambdaa):
-        # logger.debug('value.T = \n%s', two_d_arr_to_str(value.T))
-        pot_sum = np.array([lambdaa[i][value[[i] + pred_indexes[i], 0]].sum()
-                            for i in value[:, 1].nonzero()[0]
-                            if lambdaa[i] is not None]).sum()
-        # logger.debug('pot_sum = %f', pot_sum)
-        return pot_sum
+    # @staticmethod
+    # def __potentials_sigma(value, pred_indexes, lambdaa):
+    #     # logger.debug('value.T = \n%s', two_d_arr_to_str(value.T))
+    #     pot_sum = np.array([lambdaa[i][value[[i] + pred_indexes[i], 0]].sum()
+    #                         for i in value[:, 1].nonzero()[0]
+    #                         if lambdaa[i] is not None]).sum()
+    #     # logger.debug('pot_sum = %f', pot_sum)
+    #     return pot_sum
 
-    @staticmethod
-    def __normalize_pot_sigma(pot_sigma):
-        pot_sigma_diff = pot_sigma - np.max(pot_sigma)
-        exp = np.exp(pot_sigma_diff)
-        normal = exp / exp.sum()
-        if np.any(np.isnan(exp)) or np.any(np.isnan(normal)):
-            logger.debug('pot_sigma_diff = %s', pot_sigma_diff)
-            logger.debug('pot_sigma_diff max = %f', pot_sigma_diff.max())
-            logger.debug('exp = %s', exp)
-        return normal
+    # @staticmethod
+    # def __normalize_pot_sigma(pot_sigma):
+    #     pot_sigma_diff = pot_sigma - np.max(pot_sigma)
+    #     exp = np.exp(pot_sigma_diff)
+    #     normal = exp / exp.sum()
+    #     if np.any(np.isnan(exp)) or np.any(np.isnan(normal)):
+    #         logger.debug('pot_sigma_diff = %s', pot_sigma_diff)
+    #         logger.debug('pot_sigma_diff max = %f', pot_sigma_diff.max())
+    #         logger.debug('exp = %s', exp)
+    #     return normal
 
     @classmethod
     def __sigma_dif(cls, sample, var, pred_indexes, child_indexes, lambdaa):
@@ -516,43 +516,43 @@ class UnifiedMRFModel(DiffusionModel):
         # report_sum()
         return gradients
 
-    @classmethod
-    def __gibbs_samples_pot_sigma(cls, samples, pred_indexes, child_indexes, lambdaa):
-        """
-        Calculate potential sigma of samples given. The samples must be Gibbs samples in the order in which
-        extracted at Gibbs sampling process.
-        :param samples: list if N*2 arrays, each one, a sample from states space
-        :param pred_indexes: dict of node indexes to their predecessor indexes
-        :param child_indexes: dict of node indexes to their successor indexes
-        :param lambdaa: list of lambda arrays
-        :return: array of potential sigma values. The array size is equal to number of samples.
-        """
-        pot_sigma = [cls.__potentials_sigma(samples[0], pred_indexes, lambdaa)]
-        last_sample = samples[0]
-        last_sigma = pot_sigma[0]
-        # logger.debug('samples[0].T = \n%s', two_d_arr_to_str(last_sample.T))
-        # logger.debug('pot_sigma[0] = %f', last_sigma)
-
-        for sample in samples[1:]:
-            # logger.debug('sample.T = \n%s', two_d_arr_to_str(sample.T))
-            if np.all(sample == last_sample):
-                sigma = last_sigma
-            else:
-                nz = np.nonzero(sample != last_sample)
-                i, t = nz[0][0], nz[1][0]
-                # logger.debug('(i, t) = %s', (i, t))
-                dif = cls.__sigma_dif(sample, (i, t), pred_indexes, child_indexes, lambdaa)
-                # logger.debug('dif = %f', dif)
-                if sample[i, t]:
-                    sigma = last_sigma + dif
-                else:
-                    sigma = last_sigma - dif
-                # logger.debug('sigma = %f', sigma)
-            pot_sigma.append(sigma)
-            last_sigma = sigma
-            last_sample = sample
-
-        return np.array(pot_sigma)
+    # @classmethod
+    # def __gibbs_samples_pot_sigma(cls, samples, pred_indexes, child_indexes, lambdaa):
+    #     """
+    #     Calculate potential sigma of samples given. The samples must be Gibbs samples in the order in which
+    #     extracted at Gibbs sampling process.
+    #     :param samples: list if N*2 arrays, each one, a sample from states space
+    #     :param pred_indexes: dict of node indexes to their predecessor indexes
+    #     :param child_indexes: dict of node indexes to their successor indexes
+    #     :param lambdaa: list of lambda arrays
+    #     :return: array of potential sigma values. The array size is equal to number of samples.
+    #     """
+    #     pot_sigma = [cls.__potentials_sigma(samples[0], pred_indexes, lambdaa)]
+    #     last_sample = samples[0]
+    #     last_sigma = pot_sigma[0]
+    #     # logger.debug('samples[0].T = \n%s', two_d_arr_to_str(last_sample.T))
+    #     # logger.debug('pot_sigma[0] = %f', last_sigma)
+    #
+    #     for sample in samples[1:]:
+    #         # logger.debug('sample.T = \n%s', two_d_arr_to_str(sample.T))
+    #         if np.all(sample == last_sample):
+    #             sigma = last_sigma
+    #         else:
+    #             nz = np.nonzero(sample != last_sample)
+    #             i, t = nz[0][0], nz[1][0]
+    #             # logger.debug('(i, t) = %s', (i, t))
+    #             dif = cls.__sigma_dif(sample, (i, t), pred_indexes, child_indexes, lambdaa)
+    #             # logger.debug('dif = %f', dif)
+    #             if sample[i, t]:
+    #                 sigma = last_sigma + dif
+    #             else:
+    #                 sigma = last_sigma - dif
+    #             # logger.debug('sigma = %f', sigma)
+    #         pot_sigma.append(sigma)
+    #         last_sigma = sigma
+    #         last_sample = sample
+    #
+    #     return np.array(pot_sigma)
 
     @classmethod
     def __feat_i_by_sample(cls, sample, i, pred_indexes_i):
@@ -561,245 +561,245 @@ class UnifiedMRFModel(DiffusionModel):
 
     # =======================================================================
 
-    def __create_junction_tree(self, node_ids, nodes_map, max_depth):
-        # Create click graph.
-        nodes_num = len(nodes_map)
-        logger.debug('creating click graph ...')
-        click_graph = Graph()
-        click_graph.add_edges_from(
-            [((nodes_map[j], 1), (i, 2)) for i in range(nodes_num) for j in
-             self.__predecessors[node_ids[i]] + [node_ids[i]]])
-        mst = networkx.minimum_spanning_tree(click_graph)
-        logger.debug('num of click graph nodes, edges = %d, %d', click_graph.number_of_nodes(),
-                     click_graph.number_of_edges())
-        logger.debug('num of MST nodes, edges = %d, %d', mst.number_of_nodes(), mst.number_of_edges())
-        # logger.debug('MST edges: \n%s', pprint.pformat(sorted(list(mst.edges()))))
-        # logger.debug('drawing MST subgraph ...')
-        # subgraph = mst.subgraph([(i, t) for i in range(50) for t in [2, 3]])
-        # pos = {n: (n[1] * 2 / max_depth - 1, 1 - n[0] * 2 / nodes_num) for n in subgraph.nodes()}
-        # plt.figure(0, figsize=(200, 80), dpi=60)
-        # networkx.draw_networkx(subgraph, pos)
-        # plt.savefig('mst.jpg', format="JPG")
-
-        # Create junction tree.
-        logger.debug('adding the rest of junction tree edges ...')
-        j_tree = mst.copy()
-        j_tree.add_edges_from(
-            [((i, t - 1), (i, t)) for i in range(nodes_num) for t in range(3, max_depth)]
-        )
-        logger.debug('num of junction tree nodes, edges = %d, %d', j_tree.number_of_nodes(), j_tree.number_of_edges())
-        # logger.debug('junction tree edges: \n%s', pprint.pformat(sorted(list(j_tree.edges()))))
-        # logger.debug('drawing junction subtree ...')
-        # subgraph = j_tree.subgraph([(i, t) for i in range(50) for t in range(1, max_depth)])
-        # pos = {n: (n[1] * 2 / max_depth - 1, 1 - n[0] * 2 / nodes_num) for n in subgraph.nodes()}
-        # plt.figure(1, figsize=(200, 80), dpi=60)
-        # networkx.draw_networkx(subgraph, pos)
-        # plt.savefig('junction_tree.jpg', format="JPG")
-        # logger.debug('done')
-        return j_tree
-
-    def __joint_prob_i_t(self, values_i_t: typing.Union[int, np.ndarray], pred_num, psi_i_t):
-        """
-        Compute the probability P(S_i^t, S_Pa(i)^(t-1)).
-        :return:
-        """
-        # logger.debug('pred_num = %d', pred_num)
-        # logger.debug('value = %d', values_i_t)
-
-        # If the last state is active, the current step must be deterministically 1.
-        if isinstance(values_i_t, int):
-            s_i_t_minus_1 = (values_i_t >> pred_num) % 2
-            if s_i_t_minus_1:  # S_i^{t - 1} = True
-                return values_i_t > 2 ** (pred_num + 1)
-        elif isinstance(values_i_t, np.ndarray):
-            if values_i_t[1]:  # S_i^{t - 1} = True
-                return 1 if values_i_t[0] else 0
-        else:
-            raise TypeError('values_i_t must be an integer or numpy.ndarray')
-
-        if isinstance(values_i_t, np.ndarray):
-            # logger.debug('values_i_t = %s', arr_to_str(values_i_t))
-            values_i_t = sum(values_i_t[i] * 2 ** (pred_num + 1 - i) for i in range(pred_num + 2))
-            # logger.debug('values_i_t converted to %d', values_i_t)
-
-        prob = psi_i_t[values_i_t] / np.sum(psi_i_t)
-        # logger.debug('psi_i_t = %s', arr_to_str(psi_i_t))
-        # logger.debug('P(C_%d^%d = %d) = %f', i, t, values_i_t, prob)
-        # if i % 10 == 0 and (t, values_i_t) == (2, 0):
-        #     report_sum()
-        return prob
-
-    def __run_hugin(self, junction_tree, max_depth, lambdaa, pred_indexes):
-        logger.debug('initializing Hugin ...')
-        phi, psi = self.__initialize_hugin(max_depth, lambdaa, pred_indexes)
-        root = (0, 1)
-        bfs_tree = networkx.bfs_tree(junction_tree, root)
-        logger.debug('belief propagation from leaves to root ...')
-        self.__collect_evidence(root, bfs_tree, pred_indexes, phi, psi)
-        logger.debug('belief propagation from root to leaves ...')
-        self.__distribute_evidence(root, bfs_tree, pred_indexes, phi, psi)
-        logger.debug('Hugin completed')
-        return psi
-
-    def __initialize_hugin(self, max_depth, lambdaa, pred_indexes):
-        nodes_num = len(pred_indexes)
-        phi = {(i, t): np.ones(2) for i in range(nodes_num) for t in range(1, max_depth)}
-        psi = {}
-        for i in range(nodes_num):
-            lambdaa_i = lambdaa[i]
-            if lambdaa_i is None:
-                lambdaa_i = np.ones(1)
-            # logger.debug('i = %d', i)
-            # logger.debug('size of lambdaa = %s', lambdaa_i.size)
-            # logger.debug('lambdaa = %s', arr_to_str(lambdaa_i))
-            pred_num = len(pred_indexes[i])
-            psi_i_t = np.zeros(2 ** (2 + pred_num))
-            half_size = int(psi_i_t.size / 2)
-            # logger.debug('pred_num = %d', pred_num)
-            # logger.debug('size of psi_i_t = %d', psi_i_t.size)
-            for ind in range(1 + pred_num):
-                step = 2 ** (pred_num - ind)
-                # logger.debug('ind = %d -> step = %d', ind, step)
-                for j in range(int(psi_i_t.size / step)):
-                    if j % 2 == 1:
-                        psi_i_t[half_size + j * step: half_size + (j + 1) * step] += lambdaa_i[
-                            ind]  # value of X_ind = 1
-            # logger.debug('psi_i_t before exp = %s', arr_to_str(psi_i_t))
-            psi_i_t = np.exp(psi_i_t)
-            # logger.debug('psi_i_t = %s', arr_to_str(psi_i_t))
-
-            for t in range(1, max_depth):
-                psi[(i, t)] = psi_i_t
-
-        return phi, psi
-
-    def __collect_evidence(self, click, bfs_tree, pred_indexes, phi, psi):
-        for child in bfs_tree.successors(click):
-            self.__collect_evidence(child, bfs_tree, pred_indexes, phi, psi)
-            self.__update(child, click, pred_indexes, phi, psi)
-
-    def __distribute_evidence(self, click, bfs_tree, pred_indexes, phi, psi):
-        for child in bfs_tree.successors(click):
-            self.__update(click, child, pred_indexes, phi, psi)
-            self.__distribute_evidence(child, bfs_tree, pred_indexes, phi, psi)
-
-    def __update(self, src, dst, pred_indexes, phi, psi):
-        # logger.debug('updating from %s to %s', src, dst)
-        i_src, t_src = src
-        i_dst, t_dst = dst
-        sep = src if t_src < t_dst else dst
-        phi_sep_new = self.__marginalize(src, sep, psi[src], pred_indexes)
-        psi_dst_new = self.__rescale(sep, dst, phi[sep], phi_sep_new, psi[dst], pred_indexes)
-        psi[dst] = psi_dst_new
-        phi[sep] = phi_sep_new
-
-    def __marginalize(self, src, sep, psi_src, pred_indexes):
-        i_src, t_src = src
-        sep_ind = self.__sep_index_in_click(sep, src, pred_indexes)
-        # logger.debug('src = %s', src)
-        # logger.debug('sep = %s', sep)
-        # logger.debug('sep_ind = %d', sep_ind)
-        # logger.debug('psi_src = %s', arr_to_str(psi_src))
-        phi_sep_new = np.zeros(2)
-        # logger.debug('src in-degree = %d', len(pred_indexes[i_src]))
-        step = int(2 ** (len(pred_indexes[i_src]) + 1 - sep_ind))
-        # logger.debug('step = %d', step)
-        for i in range(int(psi_src.size / step)):
-            # logger.debug('%s to %s', i * step, (i + 1) * step)
-            part_sum = psi_src[i * step: (i + 1) * step].sum()
-            if i % 2 == 0:
-                phi_sep_new[0] += part_sum  # value of X_sep = 0
-            else:
-                phi_sep_new[1] += part_sum  # value of X_sep = 1
-        # logger.debug('phi_sep_new = %s', arr_to_str(phi_sep_new))
-        return phi_sep_new
-
-    def __rescale(self, sep, dst, phi_sep, phi_sep_new, psi_dst, pred_indexes):
-        sep_ind = self.__sep_index_in_click(sep, dst, pred_indexes)
-        scale_values = np.divide(phi_sep_new, phi_sep)
-        scale_values[np.isnan(scale_values)] = 0
-        i_dst, t_dst = dst
-        scale = np.zeros(psi_dst.size)
-        step = 2 ** (len(pred_indexes[i_dst]) + 1 - sep_ind)
-        # logger.debug('dst = %s', dst)
-        # logger.debug('sep = %s', sep)
-        # logger.debug('sep_ind = %d', sep_ind)
-        # logger.debug('psi_dst = %s', arr_to_str(psi_dst))
-        # logger.debug('phi_sep = %s', arr_to_str(phi_sep))
-        # logger.debug('phi_sep_new = %s', arr_to_str(phi_sep_new))
-        # logger.debug('src in-degree = %d', len(self.__predecessors[node_ids[i_dst]]))
-        # logger.debug('step = %d', step)
-
-        for i in range(int(psi_dst.size / step)):
-            # logger.debug('%s to %s', i * step, (i + 1) * step)
-            if i % 2 == 0:
-                scale[i * step: (i + 1) * step] = scale_values[0]  # X_sep = 0
-            else:
-                scale[i * step: (i + 1) * step] = scale_values[1]  # X_sep = 1
-
-        # logger.debug('scale = %s', arr_to_str(scale))
-        psi_new = np.multiply(psi_dst, scale)
-        # logger.debug('psi_new = %s', arr_to_str(psi_new))
-        return psi_new
-
-    def __sep_index_in_click(self, sep, src, pred_indexes):
-        i_src, t_src = src
-        i_sep, t_sep = sep
-        if sep == src:
-            return 0
-        elif sep == (i_src, t_src - 1):
-            return 1
-        else:
-            return 2 + pred_indexes[i_src].index(i_sep)
-
-    @classmethod
-    def __gibbs_samples_feat_i(cls, samples, i, pred_indexes_i):
-        """
-        Extract features of node index i from the samples given. The samples must be Gibbs samples in the order in which
-        extracted at Gibbs sampling process.
-        :param samples: list if N*2 arrays, each one, a sample from states space
-        :param i: the node index of which we want to extract feature
-        :param pred_indexes_i: list of predecessor indexes of i
-        :return: N*(d+1) matrix of features where N is number of samples and d is number of predecessors.
-        """
-        pred_num = len(pred_indexes_i)
-        samples_num = len(samples)
-        features = np.zeros((samples_num, pred_num + 1))
-        features[0, :] = cls.__feat_i_by_sample(samples[0], i, pred_indexes_i)
-        last_feat = features[0, :]
-        last_sample = samples[0]
-        # logger.debug('samples[0].T = \n%s', two_d_arr_to_str(last_sample.T))
-        # logger.debug('features[0,:] = %s', arr_to_str(last_feat))
-        # logger.debug('pred_indexes_i = %s', pred_indexes_i)
-
-        for k in range(1, samples_num):
-            sample = samples[k]
-            # logger.debug('sample.T = \n%s', two_d_arr_to_str(sample.T))
-            if np.all(sample == last_sample):
-                features[k, :] = last_feat
-            else:
-                nz = np.nonzero(sample != last_sample)
-                j, t = nz[0][0], nz[1][0]
-                # logger.debug('(j, t) = %s', (j, t))
-                if j == i:
-                    if t == 1:
-                        feat = sample[[i] + pred_indexes_i, 0].astype(float) if sample[i, 1] else np.zeros(
-                            pred_num + 1)
-                        features[k, :] = feat
-                        last_feat = feat
-                    else:
-                        last_feat[0] = float(sample[i, t])
-                        features[k, :] = last_feat
-                elif j in pred_indexes_i:
-                    last_feat[1 + pred_indexes_i.index(j)] = float(sample[i, t])
-                    last_feat = last_feat
-                else:
-                    features[k, :] = last_feat
-
-            # logger.debug('feat = %s', arr_to_str(features[k,:]))
-            last_sample = sample
-
-        return features
+    # def __create_junction_tree(self, node_ids, nodes_map, max_depth):
+    #     # Create click graph.
+    #     nodes_num = len(nodes_map)
+    #     logger.debug('creating click graph ...')
+    #     click_graph = Graph()
+    #     click_graph.add_edges_from(
+    #         [((nodes_map[j], 1), (i, 2)) for i in range(nodes_num) for j in
+    #          self.__predecessors[node_ids[i]] + [node_ids[i]]])
+    #     mst = networkx.minimum_spanning_tree(click_graph)
+    #     logger.debug('num of click graph nodes, edges = %d, %d', click_graph.number_of_nodes(),
+    #                  click_graph.number_of_edges())
+    #     logger.debug('num of MST nodes, edges = %d, %d', mst.number_of_nodes(), mst.number_of_edges())
+    #     # logger.debug('MST edges: \n%s', pprint.pformat(sorted(list(mst.edges()))))
+    #     # logger.debug('drawing MST subgraph ...')
+    #     # subgraph = mst.subgraph([(i, t) for i in range(50) for t in [2, 3]])
+    #     # pos = {n: (n[1] * 2 / max_depth - 1, 1 - n[0] * 2 / nodes_num) for n in subgraph.nodes()}
+    #     # plt.figure(0, figsize=(200, 80), dpi=60)
+    #     # networkx.draw_networkx(subgraph, pos)
+    #     # plt.savefig('mst.jpg', format="JPG")
+    #
+    #     # Create junction tree.
+    #     logger.debug('adding the rest of junction tree edges ...')
+    #     j_tree = mst.copy()
+    #     j_tree.add_edges_from(
+    #         [((i, t - 1), (i, t)) for i in range(nodes_num) for t in range(3, max_depth)]
+    #     )
+    #     logger.debug('num of junction tree nodes, edges = %d, %d', j_tree.number_of_nodes(), j_tree.number_of_edges())
+    #     # logger.debug('junction tree edges: \n%s', pprint.pformat(sorted(list(j_tree.edges()))))
+    #     # logger.debug('drawing junction subtree ...')
+    #     # subgraph = j_tree.subgraph([(i, t) for i in range(50) for t in range(1, max_depth)])
+    #     # pos = {n: (n[1] * 2 / max_depth - 1, 1 - n[0] * 2 / nodes_num) for n in subgraph.nodes()}
+    #     # plt.figure(1, figsize=(200, 80), dpi=60)
+    #     # networkx.draw_networkx(subgraph, pos)
+    #     # plt.savefig('junction_tree.jpg', format="JPG")
+    #     # logger.debug('done')
+    #     return j_tree
+    #
+    # def __joint_prob_i_t(self, values_i_t: typing.Union[int, np.ndarray], pred_num, psi_i_t):
+    #     """
+    #     Compute the probability P(S_i^t, S_Pa(i)^(t-1)).
+    #     :return:
+    #     """
+    #     # logger.debug('pred_num = %d', pred_num)
+    #     # logger.debug('value = %d', values_i_t)
+    #
+    #     # If the last state is active, the current step must be deterministically 1.
+    #     if isinstance(values_i_t, int):
+    #         s_i_t_minus_1 = (values_i_t >> pred_num) % 2
+    #         if s_i_t_minus_1:  # S_i^{t - 1} = True
+    #             return values_i_t > 2 ** (pred_num + 1)
+    #     elif isinstance(values_i_t, np.ndarray):
+    #         if values_i_t[1]:  # S_i^{t - 1} = True
+    #             return 1 if values_i_t[0] else 0
+    #     else:
+    #         raise TypeError('values_i_t must be an integer or numpy.ndarray')
+    #
+    #     if isinstance(values_i_t, np.ndarray):
+    #         # logger.debug('values_i_t = %s', arr_to_str(values_i_t))
+    #         values_i_t = sum(values_i_t[i] * 2 ** (pred_num + 1 - i) for i in range(pred_num + 2))
+    #         # logger.debug('values_i_t converted to %d', values_i_t)
+    #
+    #     prob = psi_i_t[values_i_t] / np.sum(psi_i_t)
+    #     # logger.debug('psi_i_t = %s', arr_to_str(psi_i_t))
+    #     # logger.debug('P(C_%d^%d = %d) = %f', i, t, values_i_t, prob)
+    #     # if i % 10 == 0 and (t, values_i_t) == (2, 0):
+    #     #     report_sum()
+    #     return prob
+    #
+    # def __run_hugin(self, junction_tree, max_depth, lambdaa, pred_indexes):
+    #     logger.debug('initializing Hugin ...')
+    #     phi, psi = self.__initialize_hugin(max_depth, lambdaa, pred_indexes)
+    #     root = (0, 1)
+    #     bfs_tree = networkx.bfs_tree(junction_tree, root)
+    #     logger.debug('belief propagation from leaves to root ...')
+    #     self.__collect_evidence(root, bfs_tree, pred_indexes, phi, psi)
+    #     logger.debug('belief propagation from root to leaves ...')
+    #     self.__distribute_evidence(root, bfs_tree, pred_indexes, phi, psi)
+    #     logger.debug('Hugin completed')
+    #     return psi
+    #
+    # def __initialize_hugin(self, max_depth, lambdaa, pred_indexes):
+    #     nodes_num = len(pred_indexes)
+    #     phi = {(i, t): np.ones(2) for i in range(nodes_num) for t in range(1, max_depth)}
+    #     psi = {}
+    #     for i in range(nodes_num):
+    #         lambdaa_i = lambdaa[i]
+    #         if lambdaa_i is None:
+    #             lambdaa_i = np.ones(1)
+    #         # logger.debug('i = %d', i)
+    #         # logger.debug('size of lambdaa = %s', lambdaa_i.size)
+    #         # logger.debug('lambdaa = %s', arr_to_str(lambdaa_i))
+    #         pred_num = len(pred_indexes[i])
+    #         psi_i_t = np.zeros(2 ** (2 + pred_num))
+    #         half_size = int(psi_i_t.size / 2)
+    #         # logger.debug('pred_num = %d', pred_num)
+    #         # logger.debug('size of psi_i_t = %d', psi_i_t.size)
+    #         for ind in range(1 + pred_num):
+    #             step = 2 ** (pred_num - ind)
+    #             # logger.debug('ind = %d -> step = %d', ind, step)
+    #             for j in range(int(psi_i_t.size / step)):
+    #                 if j % 2 == 1:
+    #                     psi_i_t[half_size + j * step: half_size + (j + 1) * step] += lambdaa_i[
+    #                         ind]  # value of X_ind = 1
+    #         # logger.debug('psi_i_t before exp = %s', arr_to_str(psi_i_t))
+    #         psi_i_t = np.exp(psi_i_t)
+    #         # logger.debug('psi_i_t = %s', arr_to_str(psi_i_t))
+    #
+    #         for t in range(1, max_depth):
+    #             psi[(i, t)] = psi_i_t
+    #
+    #     return phi, psi
+    #
+    # def __collect_evidence(self, click, bfs_tree, pred_indexes, phi, psi):
+    #     for child in bfs_tree.successors(click):
+    #         self.__collect_evidence(child, bfs_tree, pred_indexes, phi, psi)
+    #         self.__update(child, click, pred_indexes, phi, psi)
+    #
+    # def __distribute_evidence(self, click, bfs_tree, pred_indexes, phi, psi):
+    #     for child in bfs_tree.successors(click):
+    #         self.__update(click, child, pred_indexes, phi, psi)
+    #         self.__distribute_evidence(child, bfs_tree, pred_indexes, phi, psi)
+    #
+    # def __update(self, src, dst, pred_indexes, phi, psi):
+    #     # logger.debug('updating from %s to %s', src, dst)
+    #     i_src, t_src = src
+    #     i_dst, t_dst = dst
+    #     sep = src if t_src < t_dst else dst
+    #     phi_sep_new = self.__marginalize(src, sep, psi[src], pred_indexes)
+    #     psi_dst_new = self.__rescale(sep, dst, phi[sep], phi_sep_new, psi[dst], pred_indexes)
+    #     psi[dst] = psi_dst_new
+    #     phi[sep] = phi_sep_new
+    #
+    # def __marginalize(self, src, sep, psi_src, pred_indexes):
+    #     i_src, t_src = src
+    #     sep_ind = self.__sep_index_in_click(sep, src, pred_indexes)
+    #     # logger.debug('src = %s', src)
+    #     # logger.debug('sep = %s', sep)
+    #     # logger.debug('sep_ind = %d', sep_ind)
+    #     # logger.debug('psi_src = %s', arr_to_str(psi_src))
+    #     phi_sep_new = np.zeros(2)
+    #     # logger.debug('src in-degree = %d', len(pred_indexes[i_src]))
+    #     step = int(2 ** (len(pred_indexes[i_src]) + 1 - sep_ind))
+    #     # logger.debug('step = %d', step)
+    #     for i in range(int(psi_src.size / step)):
+    #         # logger.debug('%s to %s', i * step, (i + 1) * step)
+    #         part_sum = psi_src[i * step: (i + 1) * step].sum()
+    #         if i % 2 == 0:
+    #             phi_sep_new[0] += part_sum  # value of X_sep = 0
+    #         else:
+    #             phi_sep_new[1] += part_sum  # value of X_sep = 1
+    #     # logger.debug('phi_sep_new = %s', arr_to_str(phi_sep_new))
+    #     return phi_sep_new
+    #
+    # def __rescale(self, sep, dst, phi_sep, phi_sep_new, psi_dst, pred_indexes):
+    #     sep_ind = self.__sep_index_in_click(sep, dst, pred_indexes)
+    #     scale_values = np.divide(phi_sep_new, phi_sep)
+    #     scale_values[np.isnan(scale_values)] = 0
+    #     i_dst, t_dst = dst
+    #     scale = np.zeros(psi_dst.size)
+    #     step = 2 ** (len(pred_indexes[i_dst]) + 1 - sep_ind)
+    #     # logger.debug('dst = %s', dst)
+    #     # logger.debug('sep = %s', sep)
+    #     # logger.debug('sep_ind = %d', sep_ind)
+    #     # logger.debug('psi_dst = %s', arr_to_str(psi_dst))
+    #     # logger.debug('phi_sep = %s', arr_to_str(phi_sep))
+    #     # logger.debug('phi_sep_new = %s', arr_to_str(phi_sep_new))
+    #     # logger.debug('src in-degree = %d', len(self.__predecessors[node_ids[i_dst]]))
+    #     # logger.debug('step = %d', step)
+    #
+    #     for i in range(int(psi_dst.size / step)):
+    #         # logger.debug('%s to %s', i * step, (i + 1) * step)
+    #         if i % 2 == 0:
+    #             scale[i * step: (i + 1) * step] = scale_values[0]  # X_sep = 0
+    #         else:
+    #             scale[i * step: (i + 1) * step] = scale_values[1]  # X_sep = 1
+    #
+    #     # logger.debug('scale = %s', arr_to_str(scale))
+    #     psi_new = np.multiply(psi_dst, scale)
+    #     # logger.debug('psi_new = %s', arr_to_str(psi_new))
+    #     return psi_new
+    #
+    # def __sep_index_in_click(self, sep, src, pred_indexes):
+    #     i_src, t_src = src
+    #     i_sep, t_sep = sep
+    #     if sep == src:
+    #         return 0
+    #     elif sep == (i_src, t_src - 1):
+    #         return 1
+    #     else:
+    #         return 2 + pred_indexes[i_src].index(i_sep)
+    #
+    # @classmethod
+    # def __gibbs_samples_feat_i(cls, samples, i, pred_indexes_i):
+    #     """
+    #     Extract features of node index i from the samples given. The samples must be Gibbs samples in the order in which
+    #     extracted at Gibbs sampling process.
+    #     :param samples: list if N*2 arrays, each one, a sample from states space
+    #     :param i: the node index of which we want to extract feature
+    #     :param pred_indexes_i: list of predecessor indexes of i
+    #     :return: N*(d+1) matrix of features where N is number of samples and d is number of predecessors.
+    #     """
+    #     pred_num = len(pred_indexes_i)
+    #     samples_num = len(samples)
+    #     features = np.zeros((samples_num, pred_num + 1))
+    #     features[0, :] = cls.__feat_i_by_sample(samples[0], i, pred_indexes_i)
+    #     last_feat = features[0, :]
+    #     last_sample = samples[0]
+    #     # logger.debug('samples[0].T = \n%s', two_d_arr_to_str(last_sample.T))
+    #     # logger.debug('features[0,:] = %s', arr_to_str(last_feat))
+    #     # logger.debug('pred_indexes_i = %s', pred_indexes_i)
+    #
+    #     for k in range(1, samples_num):
+    #         sample = samples[k]
+    #         # logger.debug('sample.T = \n%s', two_d_arr_to_str(sample.T))
+    #         if np.all(sample == last_sample):
+    #             features[k, :] = last_feat
+    #         else:
+    #             nz = np.nonzero(sample != last_sample)
+    #             j, t = nz[0][0], nz[1][0]
+    #             # logger.debug('(j, t) = %s', (j, t))
+    #             if j == i:
+    #                 if t == 1:
+    #                     feat = sample[[i] + pred_indexes_i, 0].astype(float) if sample[i, 1] else np.zeros(
+    #                         pred_num + 1)
+    #                     features[k, :] = feat
+    #                     last_feat = feat
+    #                 else:
+    #                     last_feat[0] = float(sample[i, t])
+    #                     features[k, :] = last_feat
+    #             elif j in pred_indexes_i:
+    #                 last_feat[1 + pred_indexes_i.index(j)] = float(sample[i, t])
+    #                 last_feat = last_feat
+    #             else:
+    #                 features[k, :] = last_feat
+    #
+    #         # logger.debug('feat = %s', arr_to_str(features[k,:]))
+    #         last_sample = sample
+    #
+    #     return features
 
 
 class Prediction:
