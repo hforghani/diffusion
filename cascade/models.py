@@ -17,10 +17,9 @@ from utils.time_utils import str_to_datetime, DT_FORMAT, Timer, time_measure
 
 
 class CascadeNode:
-    def __init__(self, user_id=None, datetime=None, post_id=None, parent_id=None):
+    def __init__(self, user_id=None, datetime=None, parent_id=None):
         self.user_id = user_id
         self.datetime = datetime
-        self.post_id = post_id
         self.parent_id = parent_id
         self.children = []
         self.probability = None
@@ -40,7 +39,6 @@ class CascadeNode:
         """
         return {'user_id': str(self.user_id),
                 'datetime': self.datetime.strftime(DT_FORMAT),
-                'post_id': str(self.post_id) if self.post_id is not None else None,
                 'parent_id': str(self.parent_id) if self.parent_id is not None else None,
                 'children': [node.to_json() for node in self.children]}
 
@@ -53,7 +51,6 @@ class CascadeNode:
         """
         self.user_id = ObjectId(node_dict['user_id'])
         self.datetime = datetime.strptime(node_dict['datetime'], DT_FORMAT)
-        self.post_id = ObjectId(node_dict['post_id']) if node_dict['post_id'] is not None else None
         self.parent_id = ObjectId(node_dict['parent_id']) if node_dict['parent_id'] is not None else None
         self.children = [CascadeNode().from_json(node) for node in node_dict['children']]
         return self
@@ -62,30 +59,24 @@ class CascadeNode:
         """
         Get an independent copy of the object.
         """
-        node = CascadeNode(self.user_id, self.datetime, self.post_id, self.parent_id)
+        node = CascadeNode(self.user_id, self.datetime, self.parent_id)
         if max_depth is None or max_depth > 0:
             max_depth = max_depth - 1 if max_depth is not None else None
             node.children = [child.copy(max_depth) for child in self.children]
         return node
 
-    def depth(self):
-        depth = 0
-        for node in self.children:
-            depth = max(depth, node.depth() + 1)
-        return depth
+    def height(self):
+        return max([0] + [node.height() + 1 for node in self.children])
 
-    def __create_anytree_node(self, digest=False):
-        if not digest:
-            node = Node('{}({})'.format(self.user_id, self.post_id))
-        else:
-            node = Node(str(self.user_id))
+    def __create_anytree_node(self):
+        node = Node(str(self.user_id))
         for child in self.children:
-            child_node = child.__create_anytree_node(digest)
+            child_node = child.__create_anytree_node()
             child_node.parent = node
         return node
 
-    def render(self, digest=False):
-        node = self.__create_anytree_node(digest)
+    def render(self):
+        node = self.__create_anytree_node()
         lines = []
         for pre, fill, node in RenderTree(node):
             lines.append('%s%s' % (pre, node.name))
@@ -194,11 +185,11 @@ class CascadeTree:
     def __calc_depth(self):
         depth = 0
         for node in self.roots:
-            depth = max(depth, node.depth())
+            depth = max(depth, node.height())
         return depth
 
     def render(self, digest=False):
-        return '\n'.join([root.render(digest) for root in self.roots])
+        return '\n'.join([root.render() for root in self.roots])
 
     def get_node(self, user_id: ObjectId) -> CascadeNode:
         return self._id_to_node.get(user_id, None)
@@ -219,7 +210,7 @@ class CascadeTree:
         else:
             parent = self.get_node(parent_id)
             if parent:
-                node = CascadeNode(node_id, parent_id=parent_id, datetime=act_time)
+                node = CascadeNode(node_id, datetime=act_time, parent_id=parent_id)
                 parent.children.append(node)
                 if self.depth_of(parent_id) == self.depth:
                     self.depth += 1
@@ -315,7 +306,6 @@ class Project:
             self.db = db
         self.training = None
         self.test = None
-        self.trees = None
 
     def save_sets(self, train_set, test_set):
         # Dump the json into the file.
@@ -345,9 +335,6 @@ class Project:
         Load trees of cascades in training and test sets.
         :return:
         """
-        if self.trees:
-            return self.trees
-
         # Load trees from the json file.
         try:
             trees = self.load_param('trees', ParamTypes.JSON)
@@ -369,7 +356,6 @@ class Project:
                     logger.info('%d%% done', i * 100 / count)
             self.save_trees(trees)
 
-        self.trees = trees
         return trees
 
     def save_trees(self, trees):
@@ -404,11 +390,10 @@ class Project:
                 child_id = reshare['user_id']
                 parent_id = reshare['ref_user_id']
                 if child_id == parent_id:
-                    continue  # Continue if the reshare is between same users.
+                    continue  # Continue if the 'reshare' is between same users.
                 parent = nodes[parent_id]
 
                 if not visited[parent_id]:  # It is a root
-                    parent.post_id = reshare['reshared_post_id']
                     parent.datetime = reshare['ref_datetime']
                     visited[parent_id] = True
                     roots.append(parent)
@@ -417,7 +402,6 @@ class Project:
                     child = nodes[child_id]
                     parent.children.append(child)
                     child.parent_id = parent_id
-                    child.post_id = reshare['post_id']
                     child.datetime = reshare['datetime']
                     visited[child_id] = True
 
@@ -433,7 +417,6 @@ class Project:
                 if not visited[uid]:
                     post = first_posts[uid]
                     node.datetime = post['datetime']
-                    node.post_id = post['_id']
                     roots.append(node)
 
         return CascadeTree(roots)
@@ -471,7 +454,6 @@ class Project:
             if len(post_ids) == 0:
                 post_ids.extend(self.__get_cascades_post_ids(train_set))
             graph = self.__extract_graph_from_reshares(post_ids, train_set)
-            # graph = self.__extract_graph_from_trees(train_set)
             fname = 'graph' + str(max(int(name[5:]) for name in graph_info.keys()) + 1) if graph_info else 'graph1'
             logger.info('saving graph ...')
             self.save_param(graph, fname, ParamTypes.GRAPH)
@@ -692,15 +674,6 @@ class Project:
             if i % 100 == 0:
                 logger.debug('%d%% done', i / len(trees) * 100)
         return graph
-
-    def get_all_nodes(self):
-        if self.trees is None:
-            self.load_trees()
-
-        nodes = set()
-        for tree in self.trees.values():
-            nodes.update(tree.node_ids())
-        return list(nodes)
 
     SUFFIXES = {
         ParamTypes.JSON: 'json',

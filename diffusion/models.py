@@ -49,6 +49,9 @@ class DiffusionModel(BaseEstimator, abc.ABC):
         :return: list of predicted trees
         """
         trees = self.project.load_trees()
+        # for cid in trees:
+        #     if cid not in test_set:
+        #         del trees[cid]
         results = []
         i = 0
         logger.info('predicting %d cascades ...', len(test_set))

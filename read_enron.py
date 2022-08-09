@@ -308,15 +308,14 @@ def extract_tree(reshares):
 
     for reshare in sorted(reshares, key=lambda resh: resh['datetime']):
         if reshare['ref_user_id'] not in nodes:
-            node = CascadeNode(reshare['ref_user_id'], reshare['ref_datetime'], reshare['reshared_post_id'])
+            node = CascadeNode(reshare['ref_user_id'], reshare['ref_datetime'])
             nodes[node.user_id] = node
             roots.append(node)
         else:
             node = nodes[reshare['ref_user_id']]
 
         if reshare['user_id'] not in nodes:
-            child_node = CascadeNode(reshare['user_id'], reshare['datetime'], reshare['post_id'],
-                                     reshare['ref_user_id'])
+            child_node = CascadeNode(reshare['user_id'], reshare['datetime'], reshare['ref_user_id'])
             nodes[child_node.user_id] = child_node
             node.children.append(child_node)
 

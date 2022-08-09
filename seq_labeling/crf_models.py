@@ -28,18 +28,20 @@ class CRFModel(NodeSeqLabelModel):
         self.__max_crf_in_mem = 1000  # Maximum number of CRF kept in memory
 
     @classmethod
-    def train_model(cls, evidence, iterations, states, node_id, project, eco=False, **kwargs):
-        logger.debug('kwargs = %s', kwargs)
+    def train_model(cls, sequences, iterations, states, node_id, project, eco=False, **kwargs):
+        # logger.debug('kwargs = %s', kwargs)
         dir_path = os.path.join(project.path, 'crf')
         if not os.path.exists(dir_path):
             os.mkdir(dir_path)
         model_filename = os.path.join(dir_path, f'{cls.method.value}-{str(node_id)}.crfsuite') if eco else None
         crf = cls.get_crf_instance(model_filename=model_filename, **kwargs)
-        crf.fit(evidence, iterations, **kwargs)
+        # logger.debug('training CRF ...')
+        crf.fit(sequences, iterations, **kwargs)
+        # logger.debug('CRF training done')
 
         crf.model_filename = crf.crf.modelfile.name
         cls.__clear_mem(crf)
-        logger.debugv('node id %s -> model_filename = %s', str(node_id), model_filename)
+        logger.debug('node id %s -> model_filename = %s', str(node_id), model_filename)
 
         return crf
 
@@ -130,7 +132,7 @@ class CRFModel(NodeSeqLabelModel):
             else:
                 logger.warning('parent node %s does not exist', node_id)
         else:
-            logger.debugv('the newly active nodes are not available in the training data')
+            logger.debug('the newly active nodes are not available in the training data')
         return
 
     @classmethod
@@ -192,7 +194,7 @@ class SmallFeatCRFModel(CRFModel, abc.ABC):
             else:
                 logger.warning('parent node %s does not exist', node_id)
         else:
-            logger.debugv('the newly active nodes are not available in the training data')
+            logger.debug('the newly active nodes are not available in the training data')
         return
 
 

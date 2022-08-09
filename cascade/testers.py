@@ -208,7 +208,7 @@ class ProjectTester(abc.ABC):
 
     def _tune_params(self, initial_depth, max_depth, tunables, nontunables, n_iter):
         graph = self.project.load_or_extract_graph()
-        f1_scorer = make_scorer(trees_f1_scorer,
+        f1_scorer = make_scorer(trees_f1_scorer,            # TODO: Pass only nodes or edges instead of graph.
                                 initial_depth=initial_depth,
                                 max_depth=max_depth,
                                 graph=graph,

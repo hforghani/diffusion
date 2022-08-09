@@ -57,8 +57,8 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
     if settings.LOG_LEVEL <= level:
         if max_depth is not None:
             tree = tree.copy(max_depth)
-        tree_render = tree.render(digest=True).split('\n')
-        res_tree_render = res_trees.render(digest=True).split('\n')
+        tree_render = tree.render().split('\n')
+        res_tree_render = res_trees.render().split('\n')
         max_len = max([len(line) for line in tree_render])
         max_lines = max(len(tree_render), len(res_tree_render))
         formatted_line = '{:' + str(max_len + 5) + '}{}'

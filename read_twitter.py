@@ -112,7 +112,7 @@ def log_stat(cascades, tweet_count, render_in_level=logging.DEBUG):
     if LOG_LEVEL <= render_in_level:
         logger.log(render_in_level, 'cascades:')
         for cas in cascades:
-            logger.log(render_in_level, '\n%s\n', cas.render(digest=True))
+            logger.log(render_in_level, '\n%s\n', cas.render())
 
 
 def save_cascades_data(cascades, cascade_user_ids, tweet_to_cascade):
@@ -297,7 +297,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Read Enron dataset')
+    parser = argparse.ArgumentParser('Read Twitter dataset')
     parser.add_argument("-p", "--path", required=True, help="dataset directory path")
     parser.add_argument('-d', '--db', required=True, help="db name in which the documents must be inserted")
     args = parser.parse_args()

@@ -7,5 +7,5 @@ def log_memory(locals, globals):
     var_dict.update(globals)
     log = 'memory usage:'
     for var, val in var_dict.items():
-        log += f'\n{var}: {asizeof(val)}'
+        log += f'\n{var}: {asizeof(val) / 1024 ** 2:.2f} MB'
     logger.debug(log)

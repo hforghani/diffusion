@@ -34,7 +34,7 @@ class Command:
             else:
                 tree = project.extract_cascade(cascade_id)
 
-            logger.info('\n' + tree.render(digest=True))
+            logger.info('\n' + tree.render())
         except:
             logger.info(traceback.format_exc())
             raise
