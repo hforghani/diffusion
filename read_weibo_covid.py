@@ -175,35 +175,35 @@ def save_graph(db, project):
 def main(db_name, path):
     manager = DBManager(db_name)
 
-    # Drop the database.
-    # manager.client.drop_database(db_name)
+    manager.client.drop_database(db_name)  # Drop the database.
+
     db = manager.db
     project_name = 'weibocovid-all'
     project = Project(project_name, 'weibocovid')
 
-    # logger.info('reading users ...')
-    # read_users(db, path)
-    # logger.info('reading posts and reshares ...')
-    # read_posts(db, path)
-    #
-    # logger.info('extracting trees ...')
-    # trees, posts_data = extract_trees(db)
-    # logger.info('inserting cascades ...')
-    # cascade_ids = insert_cascades(db, trees, posts_data)
-    # del posts_data
-    # trees = dict(zip(cascade_ids, trees))
-    # project.save_trees(trees)
-    #
-    # # trees = project.load_trees() # TODO: Remove it
-    #
-    # logger.info('extracting activation sequences ...')
-    # sequences = extract_act_sequences(trees)
-    # del trees
-    # logger.info('saving activation sequences ...')
-    # project.save_act_sequences(sequences)
-    # del sequences
-    # logger.info('saving graph ...')
-    # save_graph(db, project)
+    logger.info('reading users ...')
+    read_users(db, path)
+    logger.info('reading posts and reshares ...')
+    read_posts(db, path)
+
+    logger.info('extracting trees ...')
+    trees, posts_data = extract_trees(db)
+    logger.info('inserting cascades ...')
+    cascade_ids = insert_cascades(db, trees, posts_data)
+    del posts_data
+    trees = dict(zip(cascade_ids, trees))
+    project.save_trees(trees)
+
+    # trees = project.load_trees()
+
+    logger.info('extracting activation sequences ...')
+    sequences = extract_act_sequences(trees)
+    del trees
+    logger.info('saving activation sequences ...')
+    project.save_act_sequences(sequences)
+    del sequences
+    logger.info('saving graph ...')
+    save_graph(db, project)
 
     logger.info('sampling training and test sets ...')
     sampledata.Command().sample_data(db_name, project_name)

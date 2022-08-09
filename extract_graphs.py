@@ -9,7 +9,7 @@ from db.managers import DBManager
 from settings import logger
 
 
-def save_graph(project, db, cascade_ids):
+def save_fold_graph(project, db, cascade_ids):
     graph_info_fname = 'graph_info'
     try:
         graph_info = project.load_param(graph_info_fname, ParamTypes.JSON)
@@ -35,8 +35,7 @@ def save_graph(project, db, cascade_ids):
     project.save_param(graph_info, graph_info_fname, ParamTypes.JSON)
 
 
-def extract_graphs(db, project_name):
-    project = Project(project_name)
+def extract_fold_graphs(db, project):
     folds_num = 3
     folds = DefaultTester(project, None).get_cross_val_folds(folds_num)
     logger.info('extracting graphs of %d folds if not exist ...', folds_num)
@@ -44,13 +43,27 @@ def extract_graphs(db, project_name):
     for i in range(folds_num):
         logger.info('extracting graph missing fold %d ...', i + 1)
         train_set = list(itertools.chain(*(folds[:i] + folds[i + 1:])))
-        save_graph(project, db, train_set)
+        save_fold_graph(project, db, train_set)
+
+
+def save_whole_graph(db, project):
+    graph = DiGraph()
+    edges = {(resh['ref_user_id'], resh['user_id']) for resh in db.reshares.find()}
+    cid_strs = [str(c['_id']) for c in db.cascades.find({}, ['_id'])]
+    graph.add_edges_from(edges)
+    graph_info_fname = 'graph_info'
+    fname = 'graph1'
+    project.save_param(graph, fname, ParamTypes.GRAPH)
+    graph_info = {fname: cid_strs}
+    project.save_param(graph_info, graph_info_fname, ParamTypes.JSON)
 
 
 def main(db_name, project_name):
     manager = DBManager(db_name)
     db = manager.db
-    extract_graphs(db, project_name)
+    project = Project(project_name)
+    save_whole_graph(db, project)
+    extract_fold_graphs(db, project)
 
 
 if __name__ == '__main__':
