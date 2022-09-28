@@ -337,6 +337,7 @@ class AsLT(LT):
                 h = self.__calc_h_mp(sequences, self.graph, w, r, train_set, cascade_map, user_map, multi_processed)
                 phi_h = self.__calc_phi_h_mp(sequences, self.graph, w, r, h, train_set, cascade_map, user_map,
                                              multi_processed)
+                del h
                 g = self.__calc_g_mp(sequences, self.graph, w, r, train_set, cascade_map, user_map, multi_processed)
                 phi_g = self.__calc_phi_g_mp(sequences, self.graph, w, g, train_set, cascade_map, user_map,
                                              multi_processed)
@@ -672,7 +673,7 @@ class AsLT(LT):
         values = []
         rows = []
         cols = []
-        val_count = len(graph.edges()) + len(graph.nodes())
+        val_count = len(list(graph.edges())) + len(graph.nodes())
         i = 0
         for (u, v) in graph.edges():
             u_i = user_map[str(u)]

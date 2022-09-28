@@ -67,7 +67,7 @@ def main(db_name, project_name):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Extract the graphs for the db in which each post belongs to one cascade.')
+    parser = argparse.ArgumentParser('Extract the graphs for the db in which each post belongs to only one cascade.')
     parser.add_argument("-p", "--project", required=True, help="project name")
     parser.add_argument('-d', '--db', required=True, help="db name in which the documents must be inserted")
     args = parser.parse_args()

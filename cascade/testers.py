@@ -1,3 +1,4 @@
+import itertools
 import math
 import os
 import typing
@@ -208,7 +209,7 @@ class ProjectTester(abc.ABC):
 
     def _tune_params(self, initial_depth, max_depth, tunables, nontunables, n_iter):
         graph = self.project.load_or_extract_graph()
-        f1_scorer = make_scorer(trees_f1_scorer,            # TODO: Pass only nodes or edges instead of graph.
+        f1_scorer = make_scorer(trees_f1_scorer,  # TODO: Pass only nodes or edges instead of graph.
                                 initial_depth=initial_depth,
                                 max_depth=max_depth,
                                 graph=graph,
@@ -383,8 +384,8 @@ class MultiProcTester(ProjectTester):
         result_trees = [res[1] for res in got_results]
         del got_results
         if isinstance(result_eval[0], list):  # It is on test stage.
-            merged_res_eval = reduce(lambda x, y: x + y, result_eval, [])
-            merged_res_trees = reduce(lambda x, y: x + y, result_trees, [])
+            merged_res_eval = list(itertools.chain(*result_eval))
+            merged_res_trees = list(itertools.chain(*result_trees))
         else:  # It is on validation stage.
             merged_res_eval = reduce(lambda x, y: {key: x.get(key, []) + y[key] for key in y}, result_eval, {})
             merged_res_trees = None  # Result trees are not returned on validation stage.

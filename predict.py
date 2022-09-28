@@ -1,13 +1,7 @@
 import argparse
 # from profilehooks import timecall, profile
-import pprint
-from numbers import Number
-
-import numpy as np
-
 from cascade.metric import Metric
 from cascade.models import Project
-import settings
 from cascade.testers import MultiProcTester, DefaultTester
 from diffusion.enum import Method, Criterion
 from settings import logger

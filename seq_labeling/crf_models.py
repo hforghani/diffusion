@@ -56,10 +56,10 @@ class CRFModel(NodeSeqLabelModel):
             crf = self._models[node_id]
 
             if crf.crf is not None:
-                logger.debug('fetched CRF returned')
+                # logger.debug('fetched CRF returned')
                 return crf
             else:
-                logger.debug('fetching CRF ...')
+                # logger.debug('fetching CRF ...')
                 new_crf = self.get_crf_instance()
                 new_crf.set_params(crf.orig_indexes, crf.model_filename)
                 new_crf.crf = sklearn_crfsuite.CRF(model_filename=crf.model_filename, keep_tempfiles=True)

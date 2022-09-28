@@ -388,7 +388,7 @@ class CTIC(IC):
     def __calc_a_mp(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed):
         c_count = len(cascade_ids)
 
-        if multi_processed:
+        if multi_processed and settings.TRAIN_WORKERS > 1:
             process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
@@ -416,7 +416,7 @@ class CTIC(IC):
     def __calc_b_mp(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed):
         c_count = len(cascade_ids)
 
-        if multi_processed:
+        if multi_processed and settings.TRAIN_WORKERS > 1:
             process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
@@ -444,25 +444,21 @@ class CTIC(IC):
     def __calc_alpha_mp(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed):
         c_count = len(cascade_ids)
 
-        if multi_processed:
-            process_count = min(settings.TRAIN_WORKERS, c_count)
-            pool = Pool(processes=process_count)
-            step = int(math.ceil(c_count / process_count))
-            results = []
-            for j in range(0, c_count, step):
-                subset = cascade_ids[j: j + step]
-                sequences_j = {cid: sequences[cid] for cid in subset}
-                res = pool.apply_async(calc_alpha, (sequences_j, graph, k, r, user_map))
-                results.append(res)
-
-            pool.close()
-            pool.join()
+        if multi_processed and settings.TRAIN_WORKERS > 1:
+            step = 500
+            sequences_parts = [{cid: sequences[cid] for cid in cascade_ids[i:i + step]} for i in
+                               range(0, c_count, step)]
+            with ProcessPoolExecutor(max_workers=settings.TRAIN_WORKERS) as executor:
+                alpha_subsets = executor.map(calc_alpha, sequences_parts, repeat(graph), repeat(k), repeat(r),
+                                             repeat(user_map))
+            del sequences_parts
 
             # Collect results of the processes.
+            logger.debug('merging results of processes ...')
             alpha = {}
-            for i in range(len(results)):
-                a_subset = results[i].get()
+            for a_subset in alpha_subsets:
                 alpha.update(a_subset)
+                a_subset.clear()
         else:
             alpha = calc_alpha(sequences, graph, k, r, user_map)
 
@@ -472,7 +468,7 @@ class CTIC(IC):
     def __calc_beta_mp(self, sequences, graph, k, r, cascade_ids, user_map, multi_processed):
         c_count = len(cascade_ids)
 
-        if multi_processed:
+        if multi_processed and settings.TRAIN_WORKERS > 1:
             process_count = min(settings.TRAIN_WORKERS, c_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(c_count / process_count))
@@ -504,7 +500,7 @@ class CTIC(IC):
 
         multi_processed = False  # TODO: Remove it!
 
-        if multi_processed:
+        if multi_processed and settings.TRAIN_WORKERS > 1:
 
             step = e_count // settings.TRAIN_WORKERS
             step = max(10, min(10000, step))
@@ -537,7 +533,7 @@ class CTIC(IC):
 
         multi_processed = False  # TODO: Remove it!
 
-        if multi_processed:
+        if multi_processed and settings.TRAIN_WORKERS > 1:
             process_count = min(settings.TRAIN_WORKERS, e_count)
             pool = Pool(processes=process_count)
             step = int(math.ceil(e_count / process_count))
@@ -574,12 +570,12 @@ class CTIC(IC):
                 edge_neg_counts : dictionary of edge (u,v) to the number of negative examples of the edge.
         """
 
-        if multi_processed:
+        if multi_processed and settings.DEFAULT_WORKERS > 1:
             e_count = graph.number_of_edges()
             step = e_count // settings.TRAIN_WORKERS
             step = max(10, min(10000, step))
 
-            with ProcessPoolExecutor(max_workers=settings.TRAIN_WORKERS) as executor:
+            with ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
                 edges = list(graph.edges())
                 edge_lists = [edges[j: j + step] for j in range(0, e_count, step)]
                 del edges
@@ -590,12 +586,12 @@ class CTIC(IC):
                 edge_pos_cascades.update(pos_res)
                 edge_neg_counts.update(neg_res)
         else:
-            edge_pos_cascades, edge_neg_counts = get_pos_neg_examples(graph.edges(), sequences)
+            edge_pos_cascades, edge_neg_counts = get_pos_neg_examples(list(graph.edges()), sequences)
 
         return edge_pos_cascades, edge_neg_counts
 
 
-def get_pos_neg_examples(edges_list, sequences):
+def get_pos_neg_examples(edges_list: list, sequences: dict):
     edge_pos_cascades = {(u, v): [cid for cid, seq in sequences.items() if
                                   v in seq.user_times and u in seq.user_times and seq.user_times[u] <=
                                   seq.user_times[v]] for (u, v) in edges_list}

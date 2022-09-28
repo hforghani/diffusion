@@ -235,8 +235,12 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             if eco and manager is not None and not manager.db_exists():
                 logger.info('Seq labeling models do not exist in db.')
             # large_node_ids = set()
-            large_node_ids = {ObjectId('000000000000001713926427')}
-            not_large_node_ids = list(set(self.graph.nodes()) - large_node_ids)
+            node_ids = set(self.graph.nodes())
+            # large_node_ids = {nid for nid in {ObjectId('000000000000001713926427')} if
+            #                   nid in node_ids}  # TODO: Remove hard-code for Weibo Covid.
+            large_node_ids = set()
+            not_large_node_ids = list(node_ids - large_node_ids)
+            del node_ids
             logger.debug('num of node ids with large evidence: %d', len(large_node_ids))
             logger.debug('training models for not-large evidences ...')
             self._models = self._fit_by_evidences(not_large_node_ids, train_trees, project, self.graph, iterations,
@@ -244,7 +248,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             del not_large_node_ids
 
             if large_node_ids:
-                logger.debug('training models for large evidences ...')
+                logger.debug('training models for large evidences on single process ...')
                 # Keep only the data for node ids with large evidence in self.graph to reduce memory usage.
                 self.graph.keep_node_ids(large_node_ids)
                 large_models = self._fit_by_evidences(large_node_ids, train_trees, project, self.graph, iterations,

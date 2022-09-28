@@ -1,6 +1,7 @@
 import logging
 import math
 import sys
+import traceback
 import typing
 from concurrent.futures import ProcessPoolExecutor
 from functools import reduce
@@ -37,17 +38,21 @@ def get_users(cascade_id: str, db_name) -> Set[str]:
 
 
 def calc_jaccards(index_pairs, users, cascade_ids):
-    logger.debug('calculating %d jaccard coefficients ...', len(index_pairs))
-    jaccards = {}
-    for i, j in index_pairs:
-        inter = len(users[cascade_ids[i]] & users[cascade_ids[j]])
-        if inter == 0:
-            val = 0
-        else:
-            val = inter / len(users[cascade_ids[i]] | users[cascade_ids[j]])
-        jaccards[(i, j)] = val
-    logger.debug('done')
-    return jaccards
+    try:
+        logger.debug('calculating %d jaccard coefficients ...', len(index_pairs))
+        jaccards = {}
+        for i, j in index_pairs:
+            inter = len(users[cascade_ids[i]] & users[cascade_ids[j]])
+            if inter == 0:
+                val = 0
+            else:
+                val = inter / len(users[cascade_ids[i]] | users[cascade_ids[j]])
+            jaccards[(i, j)] = val
+        logger.debug('done')
+        return jaccards
+    except:
+        logger.error(traceback.format_exc())
+        raise
 
 
 def get_jaccard_mat_mp(cascades: List[str], users: Dict[str, set]):
@@ -55,7 +60,7 @@ def get_jaccard_mat_mp(cascades: List[str], users: Dict[str, set]):
 
     futures = []
     step = 500
-    n = math.ceil(len(cascades) / step)
+    n = math.ceil(count / step)
     logger.info('creating %d jobs to calculate jaccards ...', n * (n + 1) / 2)
 
     with ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
@@ -130,18 +135,19 @@ def hierarchical(mat, clust_num):
     dendrogram = paris.fit_transform(mat)
     clusters = {i: [i] for i in range(mat.shape[0])}
     new_clust_index = len(clusters)
-    # logger.debug('len(clusters) = \n%s', len(clusters))
-    # logger.debug('dendrogram = \n%s', dendrogram)
+    logger.debug('len(clusters) = \n%s', len(clusters))
+    logger.debug('dendrogram = \n%s', dendrogram)
 
     for i, j, dist, size in dendrogram:
         if len(clusters) <= clust_num:
             break
         i, j = int(i), int(j)
-        # logger.debug('merging %d and %d into %d', i, j, new_clust_index)
+        logger.debug('merging %d and %d with dist %f and size %d into %d', i, j, dist, size, new_clust_index)
         clusters[new_clust_index] = clusters[i] + clusters[j]
-        new_clust_index += 1
+        assert size == len(clusters[new_clust_index])
         del clusters[i]
         del clusters[j]
+        new_clust_index += 1
 
     keys = list(clusters.keys())
     key_map = {keys[i]: i for i in range(len(keys))}
@@ -298,12 +304,12 @@ def run_clustering(clust_num, db_name, min_size, max_size, depth, method, file_n
         users = load_or_extract_users(cascades, db_name)
 
         # Calculate the Jaccard matrix.
-        if count > 100:
-            logger.info('creating the similarity matrix using multiple processes ...')
-            mat = get_jaccard_mat_mp(cascades, users)
-        else:
-            logger.info('creating the similarity matrix using single process ...')
-            mat = get_jaccard_mat(cascades, users)
+        # if count > 100:
+        #     logger.info('creating the similarity matrix using multiple processes ...')
+        #     mat = get_jaccard_mat_mp(cascades, users)
+        # else:
+        logger.info('creating the similarity matrix using single process ...')
+        mat = get_jaccard_mat(cascades, users)
 
         # Normalize the matrix.
         logger.info('normalizing the matrix ...')
@@ -323,6 +329,7 @@ def run_clustering(clust_num, db_name, min_size, max_size, depth, method, file_n
     # Cluster the cascades.
     logger.info('clustering the cascades ...')
     labels = cluster_mat(mat, clust_num, method)
+    del mat
 
     clusters = save_results(affinity, cascades, file_name, labels)
 
@@ -354,15 +361,23 @@ def save_results(affinity, cascades, file_name, labels):
     new_mat = affinity[:, ordered_ind]
     new_mat = new_mat[ordered_ind, :]
 
-    # new_mat -= sparse.eye(count, count, format='csr')
-    # new_mat = new_mat.reshape((1, count ** 2))
-    # new_mat = normalize(new_mat, norm='max')
-    # new_mat = mat.reshape((count, count))
-    # new_mat += sparse.eye(count, count, format='csr')
-
     # Calculate the clustering error.
     error = calc_error(new_mat, clusters)
     logger.info('error = %f', error)
+
+    # Normalize the matrix.
+    count = new_mat.shape[0]
+    mmin = new_mat.min()
+    argmin = new_mat.argmin()
+    new_mat -= sparse.eye(count, count, format='csr')
+    mmax = new_mat.max()
+    argmax = new_mat.argmax()
+    logger.debug('min, max = %f, %f', mmin, mmax)
+    logger.debug('argmin, argmax = %s, %s', argmin, argmax)
+    new_mat = (new_mat - mmin) / (mmax - mmin)
+    new_mat += sparse.eye(count, count, format='csr')
+    logger.debug('min, max after normalization = %f, %f', new_mat.min(), new_mat.max())
+
     heat_map(new_mat, file_name + '.png')
 
     return clusters
