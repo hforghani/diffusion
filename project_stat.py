@@ -35,7 +35,17 @@ class Command:
             training, test = project.load_sets()
             db = DBManager(project.db).db
             cascades = list(db.cascades.find({'_id': {'$in': training + test}}, ['_id', 'depth', 'size']))
+            min_size = min(c['size'] for c in cascades)
+            max_size = max(c['size'] for c in cascades)
+            min_depth = min(c['depth'] for c in cascades)
+            max_depth = max(c['depth'] for c in cascades)
+
             print('Number of cascades:', len(cascades))
+            print('min size:', min_size)
+            print('max size:', max_size)
+            print('min depth:', min_depth)
+            print('max depth:', max_depth)
+
             print(f'{"cascade id":30}{"size":10}{"depth":10}')
             for cascade in cascades:
                 print(f'{str(cascade["_id"]):30}{cascade["size"]:<10}{cascade["depth"]:<10}')
