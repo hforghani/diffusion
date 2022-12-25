@@ -16,7 +16,6 @@ from cascade.asynchroizables import test_cascades, evaluate_nodes, evaluate_edge
 from cascade.metric import Metric
 from cascade.models import Project
 from diffusion.aslt import AsLT
-from diffusion.avg import LTAvg
 from diffusion.ctic import CTIC
 from diffusion.enum import Criterion
 from diffusion.ic_models import DAIC, EMIC
@@ -31,7 +30,6 @@ from utils.time_utils import time_measure, Timer, TimeUnit
 METHOD_MODEL_MAP = {
     Method.ASLT: AsLT,
     Method.CTIC: CTIC,
-    Method.AVG: LTAvg,
     Method.EMIC: EMIC,
     Method.DAIC: DAIC,
 

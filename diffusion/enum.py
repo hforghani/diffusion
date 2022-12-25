@@ -21,7 +21,6 @@ class Method(Enum):
     MULTI_STATE_LONG_CRF = 'mlcrf'
     MULTI_STATE_BIN_CRF = 'mbcrf'
     MULTI_STATE_TD_CRF = 'mtdcrf'
-    AVG = 'avg'
     MLN_TUFFY = 'mlntuffy'
     # MLN_PRAC = 'mlnprac'
     # MLN_ALCH = 'mlnalch'
