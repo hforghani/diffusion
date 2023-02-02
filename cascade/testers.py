@@ -12,7 +12,7 @@ from sklearn.metrics import make_scorer
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
 import settings
-from cascade.asynchroizables import test_cascades, evaluate_nodes, evaluate_edges
+from cascade.asynchronizables import test_cascades, evaluate_nodes, evaluate_edges
 from cascade.metric import Metric
 from cascade.models import Project
 from diffusion.aslt import AsLT
