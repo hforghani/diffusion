@@ -301,7 +301,7 @@ class Project:
             self.db = self.load_param('db', ParamTypes.JSON)['db']
         except FileNotFoundError:
             if not db:
-                raise ValueError('db is required if the db.json does not exist')
+                raise ValueError('db is required if `db.json` does not exist')
             self.save_param({'db': db}, 'db', ParamTypes.JSON)
             self.db = db
         self.training = None
@@ -452,7 +452,7 @@ class Project:
             if post_ids is None:
                 post_ids = []
             if len(post_ids) == 0:
-                post_ids.extend(self.__get_cascades_post_ids(train_set))
+                post_ids.extend(self._get_cascades_post_ids(train_set))
             graph = self.__extract_graph_from_reshares(post_ids, train_set)
             fname = 'graph' + str(max(int(name[5:]) for name in graph_info.keys()) + 1) if graph_info else 'graph1'
             logger.info('saving graph ...')
@@ -487,8 +487,8 @@ class Project:
 
         except FileNotFoundError:  # If graph data does not exist.
             if len(post_ids) == 0:
-                post_ids.extend(self.__get_cascades_post_ids(all_train_set))
-            sequences = self.__extract_act_seq(post_ids, all_train_set)
+                post_ids.extend(self._get_cascades_post_ids(all_train_set))
+            sequences = self._extract_act_seq(post_ids, all_train_set)
 
         sequences = {cid: seq for cid, seq in sequences.items() if cid in train_set}
 
@@ -510,7 +510,7 @@ class Project:
         return graph, sequences
 
     @time_measure(level='debug')
-    def __extract_act_seq(self, posts_ids, cascade_ids):
+    def _extract_act_seq(self, posts_ids, cascade_ids, seq_fname=None):
         """
         Extract list of activation sequences from given cascade id's.
         :param posts_ids:   list of posts id's
@@ -559,12 +559,12 @@ class Project:
                 sequences[m] = ActSequence(users[m], times[m], max_t[m])
 
         logger.info('saving act. sequences ...')
-        self.save_act_sequences(sequences)
+        self.save_act_sequences(sequences, seq_fname)
 
         return sequences
 
     @time_measure(level='debug')
-    def __get_cascades_post_ids(self, cascade_ids):
+    def _get_cascades_post_ids(self, cascade_ids):
         logger.info('querying posts ids ...')
         db = DBManager(self.db).db
         post_ids = [pm['post_id'] for pm in
@@ -572,7 +572,7 @@ class Project:
         logger.debug('%d post ids fetched', len(post_ids))
         return post_ids
 
-    def save_act_sequences(self, sequences):
+    def save_act_sequences(self, sequences, seq_fname=None):
         seq_copy = {}
         for m in sequences:
             seq_copy[str(m)] = {
@@ -580,7 +580,9 @@ class Project:
                             range(len(sequences[m].users))],
                 'max_t': sequences[m].max_t
             }
-        self.save_param(seq_copy, 'sequences', ParamTypes.JSON)
+        if seq_fname is None:
+            seq_fname = 'sequences'
+        self.save_param(seq_copy, seq_fname, ParamTypes.JSON)
 
     def __get_posts_author_datetime(self, post_ids, db):
         max_count = 400000

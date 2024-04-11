@@ -1,5 +1,4 @@
 import argparse
-import logging
 
 import pymongo
 from pymongo import IndexModel
@@ -20,8 +19,8 @@ def handle(db_name):
     db.reshares.create_indexes([IndexModel('post_id'), IndexModel('reshared_post_id'), IndexModel('datetime'),
                                 IndexModel(
                                     [('user_id', pymongo.ASCENDING), ('ref_user_id', pymongo.ASCENDING)])])
-    logger.info('creating indexes for relations ...')
-    db.relations.create_indexes([IndexModel('user_id')])
+    # logger.info('creating indexes for relations ...')
+    # db.relations.create_indexes([IndexModel('user_id')])
 
 
 if __name__ == '__main__':
