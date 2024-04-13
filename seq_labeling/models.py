@@ -1,5 +1,4 @@
 import abc
-import collections
 import itertools
 import pprint
 import random
@@ -7,6 +6,7 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor
 from functools import reduce
 from itertools import repeat
+from typing import Sequence
 
 import numpy as np
 import psutil
@@ -259,7 +259,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         return self
 
     @classmethod
-    def _extract_obs(cls, cur_step_ids: collections.Iterable, obs_node_ids: list, timers=None) -> np.ndarray:
+    def _extract_obs(cls, cur_step_ids: Sequence, obs_node_ids: list, timers=None) -> np.ndarray:
         """
         Get the observation array corresponding to the active node ids in the current step.
         :param cur_step_ids: current step node ids
