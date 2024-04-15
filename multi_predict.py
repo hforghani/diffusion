@@ -1,8 +1,10 @@
 import argparse
 import concurrent
 from itertools import repeat, product
+from typing import Dict
 
 import settings
+from cascade.metric import Metric
 from diffusion.enum import Method, Criterion
 from cascade.models import Project
 from cascade.testers import DefaultTester
@@ -27,11 +29,11 @@ def run(method, initial_depth, max_depth, project, eco, criterion):
     if not params:
         logger.info('no params for %s on %s', method.value, project.name)
     mean_res, res, _ = tester.run(initial_depth, max_depth, **params)
-    return mean_res["f1"]
+    return mean_res.metrics
 
 
 def multiple_run(methods: list, depth_settings: list, project_name: str, eco: bool,
-                 criterion: Criterion) -> dict:
+                 criterion: Criterion) -> Dict[tuple, Dict[str, Dict[str, float]]]:
     project = Project(project_name)
     combs = list(product(depth_settings, methods))
     comb_methods = [comb[1] for comb in combs]
@@ -42,25 +44,31 @@ def multiple_run(methods: list, depth_settings: list, project_name: str, eco: bo
     logger.debug('max_depths = %s', max_depths)
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=settings.TEST_WORKERS) as executor:
-        f1_values = list(executor.map(run, comb_methods, init_depths, max_depths, repeat(project), repeat(eco),
-                                      repeat(criterion)))
+        metrics = list(executor.map(run, comb_methods, init_depths, max_depths, repeat(project), repeat(eco),
+                                    repeat(criterion)))
 
     results = {(initial_depth, max_depth): {} for initial_depth, max_depth in depth_settings}
-    for i in range(len(f1_values)):
-        results[(init_depths[i], max_depths[i])][comb_methods[i]] = f1_values[i]
+    for i in range(len(metrics)):
+        results[(init_depths[i], max_depths[i])][comb_methods[i]] = metrics[i]
 
     return results
 
 
-def report_results(methods, results):
-    logs = [f'{"from depth":<15}{"to depth":<15}' + ''.join(f'{method.value:<15}' for method in methods)]
-    for init_depth, max_depth in results:
-        cur_results = results[(init_depth, max_depth)]
-        row = f'{init_depth:<15}{max_depth if max_depth else "end":<15}'
-        for method in cur_results:
-            row += f'{cur_results[method]:<15.3}'
-        logs.append(row)
-    logger.info('all results:\n%s', '\n'.join(logs))
+def report_results(methods, results: Dict[tuple, Dict[str, Dict[str, float]]]):
+    metrics = list(Metric([], []).metrics)
+    logs = ["All Results:\n"]
+    for metric in metrics:
+        logs.extend([
+            f"Metric: {metric}",
+            f'{"from depth":<15}{"to depth":<15}' + ''.join(f'{method.value:<15}' for method in methods),
+        ])
+        for init_depth, max_depth in results:
+            cur_results = results[(init_depth, max_depth)]
+            row = f'{init_depth:<15}{max_depth if max_depth else "end":<15}'
+            for method in cur_results:
+                row += f'{cur_results[method][metric]:<15.3}'
+            logs.append(row)
+    logger.info('\n'.join(logs))
 
 
 @time_measure()
