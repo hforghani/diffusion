@@ -1,10 +1,11 @@
 from __future__ import annotations
+
+import datetime
 import itertools
 import math
 from concurrent.futures import ProcessPoolExecutor
 from typing import List, Tuple, Dict
 
-import networkx
 import scipy
 import sklearn
 from bson import ObjectId
@@ -186,7 +187,6 @@ class ProjectTester(abc.ABC):
             start, end = threshold
             threshold = [round(val, 5) for val in np.arange(start, end, (end - start) / (n_iter - 1))]
         results = {}
-        auc_list = []
 
         # for each fold, train on the others and test on that fold.
         for i in range(folds_num):
@@ -201,19 +201,16 @@ class ProjectTester(abc.ABC):
             del model
             for thr in threshold:
                 results.setdefault(thr, [])
-                results[thr].append(fold_res[thr]["f1"])
-            auc_roc = self._calc_auc_roc(fold_res)
-            logger.info('auc_roc of fold %d = %f', i + 1, auc_roc)
-            auc_list.append(auc_roc)
+                results[thr].append(fold_res[thr])
 
         # logger.debug('results = %s', results)
-        mean_res = {thr: np.mean(np.array(results[thr])) for thr in results}
-        logger.debug('mean_res = %s', pprint.pformat(mean_res))
-        best_thr = max(mean_res, key=lambda thr: mean_res[thr])
+        mean_f1 = {thr: np.array([m["f1"] for m in results[thr]]).mean() for thr in results}
+        logger.debug('mean_f1 = %s', pprint.pformat(mean_f1))
+        best_thr = max(mean_f1, key=lambda thr: mean_f1[thr])
         best_params = params.copy()
         best_params['threshold'] = best_thr
-        auc_mean = np.array(auc_list).mean()
-        return best_params, auc_mean
+        auc_roc = self._calc_auc_roc(results)
+        return best_params, auc_roc
 
     def _tune_params(self, initial_depth, max_depth, tunables, nontunables, n_iter):
         graph = self.project.load_or_extract_graph()
@@ -321,7 +318,20 @@ class ProjectTester(abc.ABC):
 
         logger.info('\n'.join(logs))
 
-    def __save_charts(self, best_thr: float, results: dict, thresholds: list, initial_depth: int, max_depth: int):
+    def _save_roc(self, fpr: np.array, tpr: np.array):
+        pyplot.figure()
+        pyplot.plot(fpr, tpr)
+        pyplot.title('ROC curve')
+        pyplot.axis((0, 1, 0, 1))
+        results_path = os.path.join(settings.BASE_PATH, 'results')
+        if not os.path.exists(results_path):
+            os.mkdir(results_path)
+        filename = os.path.join(results_path,
+                                f'{self.project.name}-{self.method}-roc-{datetime.datetime.now()}.png')
+        pyplot.savefig(filename)
+        # pyplot.show()
+
+    def _save_charts(self, best_thr: float, results: dict, thresholds: list, initial_depth: int, max_depth: int):
         metrics = list(results[thresholds[0]].metrics)
         best_res = results[best_thr]
         subplot_num = 221
@@ -335,10 +345,10 @@ class ProjectTester(abc.ABC):
                 pyplot.plot(values, recall_valuse)
                 pyplot.scatter([best_res.fpr], [best_res["recall"]], c='r', marker='o')
                 pyplot.title('ROC curve')
-                pyplot.axis([0, 1, 0, 1])
+                pyplot.axis((0, 1, 0, 1))
             else:
                 pyplot.plot(thresholds, values)
-                pyplot.axis([0, pyplot.axis()[1], 0, 1])
+                pyplot.axis((0, pyplot.axis()[1], 0, 1))
                 pyplot.scatter([best_thr], [best_res[metric]], c='r', marker='o')
                 pyplot.title(metric)
 
@@ -351,13 +361,11 @@ class ProjectTester(abc.ABC):
             # pyplot.show()
             subplot_num += 1
 
-    def _calc_auc_roc(self, results: Dict[float, Metric]) -> float:
-        fpr = []
-        tpr = []
-        for thr in sorted(results):
-            fpr.append(results[thr]["fpr"])
-            tpr.append(results[thr]["tpr"])
-        return sklearn.metrics.auc(np.array(fpr), np.array(tpr))
+    def _calc_auc_roc(self, results: Dict[float, List[Metric]]) -> float:
+        fpr = np.array([np.array([m["fpr"] for m in results[thr]]).mean() for thr in sorted(results)])
+        tpr = np.array([np.array([m["tpr"] for m in results[thr]]).mean() for thr in sorted(results)])
+        self._save_roc(fpr, tpr)
+        return sklearn.metrics.auc(fpr, tpr)
 
 
 class DefaultTester(ProjectTester):
