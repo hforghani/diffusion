@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import itertools
+import json
 import math
 from concurrent.futures import ProcessPoolExecutor
 from typing import List, Tuple, Dict
@@ -319,6 +320,9 @@ class ProjectTester(abc.ABC):
         logger.info('\n'.join(logs))
 
     def _save_roc(self, fpr: np.array, tpr: np.array):
+        """
+        Save ROC plot as png and FPR-TPR values as json.
+        """
         pyplot.figure()
         pyplot.plot(fpr, tpr)
         pyplot.axis((0, 1, 0, 1))
@@ -327,10 +331,11 @@ class ProjectTester(abc.ABC):
         results_path = os.path.join(settings.BASE_PATH, 'results')
         if not os.path.exists(results_path):
             os.mkdir(results_path)
-        filename = os.path.join(results_path,
-                                f'{self.project.name}-{self.method}-roc-{datetime.datetime.now()}.png')
-        pyplot.savefig(filename)
+        base_name = f'{self.project.name}-{self.method}-roc-{datetime.datetime.now()}'
+        pyplot.savefig(os.path.join(results_path, f'{base_name}.png'))
         # pyplot.show()
+        with open(os.path.join(results_path, f'{base_name}.json'), "w") as f:
+            json.dump({"fpr": fpr.tolist(), "tpr": tpr.tolist()}, f)
 
     def _save_charts(self, best_thr: float, results: dict, thresholds: list, initial_depth: int, max_depth: int):
         metrics = list(results[thresholds[0]].metrics)

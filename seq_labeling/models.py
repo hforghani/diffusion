@@ -234,8 +234,8 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         else:
             if eco and manager is not None and not manager.db_exists():
                 logger.info('Seq labeling models do not exist in db.')
-            # large_node_ids = set()
             node_ids = set(self.graph.nodes())
+            # large_node_ids = {ObjectId('000000000000001713926427')}  # manual for Weibo Covid
             large_node_ids = set()
             not_large_node_ids = list(node_ids - large_node_ids)
             del node_ids
