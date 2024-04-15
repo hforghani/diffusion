@@ -42,7 +42,7 @@ def calc_h(sequences, graph, w, r, user_map):
                         diff = user_time - act_par_times
                         diff[diff == 0] = 1.0 / (30 * 24 * 60)  # 1 minute
                         w_col = w[:, uindex].toarray()
-                        val = np.exp(-r[uindex] * diff).dot(w_col[act_par_indexes]) * r[uindex]
+                        val = float(np.exp(-r[uindex] * diff).dot(w_col[act_par_indexes]) * r[uindex])
 
                         if val == 0:
                             logger.warning('\th = 0')
