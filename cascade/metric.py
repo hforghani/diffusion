@@ -14,10 +14,13 @@ class Metric(object):
         fn = len(true_set - out_set)
         tn = len(ref - out_set - true_set)
 
-        self.precision = self.__precision(tp, output)
-        self.recall = self.__recall(tp, true_output)
-        self.f1 = self.__f1(tp, fp, fn)
-        self.fpr = self.__fpr(fp, tn)
+        self.metrics = {
+            "precision": self.__precision(tp, output),
+            "recall": self.__recall(tp, true_output),
+            "f1": self.__f1(tp, fp, fn),
+            "fpr": self.__fpr(fp, tn),
+            "accuracy": self.__accuracy(tp, fp, fn, tn),
+        }
 
     def __precision(self, tp, output):
         return tp / len(output) if output else 1
@@ -35,6 +38,9 @@ class Metric(object):
         """
         return fp / (fp + tn) if fp + tn != 0 else 0
 
+    def __accuracy(self, tp, fp, fn, tn):
+        return (tp + tn) / (tp + tn + fp + fn) if tp + tn + fp + fn != 0 else 0
+
     def __prp(self, prob, output, true_output):
         """
         Calculate Precision at different Recall Points.
@@ -47,8 +53,14 @@ class Metric(object):
                 prp_val.append(Metric(sorted_output[:i + 1], true_output).precision)
         return prp_val
 
-    def set(self, precision, recall, f1, fpr):
-        self.precision = precision
-        self.recall = recall
-        self.f1 = f1
-        self.fpr = fpr
+    @staticmethod
+    def from_values(**kwargs):
+        metric = Metric([], [])
+        metric.metrics = kwargs
+        return metric
+
+    def __getitem__(self, item):
+        if item in self.metrics:
+            return self.metrics[item]
+        else:
+            raise ValueError(f"metric `{item}` has not been set")

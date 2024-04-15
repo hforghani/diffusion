@@ -64,8 +64,7 @@ def handle(args):
                       args.multi_processed, args.eco, args.param, args.n_iter)
 
     if res is not None:
-        logger.info('final precision = %.3f, recall = %.3f, f1 = %.3f, fpr = %.3f', res.precision, res.recall,
-                    res.f1, res.fpr)
+        logger.info(f"final {', '.join(f'{metric}: {value:.3f}' for metric, value in res.metrics.items())}")
 
 
 def main():

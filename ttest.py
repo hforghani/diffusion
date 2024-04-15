@@ -20,8 +20,8 @@ def run_method(method, project_name, eco, criterion):
     params = get_params(project_name, method)
     logger.info('params = %s', params)
     mean_res, res, _ = tester.run(0, None, **params)
-    f1_values = np.array([metric.f1 for metric in res])
-    mean_f1 = mean_res.f1
+    f1_values = np.array([metric["f1"] for metric in res])
+    mean_f1 = mean_res["f1"]
     return mean_f1, f1_values
 
 

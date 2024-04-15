@@ -2,6 +2,7 @@ import numbers
 import traceback
 import typing
 
+import networkx
 from networkx import DiGraph
 from pympler.asizeof import asizeof
 
@@ -15,22 +16,21 @@ from utils.time_utils import Timer
 
 def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph):
     if criterion == Criterion.NODES:
-        all_node_ids = list(graph.nodes())
-        meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, all_node_ids,
-                                                       max_depth)
+        meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, graph, max_depth)
     else:
-        all_edges = set(graph.edges())
-        meas, res_output, true_output = evaluate_edges(initial_tree, res_tree, tree, all_edges, max_depth)
+        meas, res_output, true_output = evaluate_edges(initial_tree, res_tree, tree, graph, max_depth)
     return meas, res_output, true_output
 
 
-def evaluate_nodes(initial_tree, res_tree, tree, all_nodes, max_depth=None):
+def evaluate_nodes(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None):
     # Get predicted and true nodes.
     res_nodes = set(res_tree.node_ids())
     true_nodes = set(tree.node_ids(max_depth=max_depth))
     initial_nodes = set(initial_tree.node_ids())
     res_output = res_nodes - initial_nodes
     true_output = true_nodes - initial_nodes
+    succ_lists = [networkx.dfs_successors(graph, node) for node in initial_tree.node_ids() if node in graph]
+    all_nodes = set().union(*succ_lists) | true_nodes
     ref_set = set(all_nodes) - initial_nodes
 
     # Evaluate the result.
@@ -38,13 +38,15 @@ def evaluate_nodes(initial_tree, res_tree, tree, all_nodes, max_depth=None):
     return meas, res_output, true_output
 
 
-def evaluate_edges(initial_tree, res_tree, tree, all_edges, max_depth=None):
+def evaluate_edges(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None):
     # Get predicted and true nodes.
     res_edges = set(res_tree.edges(max_depth=max_depth))
     true_edges = set(tree.edges(max_depth=max_depth))
     initial_edges = set(initial_tree.edges())
     res_output = res_edges - initial_edges
     true_output = true_edges - initial_edges
+    edge_lists = [networkx.dfs_edges(graph, node) for node in initial_tree.node_ids() if node in graph]
+    all_edges = set().union(*edge_lists) | true_edges
     ref_set = set(all_edges) - initial_edges
 
     # Evaluate the result.
@@ -107,8 +109,8 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                                                                      criterion, graph)
                             results[thr].append(meas)
                             logs.append(
-                                f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{meas.precision:10.3f}'
-                                f'{meas.recall:10.3f}{meas.f1:10.3f}')
+                                f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{meas["precision"]:10.3f}'
+                                f'{meas["recall"]:10.3f}{meas["f1"]:10.3f}')
                     else:
                         # res_tree is an instance of CascadeTree
                         logs = [f'{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
@@ -117,8 +119,8 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                         results.append(meas)
                         res_trees.append(res_tree)
                         logs.append(
-                            f'{len(res_output):10}{len(true_output):10}{meas.precision:10.3f}{meas.recall:10.3f}'
-                            f'{meas.f1:10.3f}')
+                            f'{len(res_output):10}{len(true_output):10}{meas["precision"]:10.3f}{meas["recall"]:10.3f}'
+                            f'{meas["f1"]:10.3f}')
 
                     # log_trees(tree, res_tree, max_depth)
                     logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))

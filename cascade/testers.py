@@ -1,9 +1,9 @@
 import itertools
 import math
-import os
 import typing
 from concurrent.futures import ProcessPoolExecutor
 
+import networkx
 import scipy
 from bson import ObjectId
 from matplotlib import pyplot
@@ -64,11 +64,9 @@ def trees_f1_scorer(true_trees, pred_trees, initial_depth, max_depth, graph, cri
         initial_tree = true_tree.copy(initial_depth)
 
         if criterion == Criterion.NODES:
-            all_node_ids = list(graph.nodes())
-            meas, _, _ = evaluate_nodes(initial_tree, pred_tree, true_tree, all_node_ids, max_depth)
+            meas, _, _ = evaluate_nodes(initial_tree, pred_tree, true_tree, graph, max_depth)
         else:
-            all_edges = set(graph.edges())
-            meas, _, _ = evaluate_edges(initial_tree, pred_tree, true_tree, all_edges, max_depth)
+            meas, _, _ = evaluate_edges(initial_tree, pred_tree, true_tree, graph, max_depth)
         f1_values.append(meas.f1)
 
     f1 = np.mean(np.array(f1_values))
@@ -195,7 +193,7 @@ class ProjectTester(abc.ABC):
             del model
             for thr in threshold:
                 results.setdefault(thr, [])
-                results[thr].append(fold_res[thr].f1)
+                results[thr].append(fold_res[thr]["f1"])
 
         # logger.debug('results = %s', results)
         mean_res = {thr: np.mean(np.array(results[thr])) for thr in results}
@@ -254,19 +252,17 @@ class ProjectTester(abc.ABC):
         :return: dictionary of thresholds to Metric instances containing average of precision, recall, f1, and fpr
         """
         mean_res = {}
+        metrics = list(next(iter(results.values())).metrics.keys())
         logs = [
             'averages:',
-            f'{"threshold":<10}{"precision":<10}{"recall":<10}{"f1":<10}'
+            "".join(f"{header:<10}" for header in ["threshold"] + metrics)
         ]
         for thr in results:
-            mean_metric = Metric([], [])
-            prec = np.array([m.precision for m in results[thr] if m is not None]).mean()
-            rec = np.array([m.recall for m in results[thr] if m is not None]).mean()
-            fpr = np.array([m.fpr for m in results[thr] if m is not None]).mean()
-            f1 = np.array([m.f1 for m in results[thr] if m is not None]).mean()
-            mean_metric.set(prec, rec, f1, fpr)
+            mean_values = {metric: np.array([m[metric] for m in results[thr] if m is not None]).mean() for metric in
+                           metrics}
+            mean_metric = Metric.from_values(**mean_values)
             mean_res[thr] = mean_metric
-            logs.append(f'{thr:<10.3f}{prec:<10.3f}{rec:<10.3f}{f1:<10.3f}')
+            logs.append("".join(f"{value:<10.3f}" for value in [thr] + [mean_values[metric] for metric in metrics]))
 
         logger.debug('\n'.join(logs))
         return mean_res
@@ -276,18 +272,14 @@ class ProjectTester(abc.ABC):
         :param results: list of Metric instances
         :return: Metric instance containing average of precision, recall, f1, and fpr
         """
+        metrics = list(results[0].metrics.keys())
         logs = [
             'averages:',
-            f'{"precision":<10}{"recall":<10}{"f1":<10}'
+            "".join(f"{metric:<10}" for metric in metrics)
         ]
-        mean_metric = Metric([], [])
-        prec = np.array([m.precision for m in results if m is not None]).mean()
-        rec = np.array([m.recall for m in results if m is not None]).mean()
-        fpr = np.array([m.fpr for m in results if m is not None]).mean()
-        f1 = np.array([m.f1 for m in results if m is not None]).mean()
-        mean_metric.set(prec, rec, f1, fpr)
-        logs.append(f'{prec:<10.3f}{rec:<10.3f}{f1:<10.3f}')
-
+        mean_values = {metric: np.array([m[metric] for m in results if m is not None]).mean() for metric in metrics}
+        mean_metric = Metric.from_values(**mean_values)
+        logs.append("".join(f"{value:<10.3f}" for value in [mean_values[metric] for metric in metrics]))
         logger.info('\n'.join(logs))
         return mean_metric
 
@@ -300,54 +292,49 @@ class ProjectTester(abc.ABC):
             else:
                 return f'{value:<10.3f}'
 
+        metrics = list(results[0].metrics)
         logs = ['results on test set:',
-                f'{"cascade id":<30}{"precision":<10}{"recall":<10}{"f1":<10}'
+                f'{"cascade id":<30}' + ''.join(f'{metric:<10}' for metric in metrics)
                 ]
         for i in range(len(test_set)):
             if results[i]:
-                cells = (test_set[i], results[i].precision, results[i].recall, results[i].f1)
+                cells = (test_set[i],) + tuple(results[i][metric] for metric in metrics)
             else:
-                cells = (test_set[i], None, None, None)
+                cells = (test_set[i],) + (None,) * len(metrics)
             row = ''.join(format_cell(cell) for cell in cells)
             logs.append(row)
 
         logger.info('\n'.join(logs))
 
     def __save_charts(self, best_thr: float, results: dict, thresholds: list, initial_depth: int, max_depth: int):
-        precs_list = [results[thr].precision for thr in thresholds]
-        recs_list = [results[thr].recall for thr in thresholds]
-        f1s_list = [results[thr].f1 for thr in thresholds]
-        fprs_list = [results[thr].fpr for thr in thresholds]
+        metrics = list(results[thresholds[0]].metrics)
         best_res = results[best_thr]
+        subplot_num = 221
 
-        pyplot.figure()
-        pyplot.subplot(221)
-        pyplot.plot(thresholds, precs_list)
-        pyplot.axis([0, pyplot.axis()[1], 0, 1])
-        pyplot.scatter([best_thr], [best_res.precision], c='r', marker='o')
-        pyplot.title('precision')
-        pyplot.subplot(222)
-        pyplot.plot(thresholds, recs_list)
-        pyplot.scatter([best_thr], [best_res.recall], c='r', marker='o')
-        pyplot.axis([0, pyplot.axis()[1], 0, 1])
-        pyplot.title('recall')
-        pyplot.subplot(223)
-        pyplot.plot(thresholds, f1s_list)
-        pyplot.scatter([best_thr], [best_res.f1], c='r', marker='o')
-        pyplot.axis([0, pyplot.axis()[1], 0, 1])
-        pyplot.title('F1')
-        pyplot.subplot(224)
-        pyplot.plot(fprs_list, recs_list)
-        pyplot.scatter([best_res.fpr], [best_res.recall], c='r', marker='o')
-        pyplot.title('ROC curve')
-        pyplot.axis([0, 1, 0, 1])
-        results_path = os.path.join(settings.BASE_PATH, 'results')
-        if not os.path.exists(results_path):
-            os.mkdir(results_path)
-        filename = os.path.join(results_path,
-                                f'{self.project.name}-{self.method}-{initial_depth}-{max_depth}.png')
-        pyplot.savefig(filename)
-        # pyplot.show()
+        for metric in metrics:
+            values = [results[thr][metric] for thr in thresholds]
+            pyplot.figure()
+            pyplot.subplot(subplot_num)
+            if metric == "fpr":
+                recall_valuse = [results[thr]["recall"] for thr in thresholds]
+                pyplot.plot(values, recall_valuse)
+                pyplot.scatter([best_res.fpr], [best_res["recall"]], c='r', marker='o')
+                pyplot.title('ROC curve')
+                pyplot.axis([0, 1, 0, 1])
+            else:
+                pyplot.plot(thresholds, values)
+                pyplot.axis([0, pyplot.axis()[1], 0, 1])
+                pyplot.scatter([best_thr], [best_res[metric]], c='r', marker='o')
+                pyplot.title(metric)
+
+            results_path = os.path.join(settings.BASE_PATH, 'results')
+            if not os.path.exists(results_path):
+                os.mkdir(results_path)
+            filename = os.path.join(results_path,
+                                    f'{self.project.name}-{self.method}-{initial_depth}-{max_depth}.png')
+            pyplot.savefig(filename)
+            # pyplot.show()
+            subplot_num += 1
 
 
 class DefaultTester(ProjectTester):
