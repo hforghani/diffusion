@@ -236,8 +236,6 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
                 logger.info('Seq labeling models do not exist in db.')
             # large_node_ids = set()
             node_ids = set(self.graph.nodes())
-            # large_node_ids = {nid for nid in {ObjectId('000000000000001713926427')} if
-            #                   nid in node_ids}  # TODO: Remove hard-code for Weibo Covid.
             large_node_ids = set()
             not_large_node_ids = list(node_ids - large_node_ids)
             del node_ids

@@ -321,8 +321,9 @@ class ProjectTester(abc.ABC):
     def _save_roc(self, fpr: np.array, tpr: np.array):
         pyplot.figure()
         pyplot.plot(fpr, tpr)
-        pyplot.title('ROC curve')
         pyplot.axis((0, 1, 0, 1))
+        pyplot.xlabel("fpr")
+        pyplot.ylabel("tpr")
         results_path = os.path.join(settings.BASE_PATH, 'results')
         if not os.path.exists(results_path):
             os.mkdir(results_path)
