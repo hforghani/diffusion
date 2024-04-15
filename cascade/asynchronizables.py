@@ -1,6 +1,6 @@
 import numbers
 import traceback
-import typing
+from typing import Tuple, List, Dict
 
 import networkx
 from networkx import DiGraph
@@ -8,6 +8,7 @@ from pympler.asizeof import asizeof
 
 import settings
 from cascade.metric import Metric
+from cascade.models import CascadeTree
 from diffusion.enum import Method, Criterion
 from log_levels import DEBUG_LEVELV_NUM
 from settings import logger
@@ -71,7 +72,10 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
 
 
 def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, max_depth: int, criterion: Criterion,
-                  trees: dict, graph: DiGraph, threshold: typing.Union[list, numbers.Number], **params) -> tuple:
+                  trees: dict, graph: DiGraph, threshold: list | float, **params) -> Tuple[
+    List[Metric] | Dict[float, List[Metric]],
+    List[CascadeTree]
+]:
     try:
         logger.debug('type(threshold) = %s', type(threshold))
         results = {thr: [] for thr in threshold} if isinstance(threshold, list) else []
@@ -100,6 +104,8 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                 with Timer('prediction', level='debug'):
                     res_tree = model.predict_one_sample(initial_tree, threshold, graph, max_step)
 
+                metrics = list(Metric([], []).metrics)
+
                 # Evaluate the results.
                 with Timer('evaluating results', level='debug'):
                     if isinstance(threshold, list):
@@ -109,8 +115,9 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                                                                      criterion, graph)
                             results[thr].append(meas)
                             logs.append(
-                                f'{thr:10.3f}{len(res_output):10}{len(true_output):10}{meas["precision"]:10.3f}'
-                                f'{meas["recall"]:10.3f}{meas["f1"]:10.3f}')
+                                f'{thr:10.3f}{len(res_output):10}{len(true_output):10}' + "".join(
+                                    f'{meas[metric]:10.3f}' for metric in metrics)
+                            )
                     else:
                         # res_tree is an instance of CascadeTree
                         logs = [f'{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
@@ -119,8 +126,9 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                         results.append(meas)
                         res_trees.append(res_tree)
                         logs.append(
-                            f'{len(res_output):10}{len(true_output):10}{meas["precision"]:10.3f}{meas["recall"]:10.3f}'
-                            f'{meas["f1"]:10.3f}')
+                            f'{len(res_output):10}{len(true_output):10}' + "".join(
+                                f'{meas[metric]:10.3f}' for metric in metrics)
+                        )
 
                     # log_trees(tree, res_tree, max_depth)
                     logger.debug(f'results of cascade {cid} ({count}/{len(cascade_ids)}) :\n' + '\n'.join(logs))

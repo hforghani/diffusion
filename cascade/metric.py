@@ -19,6 +19,7 @@ class Metric(object):
             "recall": self.__recall(tp, true_output),
             "f1": self.__f1(tp, fp, fn),
             "fpr": self.__fpr(fp, tn),
+            "tpr": self.__tpr(tp, fn),
             "accuracy": self.__accuracy(tp, fp, fn, tn),
         }
 
@@ -34,9 +35,14 @@ class Metric(object):
     def __fpr(self, fp, tn):
         """
         Calculate false positive rate.
-        :return:
         """
         return fp / (fp + tn) if fp + tn != 0 else 0
+
+    def __tpr(self, tp, fn):
+        """
+        Calculate true positive rate.
+        """
+        return tp / (tp + fn) if tp + fn != 0 else 0
 
     def __accuracy(self, tp, fp, fn, tn):
         return (tp + tn) / (tp + tn + fp + fn) if tp + tn + fp + fn != 0 else 0

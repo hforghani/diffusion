@@ -1,10 +1,11 @@
 import itertools
 import math
-import typing
 from concurrent.futures import ProcessPoolExecutor
+from typing import List, Tuple, Dict
 
 import networkx
 import scipy
+import sklearn
 from bson import ObjectId
 from matplotlib import pyplot
 from networkx import DiGraph
@@ -14,7 +15,7 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 import settings
 from cascade.asynchronizables import test_cascades, evaluate_nodes, evaluate_edges
 from cascade.metric import Metric
-from cascade.models import Project
+from cascade.models import Project, CascadeTree
 from diffusion.aslt import AsLT
 from diffusion.ctic import CTIC
 from diffusion.enum import Criterion
@@ -93,7 +94,8 @@ class ProjectTester(abc.ABC):
         if tunables:
             if list(tunables.keys()) == ['threshold']:  # There is just one hyperparameter "threshold" to tune.
                 logger.info('{0} VALIDATION {0}'.format('=' * 20))
-                best_params = self._tune_threshold(initial_depth, max_depth, n_iter, **kwargs)
+                best_params, auc_roc = self._tune_threshold(initial_depth, max_depth, n_iter, **kwargs)
+                logger.info('auc_roc = %f', auc_roc)
             else:
                 best_params = self._tune_params(initial_depth, max_depth, tunables, nontunables, n_iter)
             logger.info('best_params = %s', best_params)
@@ -131,7 +133,11 @@ class ProjectTester(abc.ABC):
 
     @time_measure('debug')
     def test(self, test_set: list, model: DiffusionModel, graph: DiGraph, initial_depth: int = 0, max_depth: int = None,
-             **params) -> tuple:
+             **params) -> Tuple[
+        Metric | Dict[float, Metric],
+        List[Metric] | Dict[float, List[Metric]],
+        List[CascadeTree]
+    ]:
         """
         Test on test set by the threshold(s) given.
         :param test_set: list of cascade ids to test
@@ -165,7 +171,7 @@ class ProjectTester(abc.ABC):
         return mean_res, res_eval, res_trees
 
     @time_measure(level='info')
-    def _tune_threshold(self, initial_depth, max_depth, n_iter, threshold, **params):
+    def _tune_threshold(self, initial_depth, max_depth, n_iter, threshold, **params) -> Tuple[dict, float]:
         """
         The tunable parameters are related to the test step (indeed they are hyperparameters and are not used
         in the training step).
@@ -179,6 +185,7 @@ class ProjectTester(abc.ABC):
             start, end = threshold
             threshold = [round(val, 5) for val in np.arange(start, end, (end - start) / (n_iter - 1))]
         results = {}
+        auc_list = []
 
         # for each fold, train on the others and test on that fold.
         for i in range(folds_num):
@@ -194,6 +201,9 @@ class ProjectTester(abc.ABC):
             for thr in threshold:
                 results.setdefault(thr, [])
                 results[thr].append(fold_res[thr]["f1"])
+            auc_roc = self._calc_auc_roc(fold_res)
+            logger.info('auc_roc of fold %d = %f', i + 1, auc_roc)
+            auc_list.append(auc_roc)
 
         # logger.debug('results = %s', results)
         mean_res = {thr: np.mean(np.array(results[thr])) for thr in results}
@@ -201,7 +211,8 @@ class ProjectTester(abc.ABC):
         best_thr = max(mean_res, key=lambda thr: mean_res[thr])
         best_params = params.copy()
         best_params['threshold'] = best_thr
-        return best_params
+        auc_mean = np.array(auc_list).mean()
+        return best_params, auc_mean
 
     def _tune_params(self, initial_depth, max_depth, tunables, nontunables, n_iter):
         graph = self.project.load_or_extract_graph()
@@ -243,16 +254,19 @@ class ProjectTester(abc.ABC):
 
     @abc.abstractmethod
     def _do_test(self, test_set: list, model, graph: DiGraph, trees: dict, initial_depth: int = 0,
-                 max_depth: int = None, **params) -> typing.Union[dict, list]:
+                 max_depth: int = None, **params) -> Tuple[
+        List[Metric] | Dict[float, List[Metric]],
+        List[CascadeTree]
+    ]:
         pass
 
-    def _get_mean_results_dict(self, results: dict) -> dict:
+    def _get_mean_results_dict(self, results: Dict[float, List[Metric]]) -> Dict[float, Metric]:
         """
         :param results: dictionary of thresholds to list of Metric instances
         :return: dictionary of thresholds to Metric instances containing average of precision, recall, f1, and fpr
         """
         mean_res = {}
-        metrics = list(next(iter(results.values())).metrics.keys())
+        metrics = list(Metric([], []).metrics)
         logs = [
             'averages:',
             "".join(f"{header:<10}" for header in ["threshold"] + metrics)
@@ -272,7 +286,7 @@ class ProjectTester(abc.ABC):
         :param results: list of Metric instances
         :return: Metric instance containing average of precision, recall, f1, and fpr
         """
-        metrics = list(results[0].metrics.keys())
+        metrics = list(Metric([], []).metrics)
         logs = [
             'averages:',
             "".join(f"{metric:<10}" for metric in metrics)
@@ -283,7 +297,7 @@ class ProjectTester(abc.ABC):
         logger.info('\n'.join(logs))
         return mean_metric
 
-    def _log_cascades_results(self, test_set: list, results: typing.List[Metric]):
+    def _log_cascades_results(self, test_set: list, results: List[Metric]):
         def format_cell(value):
             if value is None:
                 return f'{"-":<10}'
@@ -336,11 +350,22 @@ class ProjectTester(abc.ABC):
             # pyplot.show()
             subplot_num += 1
 
+    def _calc_auc_roc(self, results: Dict[float, Metric]) -> float:
+        fpr = []
+        tpr = []
+        for thr in sorted(results):
+            fpr.append(results[thr]["fpr"])
+            tpr.append(results[thr]["tpr"])
+        return sklearn.metrics.auc(np.array(fpr), np.array(tpr))
+
 
 class DefaultTester(ProjectTester):
     multi_processed = False
 
-    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params):
+    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params) -> Tuple[
+        List[Metric] | Dict[float, List[Metric]],
+        List[CascadeTree]
+    ]:
         return test_cascades(test_set, self.method, model, initial_depth, max_depth, self.criterion, trees,
                              graph, **params)
 
@@ -348,7 +373,10 @@ class DefaultTester(ProjectTester):
 class MultiProcTester(ProjectTester):
     multi_processed = True
 
-    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params):
+    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params) -> Tuple[
+        List[Metric] | Dict[float, List[Metric]],
+        List[CascadeTree]
+    ]:
         """
         Create a process pool to distribute the prediction.
         Side effect: Will clear the dictionary "tree" to free RAM.
