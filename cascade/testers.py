@@ -368,8 +368,12 @@ class ProjectTester(abc.ABC):
             subplot_num += 1
 
     def _calc_auc_roc(self, results: Dict[float, List[Metric]]) -> float:
-        fpr = np.array([np.array([m["fpr"] for m in results[thr]]).mean() for thr in sorted(results)])
-        tpr = np.array([np.array([m["tpr"] for m in results[thr]]).mean() for thr in sorted(results)])
+        thresholds = list(results)
+        fpr = np.array([np.array([m["fpr"] for m in results[thr]]).mean() for thr in thresholds])
+        tpr = np.array([np.array([m["tpr"] for m in results[thr]]).mean() for thr in thresholds])
+        indexes = fpr.argsort()
+        fpr = fpr[indexes]
+        tpr = tpr[indexes]
         self._save_roc(fpr, tpr)
         return sklearn.metrics.auc(fpr, tpr)
 
