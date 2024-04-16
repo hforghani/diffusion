@@ -25,6 +25,7 @@ def run_predict(method_name: str, project_name: str, criterion: Criterion, initi
     logger.info(f'{"method":<20}| {method_name}')
     logger.info(f'{"initial depth":<20}| {initial_depth}')
     logger.info(f'{"max depth":<20}| {max_depth}')
+    logger.info(f'{"criterion":<20}| {criterion.value}')
     for key, value in param.items():
         logger.info(f'{key:<20}| {value}')
 
