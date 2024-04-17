@@ -331,7 +331,7 @@ class ProjectTester(abc.ABC):
         results_path = os.path.join(settings.BASE_PATH, 'results')
         if not os.path.exists(results_path):
             os.mkdir(results_path)
-        base_name = f'{self.project.name}-{self.method.value}-roc-{datetime.datetime.now()}'
+        base_name = f'{self.project.name}-{self.method.value}-{self.criterion.value}-roc-{datetime.datetime.now()}'
         pyplot.savefig(os.path.join(results_path, f'{base_name}.png'))
         # pyplot.show()
         with open(os.path.join(results_path, f'{base_name}.json'), "w") as f:
@@ -369,8 +369,11 @@ class ProjectTester(abc.ABC):
 
     def _calc_auc_roc(self, results: Dict[float, List[Metric]]) -> float:
         thresholds = list(results)
-        fpr = np.array([np.array([m["fpr"] for m in results[thr]]).mean() for thr in thresholds])
-        tpr = np.array([np.array([m["tpr"] for m in results[thr]]).mean() for thr in thresholds])
+        fpr_list = [np.array([m["fpr"] for m in results[thr]]).mean() for thr in thresholds]
+        tpr_list = [np.array([m["tpr"] for m in results[thr]]).mean() for thr in thresholds]
+        # Every ROC curve must have 2 points <0,0> (no output) and <1,1> (returning all reference set as output).
+        fpr = np.array([0] + fpr_list + [1])
+        tpr = np.array([0] + tpr_list + [1])
         indexes = fpr.argsort()
         fpr = fpr[indexes]
         tpr = tpr[indexes]

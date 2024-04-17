@@ -30,10 +30,10 @@ def evaluate_nodes(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None)
     initial_nodes = set(initial_tree.node_ids())
     res_output = res_nodes - initial_nodes
     true_output = true_nodes - initial_nodes
-    succ_lists = [networkx.dfs_successors(graph, node) for node in initial_tree.node_ids() if node in graph]
-    all_nodes = set().union(*succ_lists) | true_nodes
-    ref_set = set(all_nodes) - initial_nodes
-    # ref_set = set(graph.nodes()) | true_nodes - initial_nodes
+    # succ_lists = [networkx.dfs_successors(graph, node) for node in initial_tree.node_ids() if node in graph]
+    # all_nodes = set().union(*succ_lists) | true_nodes
+    # ref_set = set(all_nodes) - initial_nodes
+    ref_set = set(graph.nodes()) | true_nodes - initial_nodes
 
     # Evaluate the result.
     meas = Metric(res_output, true_output, ref_set)
@@ -47,10 +47,10 @@ def evaluate_edges(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None)
     initial_edges = set(initial_tree.edges())
     res_output = res_edges - initial_edges
     true_output = true_edges - initial_edges
-    edge_lists = [networkx.dfs_edges(graph, node) for node in initial_tree.node_ids() if node in graph]
-    all_edges = set().union(*edge_lists) | true_edges
-    ref_set = set(all_edges) - initial_edges
-    # ref_set = set(graph.edges()) | true_edges - initial_edges
+    # edge_lists = [networkx.dfs_edges(graph, node) for node in initial_tree.node_ids() if node in graph]
+    # all_edges = set().union(*edge_lists) | true_edges
+    # ref_set = set(all_edges) - initial_edges
+    ref_set = set(graph.edges()) | true_edges - initial_edges
 
     # Evaluate the result.
     meas = Metric(res_output, true_output, ref_set)
