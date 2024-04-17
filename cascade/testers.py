@@ -331,7 +331,8 @@ class ProjectTester(abc.ABC):
         results_path = os.path.join(settings.BASE_PATH, 'results')
         if not os.path.exists(results_path):
             os.mkdir(results_path)
-        base_name = f'{self.project.name}-{self.method.value}-{self.criterion.value}-roc-{datetime.datetime.now()}'
+        base_name = (f'{self.project.name}-{self.method.value}-{self.criterion.value}'
+                     f'-roc-{datetime.datetime.now()}').replace(" ", "-")
         pyplot.savefig(os.path.join(results_path, f'{base_name}.png'))
         # pyplot.show()
         with open(os.path.join(results_path, f'{base_name}.json'), "w") as f:
