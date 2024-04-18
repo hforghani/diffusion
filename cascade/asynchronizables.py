@@ -18,20 +18,18 @@ from utils.time_utils import Timer
 
 def graph_distance(tree1: CascadeTree, tree2: CascadeTree) -> float:
     """
-    Calculate the graph distance between two trees
+    Calculate the graph distance between two trees.
+    Assumption: The roots of both trees are same.
     """
-    edges1 = [(str(n1), str(n2)) for n1, n2 in tree1.edges()]
-    edges2 = [(str(n1), str(n2)) for n1, n2 in tree2.edges()]
-    if not edges1 and not edges2:
-        roots1, roots2 = set(tree1.node_ids()), set(tree2.node_ids())
-        return len(roots1 & roots2) / len(roots1 | roots2)
-    elif not edges1 or not edges2:
-        return 0
-    else:
-        graph1 = GraphDistance(edges1)
-        graph2 = GraphDistance(edges2)
-        distance, graph = graph1.distance_matching_graphs_paths(graph2, use_min=False)
-        return distance
+    # Add a new root to the both trees to ensure the trees have edges.
+    edges1 = ([("root", str(root.user_id)) for root in tree1.roots] +
+              [(str(n1), str(n2)) for n1, n2 in tree1.edges()])
+    edges2 = ([("root", str(root.user_id)) for root in tree2.roots] +
+              [(str(n1), str(n2)) for n1, n2 in tree2.edges()])
+    graph1 = GraphDistance(edges1)
+    graph2 = GraphDistance(edges2)
+    distance, graph = graph1.distance_matching_graphs_paths(graph2, use_min=False)
+    return distance
 
 
 def evaluate_nodes(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None):

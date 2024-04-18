@@ -85,7 +85,7 @@ class CascadeNode:
 
 
 class CascadeTree:
-    def __init__(self, roots=None):
+    def __init__(self, roots: List[CascadeNode] = None):
         self.roots: List[CascadeNode] = []
         self.depth: int = 0
         self._id_to_node: Dict[ObjectId, CascadeNode] = {}
