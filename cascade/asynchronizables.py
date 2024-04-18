@@ -2,9 +2,9 @@ from __future__ import annotations
 import traceback
 from typing import Tuple, List, Dict
 
-import networkx
 from networkx import DiGraph
 from pympler.asizeof import asizeof
+from mlstatpy.graph import GraphDistance
 
 import settings
 from cascade.metric import Metric
@@ -15,12 +15,14 @@ from settings import logger
 from utils.time_utils import Timer
 
 
-def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph):
-    if criterion == Criterion.NODES:
-        meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, graph, max_depth)
-    else:
-        meas, res_output, true_output = evaluate_edges(initial_tree, res_tree, tree, graph, max_depth)
-    return meas, res_output, true_output
+def graph_distance(tree1: CascadeTree, tree2: CascadeTree) -> float:
+    """
+    Calculate the graph distance between two trees
+    """
+    graph1 = GraphDistance([(str(n1), str(n2)) for n1, n2 in tree1.edges()])
+    graph2 = GraphDistance([(str(n1), str(n2)) for n1, n2 in tree2.edges()])
+    distance, graph = graph1.distance_matching_graphs_paths(graph2, use_min=False)
+    return distance
 
 
 def evaluate_nodes(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None):
@@ -37,6 +39,15 @@ def evaluate_nodes(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None)
 
     # Evaluate the result.
     meas = Metric(res_output, true_output, ref_set)
+    return meas, res_output, true_output
+
+
+def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph) -> Tuple[Metric, set, set]:
+    if criterion == Criterion.NODES:
+        meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, graph, max_depth)
+    else:
+        meas, res_output, true_output = evaluate_edges(initial_tree, res_tree, tree, graph, max_depth)
+    meas["graph_dist"] = graph_distance(res_tree, tree)
     return meas, res_output, true_output
 
 

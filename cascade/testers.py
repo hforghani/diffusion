@@ -71,7 +71,7 @@ def trees_f1_scorer(true_trees, pred_trees, initial_depth, max_depth, graph, cri
             meas, _, _ = evaluate_nodes(initial_tree, pred_tree, true_tree, graph, max_depth)
         else:
             meas, _, _ = evaluate_edges(initial_tree, pred_tree, true_tree, graph, max_depth)
-        f1_values.append(meas.f1)
+        f1_values.append(meas["f1"])
 
     f1 = np.mean(np.array(f1_values))
     return f1

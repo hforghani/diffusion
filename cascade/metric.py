@@ -21,6 +21,7 @@ class Metric(object):
             "fpr": self.__fpr(fp, tn),
             "tpr": self.__tpr(tp, fn),
             "accuracy": self.__accuracy(tp, fp, fn, tn),
+            "graph_dist": None
         }
 
     def __precision(self, tp, output):
@@ -70,3 +71,6 @@ class Metric(object):
             return self.metrics[item]
         else:
             raise ValueError(f"metric `{item}` has not been set")
+
+    def __setitem__(self, key, value):
+        self.metrics[key] = value

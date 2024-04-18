@@ -34,3 +34,4 @@ soupsieve==2.5
 tabulate==0.9.0
 threadpoolctl==3.4.0
 tqdm==4.66.2
+mlstatpy==0.3.593
