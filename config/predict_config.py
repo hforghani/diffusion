@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Union
 
 from diffusion.enum import Method, Criterion
 
@@ -18,7 +18,7 @@ class PredictConfig(Singleton):
     max_depth: int = None
     multiprocessed: bool = True
     eco: bool = False
-    params: Dict[str, float | Tuple[float, float]] = {}
+    params: Dict[str, Union[float, Tuple[float, float]]] = {}
     n_iter: int = 100
     additional_metrics: List[str] = []
 
