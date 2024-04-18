@@ -49,12 +49,21 @@ def evaluate_nodes(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None)
     return meas, res_output, true_output
 
 
-def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph) -> Tuple[Metric, set, set]:
+def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph, on_test=False) -> Tuple[Metric, set, set]:
+    """
+    @param initial_tree : CascadeTree including initial nodes
+    @param res_tree : CascadeTree including result of prediction
+    @param tree : CascadeTree including true result
+    @param max_depth : maximum depth of prediction
+    @param criterion : evaluation criterion: nodes or edges
+    @param graph : directed graph of training nodes
+    @param on_test : whether it is on test stage
+    """
     if criterion == Criterion.NODES:
         meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, graph, max_depth)
     else:
         meas, res_output, true_output = evaluate_edges(initial_tree, res_tree, tree, graph, max_depth)
-    if "graph_dist" in PredictConfig().additional_metrics:
+    if on_test and "graph_dist" in PredictConfig().additional_metrics:
         meas["graph_dist"] = graph_distance(res_tree, tree)
     return meas, res_output, true_output
 
@@ -93,10 +102,13 @@ def log_trees(tree, res_trees, max_depth=None, level=DEBUG_LEVELV_NUM):
 
 
 def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, max_depth: int, criterion: Criterion,
-                  trees: dict, graph: DiGraph, threshold: list | float, **params) -> Tuple[
+                  trees: dict, graph: DiGraph, on_test: bool, threshold: list | float, **params) -> Tuple[
     List[Metric] | Dict[float, List[Metric]],
     List[CascadeTree]
 ]:
+    """
+    @param on_test : whether it is on test stage
+    """
     try:
         logger.debug('type(threshold) = %s', type(threshold))
         results = {thr: [] for thr in threshold} if isinstance(threshold, list) else []
@@ -131,7 +143,7 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                         logs = [f'{"threshold":>10}{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
                         for thr in threshold:
                             meas, res_output, true_output = evaluate(initial_tree, res_tree[thr], tree, max_depth,
-                                                                     criterion, graph)
+                                                                     criterion, graph, on_test)
                             results[thr].append(meas)
                             logs.append(
                                 f'{thr:10.3f}{len(res_output):10}{len(true_output):10}' + "".join(
@@ -141,7 +153,7 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                         # res_tree is an instance of CascadeTree
                         logs = [f'{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
                         meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
-                                                                 graph)
+                                                                 graph, on_test)
                         results.append(meas)
                         res_trees.append(res_tree)
                         logs.append(

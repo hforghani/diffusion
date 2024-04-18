@@ -112,7 +112,8 @@ class ProjectTester(abc.ABC):
         model = self.train(train_set, eco=self.eco, **best_params)
         logger.info('{0} TEST {0}'.format('=' * 20))
         graph = self.project.load_or_extract_graph(train_set)
-        mean_res, res_eval, res_trees = self.test(test_set, model, graph, initial_depth, max_depth, **best_params)
+        mean_res, res_eval, res_trees = self.test(test_set, model, graph, initial_depth, max_depth, on_test=True,
+                                                  **best_params)
         model.clean_temp_files()
         logger.debug('type(mean_res) = %s', type(mean_res))
         return mean_res, res_eval, res_trees
@@ -138,7 +139,7 @@ class ProjectTester(abc.ABC):
 
     @time_measure('debug')
     def test(self, test_set: list, model: DiffusionModel, graph: DiGraph, initial_depth: int = 0, max_depth: int = None,
-             **params) -> Tuple[
+             on_test: bool = True, **params) -> Tuple[
         Metric | Dict[float, Metric],
         List[Metric] | Dict[float, List[Metric]],
         List[CascadeTree]
@@ -162,7 +163,7 @@ class ProjectTester(abc.ABC):
                 'no average results since the initial depth is more than or equal to the depths of all trees')
             return None
 
-        res_eval, res_trees = self._do_test(test_set, model, graph, trees, initial_depth, max_depth, **params)
+        res_eval, res_trees = self._do_test(test_set, model, graph, trees, initial_depth, max_depth, on_test, **params)
 
         if isinstance(res_eval, list):  # It is on test stage
             self._log_cascades_results(test_set, res_eval)
@@ -199,7 +200,8 @@ class ProjectTester(abc.ABC):
             model = self.train(train_set, eco=False, threshold=threshold, **params)
             logger.info('{0} VALIDATION {0}'.format('=' * 20))
             graph = self.project.load_or_extract_graph(train_set)
-            fold_res, _, _ = self.test(val_set, model, graph, initial_depth, max_depth, threshold=threshold, **params)
+            fold_res, _, _ = self.test(val_set, model, graph, initial_depth, max_depth, on_test=False,
+                                       threshold=threshold, **params)
             model.clean_temp_files()
             del model
             for thr in threshold:
@@ -258,7 +260,7 @@ class ProjectTester(abc.ABC):
 
     @abc.abstractmethod
     def _do_test(self, test_set: list, model, graph: DiGraph, trees: dict, initial_depth: int = 0,
-                 max_depth: int = None, **params) -> Tuple[
+                 max_depth: int = None, on_test: bool = True, **params) -> Tuple[
         List[Metric] | Dict[float, List[Metric]],
         List[CascadeTree]
     ]:
@@ -390,18 +392,18 @@ class ProjectTester(abc.ABC):
 class DefaultTester(ProjectTester):
     multi_processed = False
 
-    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params) -> Tuple[
+    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, on_test=True, **params) -> Tuple[
         List[Metric] | Dict[float, List[Metric]],
         List[CascadeTree]
     ]:
         return test_cascades(test_set, self.method, model, initial_depth, max_depth, self.criterion, trees,
-                             graph, **params)
+                             graph, on_test, **params)
 
 
 class MultiProcTester(ProjectTester):
     multi_processed = True
 
-    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, **params) -> Tuple[
+    def _do_test(self, test_set, model, graph, trees, initial_depth=0, max_depth=None, on_test=True, **params) -> Tuple[
         List[Metric] | Dict[float, List[Metric]],
         List[CascadeTree]
     ]:
@@ -417,7 +419,7 @@ class MultiProcTester(ProjectTester):
                 cascades_i = test_set[i:i + step]
                 trees_i = {cid: trees[cid] for cid in cascades_i}
                 f = executor.submit(test_cascades, cascades_i, self.method, model, initial_depth, max_depth,
-                                    self.criterion, trees_i, graph, **params)
+                                    self.criterion, trees_i, graph, on_test, **params)
                 futures.append(f)
         got_results = [f.result() for f in futures]
 
