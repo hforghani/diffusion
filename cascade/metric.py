@@ -1,3 +1,15 @@
+from config.predict_config import PredictConfig
+
+METRICS = [
+    "precision",
+    "recall",
+    "f1",
+    "auc_roc",
+    "accuracy",
+    "graph_dist"
+]
+
+
 class Metric(object):
     def __init__(self, output, true_output, ref=None):
         """
@@ -5,23 +17,34 @@ class Metric(object):
         :param true_output:     real positive items
         :param ref:         all positive and negative items
         """
+        config = PredictConfig()
+
         out_set = set(output)
         true_set = set(true_output)
-        ref = set(ref) if ref is not None else out_set | true_set
 
         tp = len(out_set.intersection(true_set))
         fp = len(out_set - true_set)
         fn = len(true_set - out_set)
-        tn = len(ref - out_set - true_set)
+        if "auc_roc" in config.additional_metrics or "accuracy" in config.additional_metrics:
+            ref = set(ref) if ref is not None else out_set | true_set
+            tn = len(ref - out_set - true_set)
+        else:
+            tn = None
 
         self.metrics = {
-            # "precision": self.__precision(tp, output),
-            # "recall": self.__recall(tp, true_output),
             "f1": self.__f1(tp, fp, fn),
-            "fpr": self.__fpr(fp, tn),
-            "tpr": self.__tpr(tp, fn),
-            # "accuracy": self.__accuracy(tp, fp, fn, tn),
         }
+
+        for metric in config.additional_metrics:
+            if metric == "precision":
+                self.metrics[metric] = self.__precision(tp, output)
+            elif metric == "recall":
+                self.metrics[metric] = self.__recall(tp, true_output)
+            elif metric == "auc_roc":
+                self.metrics["fpr"] = self.__fpr(fp, tn)
+                self.metrics["tpr"] = self.__tpr(tp, fn)
+            elif metric == "accuracy":
+                self.metrics[metric] = self.__accuracy(tp, fp, fn, tn)
 
     def __precision(self, tp, output):
         return tp / len(output) if output else 1

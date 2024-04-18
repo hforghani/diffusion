@@ -19,6 +19,7 @@ import settings
 from cascade.asynchronizables import test_cascades, evaluate_nodes, evaluate_edges
 from cascade.metric import Metric
 from cascade.models import Project, CascadeTree
+from config.predict_config import PredictConfig
 from diffusion.aslt import AsLT
 from diffusion.ctic import CTIC
 from diffusion.enum import Criterion
@@ -98,7 +99,8 @@ class ProjectTester(abc.ABC):
             if list(tunables.keys()) == ['threshold']:  # There is just one hyperparameter "threshold" to tune.
                 logger.info('{0} VALIDATION {0}'.format('=' * 20))
                 best_params, auc_roc = self._tune_threshold(initial_depth, max_depth, n_iter, **kwargs)
-                logger.info('auc_roc = %f', auc_roc)
+                if "auc_roc" in PredictConfig().additional_metrics:
+                    logger.info('auc_roc = %f', auc_roc)
             else:
                 best_params = self._tune_params(initial_depth, max_depth, tunables, nontunables, n_iter)
             logger.info('best_params = %s', best_params)
@@ -210,7 +212,10 @@ class ProjectTester(abc.ABC):
         best_thr = max(mean_f1, key=lambda thr: mean_f1[thr])
         best_params = params.copy()
         best_params['threshold'] = best_thr
-        auc_roc = self._calc_auc_roc(results)
+        if "auc_roc" in PredictConfig().additional_metrics:
+            auc_roc = self._calc_auc_roc(results)
+        else:
+            auc_roc = None
         return best_params, auc_roc
 
     def _tune_params(self, initial_depth, max_depth, tunables, nontunables, n_iter):
@@ -265,7 +270,7 @@ class ProjectTester(abc.ABC):
         :return: dictionary of thresholds to Metric instances containing average of precision, recall, f1, and fpr
         """
         mean_res = {}
-        metrics = list(Metric([], []).metrics)
+        metrics = list(next(iter(results.values()))[0].metrics)
         logs = [
             'averages:',
             "".join(f"{header:<10}" for header in ["threshold"] + metrics)

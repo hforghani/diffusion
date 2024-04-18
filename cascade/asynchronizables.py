@@ -9,6 +9,7 @@ from mlstatpy.graph import GraphDistance
 import settings
 from cascade.metric import Metric
 from cascade.models import CascadeTree
+from config.predict_config import PredictConfig
 from diffusion.enum import Method, Criterion
 from log_levels import DEBUG_LEVELV_NUM
 from settings import logger
@@ -50,12 +51,12 @@ def evaluate_nodes(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None)
     return meas, res_output, true_output
 
 
-def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph, graph_dist=False) -> Tuple[Metric, set, set]:
+def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph) -> Tuple[Metric, set, set]:
     if criterion == Criterion.NODES:
         meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, graph, max_depth)
     else:
         meas, res_output, true_output = evaluate_edges(initial_tree, res_tree, tree, graph, max_depth)
-    if graph_dist:
+    if "graph_dist" in PredictConfig().additional_metrics:
         meas["graph_dist"] = graph_distance(res_tree, tree)
     return meas, res_output, true_output
 
@@ -142,7 +143,7 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                         # res_tree is an instance of CascadeTree
                         logs = [f'{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
                         meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
-                                                                 graph, graph_dist=True)
+                                                                 graph)
                         results.append(meas)
                         res_trees.append(res_tree)
                         logs.append(

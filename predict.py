@@ -1,8 +1,9 @@
 import argparse
 # from profilehooks import timecall, profile
-from cascade.metric import Metric
+from cascade.metric import Metric, METRICS
 from cascade.models import Project
 from cascade.testers import MultiProcTester, DefaultTester
+from config.predict_config import PredictConfig, set_config
 from diffusion.enum import Method, Criterion
 from settings import logger
 from utils.time_utils import time_measure
@@ -13,56 +14,34 @@ from utils.time_utils import time_measure
 # pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
 
 
-def run_predict(method_name: str, project_name: str, criterion: Criterion, initial_depth: int, max_depth: int,
-                multi_processed: bool, eco: bool, param: list, n_iter: int) -> Metric:
-    project = Project(project_name)
-    method = Method(method_name)
-    param = extract_param(param)
+def run_predict() -> Metric:
+    config = PredictConfig()
+    project = Project(config.project)
+    method = Method(config.method)
 
     # Log the test configuration.
     logger.info(f'{"db":<20}| {project.db}')
-    logger.info(f'{"project":<20}| {project_name}')
-    logger.info(f'{"method":<20}| {method_name}')
-    logger.info(f'{"initial depth":<20}| {initial_depth}')
-    logger.info(f'{"max depth":<20}| {max_depth}')
-    logger.info(f'{"criterion":<20}| {criterion.value}')
-    for key, value in param.items():
+    logger.info(f'{"project":<20}| {config.project}')
+    logger.info(f'{"method":<20}| {config.method}')
+    logger.info(f'{"initial depth":<20}| {config.init_depth}')
+    logger.info(f'{"max depth":<20}| {config.max_depth}')
+    logger.info(f'{"criterion":<20}| {config.criterion.value}')
+    for key, value in config.params.items():
         logger.info(f'{key:<20}| {value}')
 
-    if multi_processed:
-        tester = MultiProcTester(project, method, criterion, eco)
+    if config.multiprocessed:
+        tester = MultiProcTester(project, method, config.criterion, config.eco)
     else:
-        tester = DefaultTester(project, method, criterion, eco)
+        tester = DefaultTester(project, method, config.criterion, config.eco)
 
-    mean_res, res, _ = tester.run(initial_depth, max_depth, n_iter=n_iter, **param)
+    mean_res, res, _ = tester.run(config.init_depth, config.max_depth, n_iter=config.n_iter, **config.params)
 
     return mean_res
 
 
-def extract_param(param):
-    new_param = {}
-    for items in param:
-        if len(items) == 3:
-            param_name, start, end = items
-            new_param[param_name] = (float(start), float(end))
-        elif len(items) == 2:
-            try:
-                new_param[items[0]] = int(items[1])
-            except ValueError:
-                try:
-                    new_param[items[0]] = float(items[1])
-                except ValueError:
-                    new_param[items[0]] = items[1]
-        else:
-            raise ValueError('invalid format for params option')
-
-    return new_param
-
-
 @time_measure('info')
-def handle(args):
-    res = run_predict(args.method, args.project, Criterion(args.criterion), args.initial_depth, args.max_depth,
-                      args.multi_processed, args.eco, args.param, args.n_iter)
+def handle():
+    res = run_predict()
 
     if res is not None:
         logger.info(f"final {', '.join(f'{metric}: {value:.3f}' for metric, value in res.metrics.items())}")
@@ -92,13 +71,18 @@ def main():
                              "is used for all parameters, just one run is done using the specified parameters.")
     parser.add_argument("-n", "--n-iter", type=int, dest='n_iter', default=100,
                         help="Number of randomized search iterations. Used when --param is given with a range of values.")
+    parser.add_argument("-a", "--additional", choices=METRICS, dest="additional_metrics", nargs="+",
+                        help="additional reported metrics")
 
     args = parser.parse_args()
+
+    set_config(args.method, args.project, args.criterion, args.initial_depth, args.max_depth,
+               args.multi_processed, args.eco, args.param, args.n_iter, args.additional_metrics)
 
     if all(item[0] != 'threshold' for item in args.param):
         parser.error('parameter "threshold" must be given by param option')
 
-    handle(args)
+    handle()
 
 
 if __name__ == '__main__':
