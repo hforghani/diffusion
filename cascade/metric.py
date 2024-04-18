@@ -15,13 +15,12 @@ class Metric(object):
         tn = len(ref - out_set - true_set)
 
         self.metrics = {
-            "precision": self.__precision(tp, output),
-            "recall": self.__recall(tp, true_output),
+            # "precision": self.__precision(tp, output),
+            # "recall": self.__recall(tp, true_output),
             "f1": self.__f1(tp, fp, fn),
             "fpr": self.__fpr(fp, tn),
             "tpr": self.__tpr(tp, fn),
-            "accuracy": self.__accuracy(tp, fp, fn, tn),
-            "graph_dist": None
+            # "accuracy": self.__accuracy(tp, fp, fn, tn),
         }
 
     def __precision(self, tp, output):

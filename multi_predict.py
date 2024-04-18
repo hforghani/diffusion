@@ -55,7 +55,7 @@ def multiple_run(methods: list, depth_settings: list, project_name: str, eco: bo
 
 
 def report_results(methods, results: Dict[tuple, Dict[str, Dict[str, float]]]):
-    metrics = list(Metric([], []).metrics)
+    metrics = list(next(iter(next(iter(results.values())).values())).keys())
     logs = ["All Results:\n"]
     for metric in metrics:
         logs.extend([

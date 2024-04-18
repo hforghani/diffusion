@@ -285,7 +285,7 @@ class ProjectTester(abc.ABC):
         :param results: list of Metric instances
         :return: Metric instance containing average of precision, recall, f1, and fpr
         """
-        metrics = list(Metric([], []).metrics)
+        metrics = list(results[0].metrics)
         logs = [
             'averages:',
             "".join(f"{metric:<10}" for metric in metrics)

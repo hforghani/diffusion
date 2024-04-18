@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime
 from functools import reduce
+from typing import List, Dict
 
 from anytree import Node, RenderTree
 from bson.objectid import ObjectId
@@ -17,12 +18,12 @@ from utils.time_utils import str_to_datetime, DT_FORMAT, Timer, time_measure
 
 
 class CascadeNode:
-    def __init__(self, user_id=None, datetime=None, parent_id=None):
-        self.user_id = user_id
-        self.datetime = datetime
-        self.parent_id = parent_id
-        self.children = []
-        self.probability = None
+    def __init__(self, user_id=None, date_time=None, parent_id=None):
+        self.user_id: ObjectId = user_id
+        self.datetime = date_time
+        self.parent_id: ObjectId = parent_id
+        self.children: List[CascadeNode] = []
+        self.probability: float = None
 
     def __repr__(self):
         return f'CascadeNode({self.user_id})'
@@ -85,16 +86,16 @@ class CascadeNode:
 
 class CascadeTree:
     def __init__(self, roots=None):
+        self.roots: List[CascadeNode] = []
+        self.depth: int = 0
+        self._id_to_node: Dict[ObjectId, CascadeNode] = {}
+
         if roots is not None:
             if not isinstance(roots, list):
                 raise ValueError('tree must be a list of root nodes')
             self.roots = roots
             self.depth = self.__calc_depth()
             self._id_to_node = {node.user_id: node for node in self.nodes()}
-        else:
-            self.roots = []
-            self.depth = 0
-            self._id_to_node = {}
 
     def to_json(self):
         return [node.to_json() for node in self.roots]
@@ -205,12 +206,12 @@ class CascadeTree:
         if node_id == parent_id:
             raise ValueError('node id and parent id must not be equal')
         if parent_id is None:
-            node = CascadeNode(node_id, datetime=act_time)
+            node = CascadeNode(node_id, date_time=act_time)
             self.roots.append(node)
         else:
             parent = self.get_node(parent_id)
             if parent:
-                node = CascadeNode(node_id, datetime=act_time, parent_id=parent_id)
+                node = CascadeNode(node_id, date_time=act_time, parent_id=parent_id)
                 parent.children.append(node)
                 if self.depth_of(parent_id) == self.depth:
                     self.depth += 1

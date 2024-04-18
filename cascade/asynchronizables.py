@@ -19,10 +19,18 @@ def graph_distance(tree1: CascadeTree, tree2: CascadeTree) -> float:
     """
     Calculate the graph distance between two trees
     """
-    graph1 = GraphDistance([(str(n1), str(n2)) for n1, n2 in tree1.edges()])
-    graph2 = GraphDistance([(str(n1), str(n2)) for n1, n2 in tree2.edges()])
-    distance, graph = graph1.distance_matching_graphs_paths(graph2, use_min=False)
-    return distance
+    edges1 = [(str(n1), str(n2)) for n1, n2 in tree1.edges()]
+    edges2 = [(str(n1), str(n2)) for n1, n2 in tree2.edges()]
+    if not edges1 and not edges2:
+        roots1, roots2 = set(tree1.node_ids()), set(tree2.node_ids())
+        return len(roots1 & roots2) / len(roots1 | roots2)
+    elif not edges1 or not edges2:
+        return 0
+    else:
+        graph1 = GraphDistance(edges1)
+        graph2 = GraphDistance(edges2)
+        distance, graph = graph1.distance_matching_graphs_paths(graph2, use_min=False)
+        return distance
 
 
 def evaluate_nodes(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None):
@@ -42,12 +50,13 @@ def evaluate_nodes(initial_tree, res_tree, tree, graph: DiGraph, max_depth=None)
     return meas, res_output, true_output
 
 
-def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph) -> Tuple[Metric, set, set]:
+def evaluate(initial_tree, res_tree, tree, max_depth, criterion, graph, graph_dist=False) -> Tuple[Metric, set, set]:
     if criterion == Criterion.NODES:
         meas, res_output, true_output = evaluate_nodes(initial_tree, res_tree, tree, graph, max_depth)
     else:
         meas, res_output, true_output = evaluate_edges(initial_tree, res_tree, tree, graph, max_depth)
-    meas["graph_dist"] = graph_distance(res_tree, tree)
+    if graph_dist:
+        meas["graph_dist"] = graph_distance(res_tree, tree)
     return meas, res_output, true_output
 
 
@@ -117,8 +126,6 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                 with Timer('prediction', level='debug'):
                     res_tree = model.predict_one_sample(initial_tree, threshold, graph, max_step)
 
-                metrics = list(Metric([], []).metrics)
-
                 # Evaluate the results.
                 with Timer('evaluating results', level='debug'):
                     if isinstance(threshold, list):
@@ -129,18 +136,18 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                             results[thr].append(meas)
                             logs.append(
                                 f'{thr:10.3f}{len(res_output):10}{len(true_output):10}' + "".join(
-                                    f'{meas[metric]:10.3f}' for metric in metrics)
+                                    f'{meas[metric]:10.3f}' for metric in meas.metrics)
                             )
                     else:
                         # res_tree is an instance of CascadeTree
                         logs = [f'{"output":>10}{"true":>10}{"precision":>10}{"recall":>10}{"f1":>10}']
                         meas, res_output, true_output = evaluate(initial_tree, res_tree, tree, max_depth, criterion,
-                                                                 graph)
+                                                                 graph, graph_dist=True)
                         results.append(meas)
                         res_trees.append(res_tree)
                         logs.append(
                             f'{len(res_output):10}{len(true_output):10}' + "".join(
-                                f'{meas[metric]:10.3f}' for metric in metrics)
+                                f'{meas[metric]:10.3f}' for metric in meas.metrics)
                         )
 
                     # log_trees(tree, res_tree, max_depth)
