@@ -708,7 +708,8 @@ class Project:
         path = os.path.join(self.path, '%s.%s' % (name, self.SUFFIXES[type]))
         logger.debug('loading parameters in path %s ...', path)
         if type == ParamTypes.JSON:
-            return json.load(open(path))
+            with open(path) as f:
+                return json.load(f)
         elif type == ParamTypes.ARRAY:
             return np.load(path)
         elif type == ParamTypes.SPARSE:
