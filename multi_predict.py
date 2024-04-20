@@ -4,7 +4,8 @@ from itertools import repeat, product
 from typing import Dict
 
 import settings
-from cascade.metric import Metric
+from cascade.metric import METRICS
+from config.predict_config import PredictConfig
 from diffusion.enum import Method, Criterion
 from cascade.models import Project
 from cascade.testers import DefaultTester
@@ -82,11 +83,18 @@ def main():
                              "Also it will be saved if has not been saved.")
     parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
                         help="the criterion on which the evaluation is done")
+    parser.add_argument("-a", "--additional", choices=METRICS, dest="additional_metrics", nargs="+",
+                        help="additional reported metrics")
+
     args = parser.parse_args()
 
     project = Project(args.project)
     _, test = project.load_sets()
     trees = project.load_trees()
+
+    if args.additional_metrics:
+        config = PredictConfig()
+        config.additional_metrics = args.additional_metrics
 
     max_test_depth = max(trees[cid].depth for cid in test)
     # The depth will not be greater than 3 since has always insufficient data and zero results.
