@@ -32,23 +32,26 @@ class Command:
             graph = project.load_or_extract_graph()
             print('Number of nodes:', len(graph.nodes()))
 
-            training, test = project.load_sets()
-            db = DBManager(project.db).db
-            cascades = list(db.cascades.find({'_id': {'$in': training + test}}, ['_id', 'depth', 'size']))
-            min_size = min(c['size'] for c in cascades)
-            max_size = max(c['size'] for c in cascades)
-            min_depth = min(c['depth'] for c in cascades)
-            max_depth = max(c['depth'] for c in cascades)
+            trees = project.load_trees()
+            sizes, depths = {}, {}
+            for cid, tree in trees.items():
+                sizes[cid] = tree.size()
+                depths[cid] = tree.depth
+            min_size = min(sizes.values())
+            max_size = max(sizes.values())
+            min_depth = min(depths.values())
+            max_depth = max(depths.values())
 
-            print('Number of cascades:', len(cascades))
+            print('Number of cascades:', len(trees))
             print('min size:', min_size)
             print('max size:', max_size)
             print('min depth:', min_depth)
             print('max depth:', max_depth)
 
+            sorted_cids = sorted(trees, key=lambda cid: sizes[cid])
             print(f'{"cascade id":30}{"size":10}{"depth":10}')
-            for cascade in cascades:
-                print(f'{str(cascade["_id"]):30}{cascade["size"]:<10}{cascade["depth"]:<10}')
+            for cid in sorted_cids:
+                print(f'{str(cid):30}{sizes[cid]:<10}{depths[cid]:<10}')
         except:
             logger.info(traceback.format_exc())
             raise
