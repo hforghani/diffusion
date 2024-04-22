@@ -37,6 +37,7 @@ def main(args):
         min_size, max_size = csizes.min(), csizes.max()
         print(f'min of all: {min_size}')
         print(f'max of all: {max_size}')
+        print(f'avg of all: {csizes.mean()}')
         range_max = args.max if args.max is not None else max_size
         bins_num = 100
         counts, bins = np.histogram(csizes, bins=bins_num, range=(args.min, range_max))
