@@ -32,11 +32,14 @@ class Command:
             graph = project.load_or_extract_graph()
             print('Number of nodes:', len(graph.nodes()))
 
+            # train_set, test_set = project.load_sets()
+
             trees = project.load_trees()
             sizes, depths = {}, {}
             for cid, tree in trees.items():
                 sizes[cid] = tree.size()
                 depths[cid] = tree.depth
+                # assert cid not in train_set or all(node_id in graph for node_id in tree.node_ids())
             min_size = min(sizes.values())
             max_size = max(sizes.values())
             min_depth = min(depths.values())

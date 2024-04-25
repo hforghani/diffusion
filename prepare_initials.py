@@ -13,6 +13,10 @@ def main():
     args = parser.parse_args()
 
     project = Project(args.project)
+
+    logger.info('extracting trees if not exist ...')
+    project.load_trees()
+
     logger.info('extracting training graph and act sequences if not exist ...')
     project.load_or_extract_graph_seq()
     folds_num = 3
@@ -24,8 +28,6 @@ def main():
         train_set = reduce(lambda x, y: x + y, folds[:i] + folds[i + 1:], [])
         project.load_or_extract_graph(train_set)
 
-    logger.info('extracting trees if not exist ...')
-    project.load_trees()
     logger.info('done')
 
 

@@ -92,8 +92,7 @@ def main(project_name, out_project_name, min_degree):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser("Remove the nodes remove the nodes with degree smaller than `min_degree`. "
-                                     "Save the new project.")
+    parser = argparse.ArgumentParser("Remove the nodes with degree smaller than `min_degree` and save the new project.")
     parser.add_argument("-p", "--project", required=True, help="project name")
     parser.add_argument("-o", "--out_project", required=True, help="output project name")
     parser.add_argument("--min-degree", default=1, type=int, help="minimum degree")

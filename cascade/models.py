@@ -338,11 +338,7 @@ class Project:
         """
         # Load trees from the json file.
         try:
-            trees = self.load_param('trees', ParamTypes.JSON)
-            trees = {ObjectId(key): value for key, value in trees.items()}
-            # Convert tree dictionaries to tree objects.
-            logger.debug('converting dictionaries to trees ...')
-            trees = {cascades_id: CascadeTree().from_json(tree) for cascades_id, tree in trees.items()}
+            trees = self._load_saved_trees()
         except FileNotFoundError:
             logger.info('trees not found. extracting ...')
             trees = {}
@@ -357,6 +353,17 @@ class Project:
                     logger.info('%d%% done', i * 100 / count)
             self.save_trees(trees)
 
+        return trees
+
+    def _load_saved_trees(self):
+        """
+        Load the saved trees or raise FileNotFoundError if it does not exist.
+        """
+        trees = self.load_param('trees', ParamTypes.JSON)
+        trees = {ObjectId(key): value for key, value in trees.items()}
+        # Convert tree dictionaries to tree objects.
+        logger.debug('converting dictionaries to trees ...')
+        trees = {cascades_id: CascadeTree().from_json(tree) for cascades_id, tree in trees.items()}
         return trees
 
     def save_trees(self, trees):
@@ -450,11 +457,18 @@ class Project:
             graph_info = {}
 
         if graph is None:
-            if post_ids is None:
-                post_ids = []
-            if len(post_ids) == 0:
-                post_ids.extend(self._get_cascades_post_ids(train_set))
-            graph = self.__extract_graph_from_reshares(post_ids, train_set)
+            try:  # If the trees data exists, try to extract the graph using that.
+                trees = self._load_saved_trees()
+                if not set(trees).issuperset(set(train_set)):
+                    raise ValueError("Incomplete trees data; must extract graph from reshares.")
+                trees = [trees[cid] for cid in train_set]
+                graph = self._extract_graph_from_trees(trees)
+            except (FileNotFoundError, ValueError):  # Extract the graph from reshares.
+                if post_ids is None:
+                    post_ids = []
+                if len(post_ids) == 0:
+                    post_ids.extend(self._get_cascades_post_ids(train_set))
+                graph = self._extract_graph_from_reshares(post_ids, train_set)
             fname = 'graph' + str(max(int(name[5:]) for name in graph_info.keys()) + 1) if graph_info else 'graph1'
             logger.info('saving graph ...')
             self.save_param(graph, fname, ParamTypes.GRAPH)
@@ -625,7 +639,7 @@ class Project:
             return reshares
 
     @time_measure(level='debug')
-    def __extract_graph_from_reshares(self, post_ids, cascade_ids):
+    def _extract_graph_from_reshares(self, post_ids, cascade_ids):
         """
         Extract graph from given cascade id's.
         :param post_ids:    list of the post ids related to the cascades
@@ -666,12 +680,11 @@ class Project:
 
         return graph
 
-    def __extract_graph_from_trees(self, train_set):
-        trees = self.load_trees()
-        trees = [trees[cid] for cid in train_set] if train_set else list(trees.values())
+    def _extract_graph_from_trees(self, trees):
         graph = DiGraph()
         i = 0
         for tree in trees:
+            graph.add_nodes_from(tree.node_ids())
             graph.add_edges_from(tree.edges())
             i += 1
             if i % 100 == 0:

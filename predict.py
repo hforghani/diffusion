@@ -9,11 +9,6 @@ from settings import logger
 from utils.time_utils import time_measure
 
 
-# import pydevd_pycharm
-#
-# pydevd_pycharm.settrace('194.225.227.132', port=12345, stdoutToServer=True, stderrToServer=True)
-
-
 def run_predict() -> Metric:
     config = PredictConfig()
     project = Project(config.project)
@@ -22,7 +17,7 @@ def run_predict() -> Metric:
     # Log the test configuration.
     logger.info(f'{"db":<20}| {project.db}')
     logger.info(f'{"project":<20}| {config.project}')
-    logger.info(f'{"method":<20}| {config.method}')
+    logger.info(f'{"method":<20}| {config.method.value}')
     logger.info(f'{"initial depth":<20}| {config.init_depth}')
     logger.info(f'{"max depth":<20}| {config.max_depth}')
     logger.info(f'{"criterion":<20}| {config.criterion.value}')
@@ -70,7 +65,8 @@ def main():
                              "cross-validation with 3 folds id executed. If the format --param <param_name> <value>] "
                              "is used for all parameters, just one run is done using the specified parameters.")
     parser.add_argument("-n", "--n-iter", type=int, dest='n_iter', default=100,
-                        help="Number of randomized search iterations. Used when --param is given with a range of values.")
+                        help="Number of randomized search iterations. Used when --param is given with a range of "
+                             "values.")
     parser.add_argument("-a", "--additional", choices=METRICS, dest="additional_metrics", nargs="+",
                         help="additional reported metrics")
 
