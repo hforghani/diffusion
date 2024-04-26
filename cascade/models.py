@@ -94,7 +94,7 @@ class CascadeTree:
             if not isinstance(roots, list):
                 raise ValueError('tree must be a list of root nodes')
             self.roots = roots
-            self.depth = self.__calc_depth()
+            self.depth = self._calc_depth()
             self._id_to_node = {node.user_id: node for node in self.nodes()}
 
     def to_json(self):
@@ -183,7 +183,7 @@ class CascadeTree:
         tree_copy = [root.copy(max_depth) for root in self.roots]
         return CascadeTree(tree_copy)
 
-    def __calc_depth(self):
+    def _calc_depth(self):
         depth = 0
         for node in self.roots:
             depth = max(depth, node.height())

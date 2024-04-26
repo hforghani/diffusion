@@ -37,14 +37,23 @@ def get_and_save_degrees(project_name, trees, graph) -> Dict[ObjectId, dict]:
 
 
 def save_pruned_trees(removable_nodes, trees, out_project):
+    print("pruning trees ...")
     for tree in trees.values():
         for node_id in removable_nodes:
             node = tree.get_node(node_id)
             if node is not None:
-                if node.parent_id is None:
+                if node in tree.roots:
                     tree.roots.remove(node)
                 else:
                     tree.get_node(node.parent_id).children.remove(node)
+    print("removing 0-depth cascades ...")
+    count = 0
+    for cid in trees:
+        if all(len(root.children) == 0 for root in trees[cid].roots):
+            count += 1
+            del trees[cid]
+    print(f"{count} 0-depth cascades removed")
+    print("saving trees ...")
     out_project.save_trees(trees)
 
 
@@ -82,11 +91,17 @@ def main(project_name, out_project_name, min_degree):
     print(f"Number of nodes to be removed: {len(removable_nodes)}")
 
     out_project = Project(out_project_name, db=project.db)
+
+    save_pruned_trees(removable_nodes, trees, out_project)
+
+    train_set = [cid for cid in train_set if cid in trees]
+    test_set = [cid for cid in test_set if cid in trees]
     out_project.save_sets(train_set, test_set)
+
     print("pruning and saving the new graphs ...")
     save_pruned_graphs(removable_nodes, project, out_project)
-    print("pruning and saving the new trees ...")
-    save_pruned_trees(removable_nodes, trees, out_project)
+
+    sequences = {cid: seq for cid, seq in sequences.items() if cid in trees}
     print("pruning and saving the new sequences ...")
     save_pruned_sequences(removable_nodes, sequences, out_project)
 
