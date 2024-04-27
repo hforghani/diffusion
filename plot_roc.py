@@ -33,9 +33,9 @@ def plot_roc(data: Dict[str, Dict[str, np.array]]):
 
 
 def main(project: str, criterion: Criterion):
-    results_path = "results-server"
+    results_path = "results"
     data = {}
-    for file in os.listdir(results_path):
+    for file in sorted(os.listdir(results_path)):
         if project in file and criterion.value in file and file.endswith(".json"):
             match = re.match(rf"{project}-(.+)-{criterion.value}", file)
             method = match.group(1)
