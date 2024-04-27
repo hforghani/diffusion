@@ -128,7 +128,7 @@ def test_cascades(cascade_ids: list, method: Method, model, initial_depth: int, 
                 else:
                     results.append(None)
             else:
-                logger.info('running prediction with method <%s> on cascade <%s>', method.value, cid)
+                logger.debug('running prediction with method <%s> on cascade <%s>', method.value, cid)
 
                 # Copy roots in a new tree.
                 initial_tree = tree.copy(initial_depth)
