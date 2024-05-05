@@ -10,7 +10,16 @@ import numpy as np
 
 from diffusion.enum import Criterion
 
-METHODS = ["aslt", "emic", "ctic", "daic", "infvae", "mlmemm", "mbmemm", "mlcrf", "mbcrf"]
+METHODS = {"aslt": "AsLT",
+           "emic": "EMIC",
+           "ctic": "CTIC",
+           "daic": "DAIC",
+           "infvae": "Inf-VAE",
+           "deepdiffuse": "DeepDiffuse",
+           "mlmemm": "LPMEMM",
+           "mbmemm": "SPMEMM",
+           "mlcrf": "LPCRF",
+           "mbcrf": "SPCRF"}
 
 
 def plot_roc(data: Dict[str, Dict[str, np.array]]):
@@ -24,7 +33,7 @@ def plot_roc(data: Dict[str, Dict[str, np.array]]):
             continue
         roc = data[method]
         ls = next(line_styles)
-        pyplot.plot(roc["fpr"], roc["tpr"], linestyle=ls, label=method)
+        pyplot.plot(roc["fpr"], roc["tpr"], linestyle=ls, label=METHODS[method])
     pyplot.axis((0, 1, 0, 1))
     pyplot.xlabel("fpr")
     pyplot.ylabel("tpr")
