@@ -14,9 +14,9 @@ class SeqLabelModel(abc.ABC):
         self.orig_indexes_map = {}
 
     @time_measure(level='debug')
-    def fit(self, sequences: dict, iterations: int, states: list = None, **kwargs):
+    def fit(self, sequences: list, iterations: int, states: list = None, **kwargs):
         """
-        Learn MEMM lambdas and transition probabilities for previous state of 0.
+        Learn the sequence labeling parameters.
         :param sequences:   list of sequences
         :param states:      list of all possible states
         :param iterations: maximum iterations
@@ -388,78 +388,6 @@ class TDMEMM(MEMM):
         return features, C
 
 
-class ParentTDMEMM(TDMEMM):
-    def __init__(self, td_param=0.5):
-        super().__init__()
-        self.td_param = td_param
-
-    def _calc_multi_seq_features(self, sequences, only_last=False):
-        # TODO
-        if len(observations) != states.size:
-            raise ValueError('number of observations and states must be equal')
-        obs_num = len(observations)
-        obs_dim = observations[0].shape[1]
-        td_features, _ = super()._calc_multi_seq_features(observations, states != 0)
-        # for obs in observations:
-        #     logger.debug('obs = \n%s', obs_to_str(obs))
-        # logger.debug('states = %s', states)
-        features = np.zeros((obs_num, 2 * obs_dim))
-
-        state_to_index = {self.orig_indexes[i] + 1: i for i in range(obs_dim)}
-        # logger.debug('state_to_index = %s', state_to_index)
-        for i in range(obs_num):
-            s = int(states[i])
-            if s == 0:
-                features[i, :obs_dim] = td_features[i, :-1]
-            elif s in state_to_index:
-                ind = state_to_index[s]
-                features[i, obs_dim + ind] = td_features[i, ind]
-
-        C = obs_dim + 1
-        feat_sum = np.sum(features, axis=1)
-        last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
-        features = np.concatenate((features, last_feat), axis=1)
-        # logger.debug('features = \n%s', two_d_arr_to_str(features))
-        return features, C
-
-
-class LongParentTDMEMM(TDMEMM):
-    def __init__(self, td_param=0.5):
-        super().__init__()
-        self.td_param = td_param
-
-    def _calc_multi_seq_features(self, sequences, only_last=False):
-        # TODO
-        if len(observations) != states.size:
-            raise ValueError('number of observations and states must be equal')
-        obs_num = len(observations)
-        obs_dim = observations[0].shape[1]
-        td_features, _ = super()._calc_multi_seq_features(observations, states != 0)
-        # logger.debugv('obs_mat, state_mat =\n%s',
-        #               np.concatenate((obs_mat, state_mat.reshape(state_mat.shape[0], 1)), axis=1))
-        # logger.debugv('states =\n%s', states)
-        features = np.zeros((obs_num, (obs_dim + 1) * obs_dim))
-        # logger.debugv('features of state 0 update :\n%s', features)
-
-        state_to_index = {self.orig_indexes[i] + 1: i for i in range(obs_dim)}
-        # logger.debugv('state_to_index = %s', state_to_index)
-        for i in range(obs_num):
-            s = int(states[i])
-            if s == 0:
-                features[i, :obs_dim] = td_features[i, :-1]
-            elif s in state_to_index:
-                ind = state_to_index[s]
-                start = (ind + 1) * obs_dim
-                features[i, start: start + obs_dim] = td_features[i, :-1]
-
-        C = obs_dim + 1
-        feat_sum = np.sum(features, axis=1)
-        last_feat = np.ones((obs_num, 1)) * C - np.reshape(feat_sum, (obs_num, 1))
-        features = np.concatenate((features, last_feat), axis=1)
-        # logger.debugv('features =\n%s', features)
-        return features, C
-
-
 class CRF(SeqLabelModel):
     def __init__(self, model_filename=None):
         super().__init__()
@@ -481,9 +409,9 @@ class CRF(SeqLabelModel):
 
         features = [self._obs_feat_sequence([obs for obs, state in seq]) for seq in sequences]
         states = [[self.__state_to_str(0)] + [self.__state_to_str(state) for obs, state in seq] for seq in sequences]
-        logger.debugv('sequences = \n%s', pprint.pformat(sequences))
-        logger.debugv('features = \n%s', pprint.pformat(features))
-        logger.debugv('states = \n%s', pprint.pformat(states))
+        # logger.debugv('sequences = \n%s', pprint.pformat(sequences))
+        # logger.debugv('features = \n%s', pprint.pformat(features))
+        # logger.debugv('states = \n%s', pprint.pformat(states))
 
         crf.fit(features, states)
         del crf.training_log_

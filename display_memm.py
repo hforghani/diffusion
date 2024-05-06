@@ -3,12 +3,10 @@ import pprint
 from functools import reduce
 
 from bson import ObjectId
-import numpy as np
 
-from db.managers import EvidenceManager, SeqLabelDBManager, ParentSensEvidManager
+from db.managers import SeqLabelDBManager, ParentSensEvidManager
 from cascade.models import Project
 from diffusion.enum import Method
-from seq_labeling.pgm import ParentTDMEMM
 from seq_labeling.utils import obs_to_str, arr_to_str
 
 

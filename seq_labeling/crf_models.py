@@ -6,7 +6,7 @@ import sklearn_crfsuite
 
 from db.managers import CRFManager
 from diffusion.enum import Method
-from seq_labeling.models import NodeSeqLabelModel, MultiStateModel
+from seq_labeling.models import NodeSeqLabelModel, ParentSensMultiStateModel, FullMultiStateModel
 from seq_labeling.pgm import CRF, BinCRF, TDCRF
 from settings import logger
 
@@ -198,7 +198,21 @@ class SmallFeatCRFModel(CRFModel, abc.ABC):
         return
 
 
+class FullBinCRFModel(CRFModel):
+    """
+    CRF with short features and full observations.
+    """
+    method = Method.FULL_MULTI_STATE_BIN_CRF
+
+    @classmethod
+    def get_crf_instance(cls, **kwargs):
+        return BinCRF(kwargs.get('model_filename'))
+
+
 class BinCRFModel(SmallFeatCRFModel):
+    """
+    CRF with short features and small observations.
+    """
     method = Method.BIN_CRF
 
     @classmethod
@@ -219,13 +233,17 @@ class TDCRFModel(SmallFeatCRFModel):
         return TDCRF(td_param, kwargs.get('model_filename'))
 
 
-class MultiStateCRFModel(CRFModel, MultiStateModel):
-    method = Method.MULTI_STATE_LONG_CRF
+class FullMSBinCRFModel(FullBinCRFModel, FullMultiStateModel):
+    method = Method.FULL_MULTI_STATE_BIN_CRF
 
 
-class MultiStateBinCRFModel(BinCRFModel, MultiStateModel):
-    method = Method.MULTI_STATE_BIN_CRF
+class ParentMSCRFModel(CRFModel, ParentSensMultiStateModel):
+    method = Method.PAR_MULTI_STATE_LONG_CRF
 
 
-class MultiStateTDCRFModel(TDCRFModel, MultiStateModel):
-    method = Method.MULTI_STATE_TD_CRF
+class ParentMSBinCRFModel(BinCRFModel, ParentSensMultiStateModel):
+    method = Method.PAR_MULTI_STATE_BIN_CRF
+
+
+class ParentMSTDCRFModel(TDCRFModel, ParentSensMultiStateModel):
+    method = Method.PAR_MULTI_STATE_TD_CRF

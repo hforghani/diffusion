@@ -6,7 +6,7 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor
 from functools import reduce
 from itertools import repeat
-from typing import Sequence
+from typing import Sequence, List
 
 import numpy as np
 import psutil
@@ -14,9 +14,11 @@ from bson import ObjectId
 from pympler.asizeof import asizeof
 
 import settings
+from cascade.models import CascadeTree
 from db.exceptions import DataDoesNotExist
 from db.managers import EvidenceManager, ParentSensEvidManager
 from diffusion.models import DiffusionModel
+from seq_labeling.unified_models import Prediction
 from seq_labeling.utils import arr_to_str
 from settings import logger
 from utils.log_utils import log_memory
@@ -33,64 +35,6 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         ''' self._models : a dictionary which its values are sequence labeling model instances and the keys are user 
         ids for receiver-based methods and tuples of (user_i, user_j) for sender-based methods.'''
         self._models = {}
-
-    @time_measure(level='debug')
-    def prepare_evidences(self, train_set, train_trees, project, graph, multi_processed=False, eco=False):
-        """
-        Prepare the sequence of observations and states to train the sequence labeling models.
-        :return: a dictionary which its values are the lists of sequences and the keys are user id's.
-        """
-        logger.debug('method = %s', self.method)
-
-        must_extract = True
-        evidences = {}
-        save_in_db_thr = 200
-        if len(train_set) > save_in_db_thr:
-            evid_manager = self._get_evid_manager(project)
-            try:
-                logger.info('loading evidences ...')
-                evidences = evid_manager.get_many(train_set)
-                must_extract = False
-            except DataDoesNotExist:
-                logger.info('no evidences found!')
-
-        if must_extract:
-            logger.info('extracting sequences from %d cascades ...', len(train_trees))
-
-            if multi_processed:
-                step = 10  # For large subsets of Weibo and Memetracker
-                # step = 10000  # For twitter and small subsets of all datasets
-                trees_parts = [train_trees[i:i + step] for i in range(0, len(train_trees), step)]
-                with ProcessPoolExecutor(max_workers=settings.EVID_WORKERS) as executor:
-                    results = list(
-                        executor.map(extract_evidences, repeat(type(self)), repeat(graph), trees_parts))
-                logger.debug('len(results) = %d', len(results))
-
-                evidences = {}  # dictionary of user id's to list of the sequences of ObsPair instances.
-                logger.info('merging sequences of processes ...')
-                for res in results:
-                    for key in res:
-                        if key not in evidences:
-                            evidences[key] = res[key]
-                        else:
-                            evidences[key].extend(res[key])
-
-            else:
-                evidences = self.extract_evidences(train_trees, graph)
-
-            # Delete evidences of totally inactive users since they will never be activated.
-            inactives = self._get_inactives(evidences)
-            for key in inactives:
-                evidences.pop(key)
-            logger.info('Evidences of %d totally inactive users deleted since they have no nonzero state',
-                        len(inactives))
-
-            if len(train_set) > save_in_db_thr:
-                logger.info('inserting %d evidences into db and creating indexes ...', len(evidences))
-                evid_manager.insert(evidences, train_set)
-                evid_manager.create_index()
-
-        return evidences
 
     def _get_inactives(self, evidences):
         """
@@ -124,7 +68,8 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
             count += 1
             logger.debug('extracting evidences of %s ...', node_id)
             pred = graph.predecessors(node_id)
-            sequences = cls.extract_node_evid(node_id, trees, pred)
+            node_ids = sorted(graph.nodes())
+            sequences = cls.extract_node_evid(node_id, trees, pred, node_ids)
 
             if any(pair[1] != cls.inactive_state() for seq in sequences for pair in seq):
                 # size4, size5 = asizeof(sequences), asizeof(models)
@@ -152,7 +97,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         random.shuffle(node_ids)
 
         futures = []
-        step = 500
+        step = min(500, len(node_ids) // settings.TRAIN_WORKERS + 1)
         with ProcessPoolExecutor(max_workers=settings.TRAIN_WORKERS) as executor:
             for i in range(0, len(node_ids), step):
                 node_ids_i = node_ids[i:i + step]
@@ -173,7 +118,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def train_model(cls, sequences, iterations, states, node_id, project, eco=False, **kwargs):
+    def train_model(cls, sequences: list, iterations, states, node_id, project, eco=False, **kwargs):
         pass
 
     def _fit_by_evidences(self, node_ids, train_trees, project, graph, iterations=None, multi_processed=False,
@@ -257,7 +202,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         return self
 
     @classmethod
-    def _extract_obs(cls, cur_step_ids: Sequence, obs_node_ids: list, timers=None) -> np.ndarray:
+    def _extract_obs(cls, cur_step_ids: list | set, obs_node_ids: list, timers=None) -> np.ndarray:
         """
         Get the observation array corresponding to the active node ids in the current step.
         :param cur_step_ids: current step node ids
@@ -292,12 +237,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def extract_evidences(cls, trees, graph):
-        pass
-
-    @classmethod
-    @abc.abstractmethod
-    def extract_node_evid(cls, node_id, trees, predecessors):
+    def extract_node_evid(cls, node_id, trees, predecessors, all_node_ids=None):
         pass
 
     @staticmethod
@@ -321,136 +261,12 @@ def train_models(cls, node_ids, trees, graph, iterations, project, eco=False, **
         raise
 
 
-def extract_evidences(cls, graph, trees):
-    try:
-        return cls.extract_evidences(trees, graph)
-    except:
-        logger.error(traceback.format_exc())
-        raise
-
-
 class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
     """
     Node-based sequence labeling model
     """
 
-    @classmethod
-    def extract_evidences(cls, trees, graph):
-        try:
-            evidences = {}  # dictionary of user id's to the lis of sequences
-            cascade_num = 1
-
-            # Iterate each activation sequence and extract sequences of (observation, state) for each user
-            for tree in trees:
-                cascade_seqs = {}  # dictionary of user id's to the sequences of (obs, state) tuples for the current cascade
-                activated = set()  # set of current activated users
-                logger.debug('cascade %d ...', cascade_num)
-
-                cur_step = tree.roots
-                step_num = 1
-
-                while cur_step:
-                    logger.debug('step %d with %d users started', step_num, len(cur_step))
-                    cur_step_ids = [node.user_id for node in cur_step]
-
-                    # Put the state of the last observation in the sequence of (observation, state) equal to 1 (activated)
-                    # for all nodes in the current step.
-                    for node in cur_step:
-                        uid = node.user_id
-                        activated.add(uid)
-                        parents_count = graph.in_degree(uid) if uid in graph else 0
-
-                        if parents_count and uid in cascade_seqs:
-                            if cascade_seqs[uid]:
-                                obs = cascade_seqs[uid][-1][0]
-                                state = cls.active_state(node.parent_id, graph.predecessors(node.user_id))
-                                cascade_seqs[uid] = cascade_seqs[uid][:-1] + [(obs, state)]
-                                # logger.debug('(obs, state) updated for %s : (%s, %d)', uid, obs, state)
-
-                    # Get the children whom at least one of their parents are in the current step.
-                    children_sets = (set(graph.successors(node_id)) for node_id in cur_step_ids if node_id in graph)
-                    all_children = set().union(*children_sets)
-                    # logger.debug('all_children = %s', all_children)
-
-                    # Update the observation of each child and add the new observation-state to the current sequences.
-                    for child_id in all_children:
-                        if child_id not in activated and child_id in graph:
-                            parents = list(graph.predecessors(child_id))
-                            obs = cls._extract_obs(cur_step_ids, parents)
-                            state = cls.inactive_state()
-                            cascade_seqs.setdefault(child_id, [])
-                            cascade_seqs[child_id].append((obs, state))
-                            # logger.debug('(obs, state) added for %s : (%s, %d)', child_id, obs, state)
-
-                    # Update the current step nodes.
-                    cur_step = list(itertools.chain(*[node.children for node in cur_step]))
-
-                    logger.debug('%d steps done', step_num)
-                    step_num += 1
-
-                if cascade_num % 100 == 0:
-                    logger.info('%d cascades done', cascade_num)
-                cascade_num += 1
-
-                # Add current sequence of pairs (observation, state) to the seq labeling model evidences.
-                logger.debug('adding sequences of current cascade ...')
-                # logger.debug('cascade_seqs =\n%s', pprint.pformat(cascade_seqs))
-                for uid in cascade_seqs:
-                    evidences.setdefault(uid, [])
-                    evidences[uid].append(cascade_seqs[uid])
-
-            logger.info('evidences extracted from %d cascades', len(trees))
-            # logger.debug('size of trees : %d MB', asizeof(trees) / 1024 ** 2)
-            # logger.debug('size of graph : %d MB', asizeof(graph) / 1024 ** 2)
-            # logger.debug('size of evidences : %d MB', asizeof(evidences) / 1024 ** 2)
-            return evidences
-        except:
-            logger.error(traceback.format_exc())
-            raise
-
-    @classmethod
-    def extract_node_evid(cls, node_id, trees, predecessors):
-        evidences = []  # list of sequences
-        cascade_num = 1
-
-        # Iterate each activation sequence and extract sequences of (observation, state) for the user
-        for tree in trees:
-            depth_to_pred = {}
-            for pred_id in predecessors:
-                pred_node = tree.get_node(pred_id)
-                if pred_node:
-                    depth = tree.depth_of(pred_id)
-                    depth_to_pred.setdefault(depth, [])
-                    depth_to_pred[depth].append(pred_id)
-            # logger.debug('depth_to_pred = %s', depth_to_pred)
-
-            node = tree.get_node(node_id)
-            act_depth = tree.depth_of(node_id) if node else None
-            # logger.debug('node = %s', node)
-            # logger.debug('act_depth = %s', act_depth)
-
-            sequence = []  # list of (obs, state) tuples for the current cascade
-            for depth in sorted(depth_to_pred):
-                if act_depth and depth >= act_depth:
-                    break
-                obs = cls._extract_obs(depth_to_pred[depth],
-                                       predecessors)  # Just predecessors of the current step is suffuicient to give as cur_step_ids.
-                sequence.append((obs, cls.inactive_state()))
-            # logger.debug('sequence = %s', sequence)
-
-            if node and node.parent_id:
-                sequence[-1] = (sequence[-1][0], cls.active_state(node.parent_id, predecessors))
-
-            # if cascade_num % 100 == 0:
-            #     logger.debug('%d cascades done', cascade_num)
-            cascade_num += 1
-            if sequence:
-                evidences.append(sequence)
-
-        return evidences
-
     def _predict_one_thr(self, initial_tree, thr, graph, max_step=None):
-        # Dictionary of predicted trees related to thresholds: trees = { threshold1: tree1, threshold2: tree2, ... }
         tree = initial_tree.copy()
 
         # Initialize values.
@@ -634,7 +450,7 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
         # logger.debug('the newly active nodes are not available in the training data')
         return
 
-    def _predict_by_obs(self, obs_seq, thr, model, tree, obs_node_ids, last_pred=None):
+    def _predict_by_obs(self, obs_seq: List[np.ndarray], thr, model, tree, obs_node_ids, last_pred: Prediction = None):
         """
 
         :param obs_seq: observation sequence
@@ -642,7 +458,8 @@ class NodeSeqLabelModel(SeqLabelDifModel, abc.ABC):
         :param model: seq labeling model
         :param tree: current predicted tree
         :param obs_node_ids: list of node ids related to observation dimensions.
-        :return: The parent id is returned if the diffusion is predicted, otherwise None.
+        :return: (parent_id, prediction instance) ; The parent id is returned if the diffusion is predicted,
+        otherwise None.
         """
         if last_pred is not None and len(obs_seq) == len(last_pred.obs_seq) and all(
                 np.array_equal(obs_seq[i], last_pred.obs_seq[i]) for i in range(obs_seq)):
@@ -726,8 +543,244 @@ class MultiStateModel(NodeSeqLabelModel, abc.ABC):
     def get_states(pred_num):
         return list(range(pred_num + 1))
 
+
+class FullMultiStateModel(MultiStateModel, abc.ABC):
+    """
+    A MultiStateModel in which observations are of the length `nodes_count` and there is an (obs, state) per each
+    active node added ordered by time.
+    """
+
+    @classmethod
+    def extract_node_evid(cls, node_id, trees: List[CascadeTree], predecessors, all_node_ids=None):
+        if all_node_ids is None:
+            raise ValueError("all_node_ids must not be None")
+        evidences = []  # list of sequences
+        cascade_num = 1
+
+        # Iterate each activation sequence and extract sequences of (observation, state) for the user
+        for tree in trees:
+            node = tree.get_node(node_id)
+            act_depth = tree.depth_of(node_id) if node else None
+
+            # if node is not None:
+            #     logger.debug('node = %s', node)
+            #     logger.debug('act_depth = %s', act_depth)
+
+            sequence = []  # list of (obs, state) tuples for the current cascade
+            for depth in range(tree.depth):
+                if act_depth and depth >= act_depth:
+                    break
+                cur_step = sorted(tree.nodes_at_depth(depth), key=lambda x: x.datetime)
+                cur_step_ids = [node.user_id for node in cur_step]
+                sub_seq = []
+                state = cls.inactive_state()
+                finished = False
+                for i in range(1, len(cur_step_ids) + 1):
+                    if node and node.parent_id and cur_step_ids[i - 1] == node.parent_id:
+                        state = cls.active_state(node.parent_id, predecessors)
+                        finished = True
+                    sub_seq.append((
+                        cls._extract_obs(cur_step_ids[:i], all_node_ids),  # observation
+                        state
+                    ))
+                    if finished:
+                        break
+                sequence.extend(sub_seq)
+
+            # seq = "\n".join(f"obs: {''.join(str(int(d)) for d in obs)}\nstate: {state}" for obs, state in sequence)
+            # logger.debug(f'sequence =\n{seq}')
+
+            # if cascade_num % 100 == 0:
+            #     logger.debug('%d cascades done', cascade_num)
+            cascade_num += 1
+            if sequence:
+                evidences.append(sequence)
+
+        return evidences
+
+    def _predict_one_thr(self, initial_tree, thr, graph, max_step=None):
+        tree = initial_tree.copy()
+
+        # Initialize values.
+        max_depth = initial_tree.depth
+        # Set the nodes with maximum depth as the initial step.
+        cur_step = sorted(initial_tree.nodes_at_depth(max_depth), key=lambda x: x.datetime)
+        cur_step = [node.user_id for node in cur_step]
+        # active_ids = set of node until last depth
+        active_ids = set(initial_tree.node_ids()) - set(x.user_id for x in initial_tree.nodes_at_depth(max_depth))
+        node_ids = sorted(graph.nodes())
+        step_num = 1
+
+        obs_seq = self._get_initial_obs(initial_tree, graph)
+        # logger.debug('initial observations:\n%s', pprint.pformat(obs_seq))
+
+        timers = [Timer(f'code {i}', level='debug', silent=True) for i in range(10)]
+
+        # Predict the cascade tree.
+        # At each iteration find newly activated nodes based on the probabilities and add them to the tree.
+        while cur_step and (max_step is None or step_num <= max_step):
+            # logger.debug('predicting step %d ...', step_num)
+            next_step = []
+
+            for node_id in cur_step:
+                active_ids.add(node_id)
+
+                if node_id in graph:
+                    obs = self._extract_obs(active_ids, node_ids)
+                    obs_seq.append(obs)
+
+                    j = 0
+                    for child_id in graph.successors(node_id):
+
+                        model = self._get_model(child_id)
+
+                        if model is not None:
+                            # logger.debug('testing diffusion to %s ...', child_id)
+                            parents = list(graph.predecessors(child_id))
+
+                            if child_id not in active_ids:
+                                # logger.debug('obs_seq = \n%s', [arr_to_str(obs) for obs in obs_seq])
+                                parent_id, pred = self._predict_by_obs(obs_seq=obs_seq, thr=thr, model=model, tree=tree,
+                                                                       predecessors=parents, node_ids=node_ids)
+                                if parent_id:
+                                    node = tree.add_node(child_id, parent_id=parent_id)
+                                    node.probability = pred.prob
+                                    active_ids.add(child_id)
+                                    next_step.append(child_id)
+
+                            # else:
+                            #     logger.debug('user %s is already activated', child_id)
+
+                        # else:
+                        #     logger.debug('user %s does not have any model', child_id)
+
+                        j += 1
+                        # if j % 100 == 0:
+                        #     logger.debug('%d / %d of children iterated', j, graph.out_degree(node_id))
+                        #     for timer in timers:
+                        #         if timer.sum:
+                        #             timer.report_sum()
+
+            cur_step = next_step
+            step_num += 1
+
+        # logger.debug('size of tree: %d', asizeof(tree))
+        # logger.debug('size of list: %d', asizeof(tree.edges()))
+        return tree
+
+    def predict_one_sample(self, initial_tree, threshold, graph, max_step=None):
+        """
+        Predict activation cascade in the future starting from initial nodes in initial_tree at each threshold.
+        :return: dictionary of thresholds to their predicted trees
+        """
+        if not isinstance(threshold, list):
+            return self._predict_one_thr(initial_tree, threshold, graph, max_step)
+        else:
+            return {thr: self._predict_one_thr(initial_tree, thr, graph, max_step) for thr in threshold}
+
+    def _get_initial_obs(self, initial_tree, graph):
+        obs_seq = []
+        node_ids = sorted(graph.nodes())
+        # logger.debug('max_depth_node_ids = %s', pprint.pformat(max_depth_node_ids))
+        # logger.debug('extracting initial observations ...')
+
+        i = 1
+        for depth in range(initial_tree.depth):
+            # logger.debug('step %d with %d users ...', i, len(cur_step))
+            # Just extract the observations of the node at the max depth of the initial tree.
+            cur_step = sorted(initial_tree.nodes_at_depth(depth), key=lambda x: x.datetime)
+            # logger.debug('children_dic = %s', pprint.pformat(children_dic))
+            for i in range(1, len(cur_step) + 1):
+                # logger.debug('node %s ...', node.user_id)
+                obs = self._extract_obs(cur_step[:i], node_ids)
+                obs_seq.append(obs)
+                # logger.debug('obs set: %s', observations[child_id])
+            i += 1
+
+        return obs_seq
+
+    def _predict_by_obs(self, obs_seq, thr, model, tree, predecessors, last_pred=None, node_ids=None):
+        if last_pred is not None and len(obs_seq) == len(last_pred.obs_seq) and all(
+                np.array_equal(obs_seq[i], last_pred.obs_seq[i]) for i in range(len(obs_seq))):
+            state, prob = last_pred.state, last_pred.prob
+        else:
+            all_states = list(range(len(predecessors) + 1))
+            probs = model.get_probs(obs_seq, all_states)
+            new_act_indexes = np.nonzero(obs_seq[-1])[0]
+            new_act_node_ids = [node_ids[ind] for ind in new_act_indexes]
+            new_act_predec_indexes = [i for i in range(len(predecessors)) if predecessors[i] in new_act_node_ids]
+
+            if new_act_predec_indexes:
+                active_states = np.array(new_act_predec_indexes) + 1
+                inactive_prob = probs[0]
+                active_prob = 1 - inactive_prob
+                active_probs = [probs[state] for state in active_states]
+                i = np.argmax(active_probs)
+                state, prob = active_states[i], active_prob
+            else:
+                state, prob = 0, 0
+        pred = Prediction(obs_seq, prob, state)
+
+        if state > 0 and prob >= thr:
+            node_id = predecessors[state - 1]
+            if tree.get_node(node_id):
+                # logger.debug('a diffusion predicted from %s with prob %f >= %f', node_id, prob, thr)
+                return node_id, pred
+            else:
+                logger.warning('parent node %s does not exist', node_id)
+
+        return None, pred
+
+
+class ParentSensMultiStateModel(MultiStateModel, abc.ABC):
+    """
+    A MultiStateModel in which observations are of the length `parents_count` and there is an (obs, state) per each
+    tree step.
+    """
+
     def _get_evid_manager(self, project):
         return ParentSensEvidManager(project)
+
+    @classmethod
+    def extract_node_evid(cls, node_id, trees, predecessors, all_node_ids=None):
+        evidences = []  # list of sequences
+        cascade_num = 1
+
+        # Iterate each activation sequence and extract sequences of (observation, state) for the user
+        for tree in trees:
+            depth_to_pred = {}
+            for pred_id in predecessors:
+                pred_node = tree.get_node(pred_id)
+                if pred_node:
+                    depth = tree.depth_of(pred_id)
+                    depth_to_pred.setdefault(depth, [])
+                    depth_to_pred[depth].append(pred_id)
+            # logger.debug('depth_to_pred = %s', depth_to_pred)
+
+            node = tree.get_node(node_id)
+            act_depth = tree.depth_of(node_id) if node else None
+            # logger.debug('node = %s', node)
+            # logger.debug('act_depth = %s', act_depth)
+
+            sequence = []  # list of (obs, state) tuples for the current cascade
+            for depth in sorted(depth_to_pred):
+                if act_depth and depth >= act_depth:
+                    break
+                # Just the predecessors of the current step is sufficient to give as cur_step_ids.
+                obs = cls._extract_obs(depth_to_pred[depth], predecessors)
+                sequence.append((obs, cls.inactive_state()))
+            # logger.debug('sequence = %s', sequence)
+
+            if node and node.parent_id:
+                sequence[-1] = (sequence[-1][0], cls.active_state(node.parent_id, predecessors))
+
+            # if cascade_num % 100 == 0:
+            #     logger.debug('%d cascades done', cascade_num)
+            cascade_num += 1
+            if sequence:
+                evidences.append(sequence)
+
+        return evidences
 
     def _predict_by_obs(self, obs_seq, thr, model, tree, obs_node_ids, last_pred=None):
         if last_pred is not None and len(obs_seq) == len(last_pred.obs_seq) and all(

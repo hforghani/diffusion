@@ -1,6 +1,6 @@
 from db.managers import SeqLabelDBManager
 from diffusion.enum import Method
-from seq_labeling.models import SeqLabelDifModel, NodeSeqLabelModel, MultiStateModel
+from seq_labeling.models import SeqLabelDifModel, NodeSeqLabelModel, ParentSensMultiStateModel
 from seq_labeling.pgm import *
 from settings import logger
 
@@ -59,7 +59,7 @@ class LongMEMMModel(NodeMEMMModel):
         return None
 
 
-class MultiStateLongMEMMModel(LongMEMMModel, MultiStateModel):
+class MultiStateLongMEMMModel(LongMEMMModel, ParentSensMultiStateModel):
     method = Method.MULTI_STATE_LONG_MEMM
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
@@ -77,7 +77,7 @@ class BinMEMMModel(NodeMEMMModel):
         return BinMEMM()
 
 
-class MultiStateBinMEMMModel(BinMEMMModel, MultiStateModel):
+class MultiStateBinMEMMModel(BinMEMMModel, ParentSensMultiStateModel):
     method = Method.MULTI_STATE_BIN_MEMM
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
@@ -99,36 +99,9 @@ class TDMEMMModel(NodeMEMMModel):
         return TDMEMM(td_param)
 
 
-class MultiStateTDMEMMModel(TDMEMMModel, MultiStateModel):
+class MultiStateTDMEMMModel(TDMEMMModel, ParentSensMultiStateModel):
     method = Method.MULTI_STATE_TD_MEMM
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
         super().__init__(initial_depth, max_step, threshold, **kwargs)
         self.td_param = td_param
-
-
-class ParentSensTDMEMMModel(MultiStateModel):
-    """
-    Parent-sensitive Time-Decay MEMM model
-    """
-    method = Method.PARENT_SENS_TD_MEMM
-
-    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
-        super().__init__(initial_depth, max_step, threshold, **kwargs)
-        self.td_param = td_param
-
-    @classmethod
-    def get_memm_instance(cls, td_param, *args, **kwargs):
-        return ParentTDMEMM(td_param)
-
-
-class LongParentSensTDMEMMModel(MultiStateModel):
-    method = Method.LONG_PARENT_SENS_TD_MEMM
-
-    def __init__(self, initial_depth=0, max_step=None, threshold=0.5, td_param=0.5, **kwargs):
-        super().__init__(initial_depth, max_step, threshold, **kwargs)
-        self.td_param = td_param
-
-    @classmethod
-    def get_memm_instance(cls, td_param, *args, **kwargs):
-        return LongParentTDMEMM(td_param)

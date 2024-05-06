@@ -186,10 +186,6 @@ class SeqLabelDBManager:
             model = LongMEMM()
         elif self.method in [Method.BIN_MEMM, Method.MULTI_STATE_BIN_MEMM]:
             model = BinMEMM()
-        elif self.method == Method.PARENT_SENS_TD_MEMM:
-            model = ParentTDMEMM()
-        elif self.method == Method.LONG_PARENT_SENS_TD_MEMM:
-            model = LongParentTDMEMM()
         else:
             model = TDMEMM()
         orig_indexes = model_data['orig_indexes']
@@ -214,11 +210,11 @@ class CRFManager(SeqLabelDBManager):
         return crf
 
     def _get_model_instance(self):
-        if self.method in [Method.LONG_CRF, Method.MULTI_STATE_LONG_CRF]:
+        if self.method in [Method.LONG_CRF, Method.PAR_MULTI_STATE_LONG_CRF]:
             return CRF()
-        elif self.method in [Method.BIN_CRF, Method.MULTI_STATE_BIN_CRF]:
+        elif self.method in [Method.BIN_CRF, Method.PAR_MULTI_STATE_BIN_CRF]:
             return BinCRF()
-        elif self.method in [Method.TD_CRF, Method.MULTI_STATE_TD_CRF]:
+        elif self.method in [Method.TD_CRF, Method.PAR_MULTI_STATE_TD_CRF]:
             return TDCRF()
         else:
             raise ValueError(f"Invalid method {self.method.value} for CRF manager")

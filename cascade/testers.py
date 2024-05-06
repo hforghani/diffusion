@@ -44,15 +44,14 @@ METHOD_MODEL_MAP = {
     Method.MULTI_STATE_LONG_MEMM: MultiStateLongMEMMModel,
     Method.MULTI_STATE_BIN_MEMM: MultiStateBinMEMMModel,
     Method.MULTI_STATE_TD_MEMM: MultiStateTDMEMMModel,
-    Method.PARENT_SENS_TD_MEMM: ParentSensTDMEMMModel,
-    Method.LONG_PARENT_SENS_TD_MEMM: LongParentSensTDMEMMModel,
 
     Method.LONG_CRF: CRFModel,
     Method.BIN_CRF: BinCRFModel,
     Method.TD_CRF: TDCRFModel,
-    Method.MULTI_STATE_LONG_CRF: MultiStateCRFModel,
-    Method.MULTI_STATE_BIN_CRF: MultiStateBinCRFModel,
-    Method.MULTI_STATE_TD_CRF: MultiStateTDCRFModel,
+    Method.FULL_MULTI_STATE_BIN_CRF: FullMSBinCRFModel,
+    Method.PAR_MULTI_STATE_LONG_CRF: ParentMSCRFModel,
+    Method.PAR_MULTI_STATE_BIN_CRF: ParentMSBinCRFModel,
+    Method.PAR_MULTI_STATE_TD_CRF: ParentMSTDCRFModel,
 
     Method.MLN_TUFFY: TuffyICMLNModel,
 
