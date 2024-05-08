@@ -53,7 +53,7 @@ def main():
                         help="the maximum depth of the initial nodes")
     parser.add_argument("-d", "--max-depth", type=int, dest="max_depth",
                         help="the maximum depth of cascade prediction")
-    parser.add_argument("-M", "--multiprocessed", action='store_true', dest="multi_processed", default=False,
+    parser.add_argument("-M", "--multiprocessed", action='store_true', dest="multi_processed",
                         help="If this option is given, the task is ran on multiple processes")
     parser.add_argument("-e", "--eco", action='store_true', default=False,
                         help="If this option is given, the already saved trained models is fetched from db and used. "

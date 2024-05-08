@@ -16,7 +16,7 @@ class PredictConfig(Singleton):
     criterion: Criterion = Criterion.NODES
     init_depth: int = 0
     max_depth: int = None
-    multiprocessed: bool = True
+    multiprocessed: bool = False
     eco: bool = False
     params: Dict[str, Union[float, Tuple[float, float]]] = {}
     n_iter: int = 100

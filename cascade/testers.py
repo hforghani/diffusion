@@ -137,7 +137,7 @@ class ProjectTester(abc.ABC):
             model.fit(train_set, train_trees, self.project, multi_processed=self.multi_processed, eco=eco, **kwargs)
         return model
 
-    @time_measure('debug')
+    @time_measure('info')
     def test(self, test_set: list, model: DiffusionModel, graph: DiGraph, initial_depth: int = 0, max_depth: int = None,
              on_test: bool = True, **params) -> Tuple[
         Metric | Dict[float, Metric],
