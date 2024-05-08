@@ -293,12 +293,13 @@ def calc_k(edges, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts):
 
 class CTIC(IC):
     method = Method.CTIC
+    max_iterations = 20
+    stop_criterion = 1e-5
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
         super().__init__(initial_depth, max_step, threshold)
         self.k_param_name = 'k-ctic'
         self.r_param_name = 'r-ctic'
-        self.max_iterations = 20
 
     def calc_parameters(self, train_set, project, multi_processed, eco, iterations=None, **kwargs):
         if iterations is None:
@@ -352,7 +353,7 @@ class CTIC(IC):
                 del last_r
                 del last_k
 
-                if k_dif + r_dif < 1e-6:
+                if k_dif + r_dif < self.stop_criterion:
                     logger.info('Stop condition met: r dif + k dif < 1e-6')
                     break
 

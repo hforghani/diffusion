@@ -14,8 +14,9 @@ class DiffusionModel(BaseEstimator, abc.ABC):
     """
     Sequence labeling diffusion model including HMM, MEMM, and CRF
     """
-    method = None  # Define in the subclasses.
+    method = None  # Must be defined in the subclasses.
     max_iterations = None
+    stop_criterion = None
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
         self.initial_depth = initial_depth

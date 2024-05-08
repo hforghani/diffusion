@@ -84,6 +84,7 @@ class MEMM(SeqLabelModel, abc.ABC):
         super().__init__()
         self.Lambda = None
         self.feat_dim = None
+        self.stop_criterion = 1e-5
 
     def set_params(self, Lambda, orig_indexes):
         self.Lambda = Lambda
@@ -116,7 +117,6 @@ class MEMM(SeqLabelModel, abc.ABC):
         self.Lambda = np.ones(self.feat_dim)
 
         # GIS, run until convergence
-        epsilon = 10 ** -10
         iter_count = 0
         while True:
             iter_count += 1
@@ -130,7 +130,7 @@ class MEMM(SeqLabelModel, abc.ABC):
             logger.debugv('lambda = %s', self.Lambda)
 
             diff = np.linalg.norm(Lambda0 - self.Lambda) / np.sqrt(self.feat_dim)
-            if diff < epsilon or iter_count >= iterations:
+            if diff < self.stop_criterion or iter_count >= iterations:
                 logger.debug('GIS iterations = %d, diff = %s', iter_count, diff)
                 break
 
@@ -465,6 +465,7 @@ class CRF(SeqLabelModel):
         super().__init__()
         self.model_filename = model_filename
         self.crf = None
+        self.stop_criterion = 1e-5
 
     def _train(self, sequences, iterations, all_states=None, **kwargs):
         alg = kwargs.get('algorithm', 'lbfgs')
@@ -477,7 +478,7 @@ class CRF(SeqLabelModel):
         }
         crf_params = {param: kwargs[param] for param in params[alg] if param in kwargs}
         crf = sklearn_crfsuite.CRF(algorithm=alg, max_iterations=iterations, model_filename=self.model_filename,
-                                   keep_tempfiles=True, **crf_params)
+                                   keep_tempfiles=True, epsilon=self.stop_criterion, **crf_params)
 
         features = [self._obs_feat_sequence([obs for obs, state in seq]) for seq in sequences]
         states = [[self.__state_to_str(0)] + [self.__state_to_str(state) for obs, state in seq] for seq in sequences]

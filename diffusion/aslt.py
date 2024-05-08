@@ -305,6 +305,7 @@ def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, c_set1
 class AsLT(LT):
     method = Method.ASLT
     max_iterations = 20
+    stop_criterion = 1e-5
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
         super().__init__(initial_depth, max_step, threshold)
@@ -368,7 +369,7 @@ class AsLT(LT):
                 del last_r
                 del last_w
 
-                if w_dif + r_dif < 1e-6:
+                if w_dif + r_dif < self.stop_criterion:
                     logger.info('Stop condition met: r dif + w dif < 1e-6')
                     break
 
