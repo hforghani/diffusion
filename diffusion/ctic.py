@@ -294,7 +294,7 @@ def calc_k(edges, alpha, beta, user_map, edge_pos_cascades, edge_neg_counts):
 class CTIC(IC):
     method = Method.CTIC
     max_iterations = 20
-    stop_criterion = 1e-5
+    stop_criterion = 2 * 1e-4
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
         super().__init__(initial_depth, max_step, threshold)
@@ -345,16 +345,16 @@ class CTIC(IC):
 
                 # Calculate and report delta r and delta k.
                 r_dif = r - last_r
-                r_dif = np.sqrt(r_dif.multiply(r_dif).sum())
+                r_dif = np.sqrt(r_dif.multiply(r_dif).sum()) / 90000  # to normalize
                 k_dif = k - last_k
                 k_dif = np.sqrt(k_dif.multiply(k_dif).sum())
-                logger.info('r dif = %s, k dif = %s' % (r_dif, k_dif))
-                logger.debug('r nnz = %d, k nnz = %d' % (r.nnz, k.nnz))
+                logger.info(f'r dif = {r_dif}, k dif = {k_dif}')
+                logger.debug(f'r nnz = {r.nnz}, k nnz = {k.nnz}')
                 del last_r
                 del last_k
 
                 if k_dif + r_dif < self.stop_criterion:
-                    logger.info('Stop condition met: r dif + k dif < 1e-6')
+                    logger.info(f'Stop condition met: r dif + k dif < {self.stop_criterion}')
                     break
 
         self.k = k.tocsr()

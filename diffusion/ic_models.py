@@ -13,7 +13,7 @@ from utils.time_utils import time_measure
 class EMIC(IC):
     method = Method.EMIC
     max_iterations = 20
-    stop_criterion = 1e-5
+    stop_criterion = 1e-4
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
         super().__init__(initial_depth, max_step, threshold)
@@ -196,7 +196,7 @@ class EMIC(IC):
 class DAIC(EMIC):
     method = Method.DAIC
     max_iterations = 20
-    stop_criterion = 1e-5
+    stop_criterion = 1e-4
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, lambdaa=10, **kwargs):
         super().__init__(initial_depth, max_step, threshold)

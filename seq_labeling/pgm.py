@@ -84,7 +84,7 @@ class MEMM(SeqLabelModel, abc.ABC):
         super().__init__()
         self.Lambda = None
         self.feat_dim = None
-        self.stop_criterion = 1e-5
+        self.stop_criterion = 1e-4
 
     def set_params(self, Lambda, orig_indexes):
         self.Lambda = Lambda
@@ -465,7 +465,7 @@ class CRF(SeqLabelModel):
         super().__init__()
         self.model_filename = model_filename
         self.crf = None
-        self.stop_criterion = 1e-5
+        self.stop_criterion = 1e-4
 
     def _train(self, sequences, iterations, all_states=None, **kwargs):
         alg = kwargs.get('algorithm', 'lbfgs')
