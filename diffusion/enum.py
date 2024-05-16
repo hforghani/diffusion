@@ -26,6 +26,9 @@ class Method(Enum):
     # MLN_ALCH = 'mlnalch'
     UNI_MRF = 'unimrf'
 
+    INFVAE = 'infvae'
+    DEEP_DIFFUSE = 'deepdiffuse'
+
 
 class Criterion(Enum):
     NODES = 'nodes'

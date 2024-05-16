@@ -1,5 +1,6 @@
 import argparse
 import concurrent.futures
+import json
 from itertools import repeat
 
 from scipy import stats
@@ -9,14 +10,15 @@ import settings
 from compare_results import get_params
 from diffusion.enum import Method, Criterion
 from cascade.models import Project
-from cascade.testers import DefaultTester
+from cascade.testers import DefaultTester, MultiProcTester
 from settings import logger
 from utils.time_utils import time_measure
 
 
-def run_method(method, project_name, eco, criterion):
+def run_method(method, project_name, criterion):
     project = Project(project_name)
-    tester = DefaultTester(project, method, criterion, eco=eco)
+    tester = DefaultTester(project, method, criterion)
+    # tester = MultiProcTester(project, method, criterion)
     params = get_params(project_name, method)
     logger.info('params = %s', params)
     mean_res, res, _ = tester.run(0, None, **params)
@@ -25,20 +27,45 @@ def run_method(method, project_name, eco, criterion):
     return mean_f1, f1_values
 
 
-def multiple_run(methods1: list, methods2: list, project_name: str, eco: bool, criterion: Criterion) -> dict:
+def multiple_run(methods1: list, methods2: list, project_name: str, saved: bool, criterion: Criterion) -> dict:
     methods = methods1 + methods2
-
-    with concurrent.futures.ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
-        exec_res = executor.map(run_method, methods, repeat(project_name), repeat(eco), repeat(criterion))
     results = {}  # dict of methods to lists of f1 values.
     mean_results = {}  # dict of methods to mean f1 values.
+    save_path = "data/ttest_f1.json"
+
+    if saved:
+        with open(save_path) as f:
+            data = json.load(f)
+        for method in methods:
+            try:
+                method_data = data[method.value][project_name][criterion.value]
+                results[method] = method_data["f1_values"]
+                mean_results[method] = method_data["f1_mean"]
+                methods.remove(method)
+            except KeyError:
+                pass
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
+        exec_res = executor.map(run_method, methods, repeat(project_name), repeat(criterion))
 
     for method, res in zip(methods, exec_res):
         mean_f1, f1_values = res
         results[method] = f1_values
         mean_results[method] = mean_f1
+        if saved:
+            data.setdefault(method.value, {})
+            data[method.value].setdefault(project_name, {})
+            data[method.value][project_name].setdefault(criterion.value, {})
+            data[method.value][project_name][criterion.value] = {
+                "f1_values": f1_values.tolist(),
+                "f1_mean": mean_f1
+            }
 
     report_results(mean_results, results, methods1, methods2)
+
+    if saved:
+        with open(save_path, "w") as f:
+            json.dump(data, f, indent=2)
 
     return results
 
@@ -63,7 +90,7 @@ def report_results(mean_results, results, methods1, methods2):
             f'{m1.value:<20}' +
             ''.join(f'{tvalues[i]:<20.3}{pvalues[i]:<20.3}' for i in range(len(methods2)))
         )
-    logger.info('\n'.join(logs))
+    logger.info('\n' + '\n'.join(logs))
 
 
 @time_measure()
@@ -74,9 +101,9 @@ def main():
                         help="the methods of group 1 in student's t-test")
     parser.add_argument("--methods2", nargs="+", required=True, choices=[e.value for e in Method],
                         help="the methods of group 2 in student's t-test")
-    parser.add_argument("-e", "--eco", action='store_true', default=False,
-                        help="If this option is given, the already saved trained models is fetched from db and used. "
-                             "Also it will be saved if has not been saved.")
+    parser.add_argument("-s", "--saved", action='store_true', default=False,
+                        help="If this option is given, the already saved f1 values are read from data/ttest_f1.json "
+                             "and the not-existing values are saved.")
     parser.add_argument("-C", "--criterion", choices=[e.value for e in Criterion], default="nodes",
                         help="the criterion on which the evaluation is done")
     args = parser.parse_args()
@@ -84,7 +111,7 @@ def main():
     methods1 = [Method(met) for met in args.methods1]
     methods2 = [Method(met) for met in args.methods2]
 
-    multiple_run(methods1, methods2, args.project, args.eco, Criterion(args.criterion))
+    multiple_run(methods1, methods2, args.project, args.saved, Criterion(args.criterion))
 
 
 if __name__ == '__main__':

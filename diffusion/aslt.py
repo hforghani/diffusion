@@ -304,7 +304,7 @@ def calc_r(sequences, graph, phi_h, psi, user_ids, cascade_map, user_map, c_set1
 
 class AsLT(LT):
     method = Method.ASLT
-    max_iterations = 20
+    max_iterations = 2
     stop_criterion = 2 * 1e-4
 
     def __init__(self, initial_depth=0, max_step=None, threshold=0.5, **kwargs):
