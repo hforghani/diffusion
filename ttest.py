@@ -39,11 +39,14 @@ def multiple_run(methods1: list, methods2: list, project_name: str, saved: bool,
         for method in methods:
             try:
                 method_data = data[method.value][project_name][criterion.value]
+            except KeyError:
+                pass
+            else:
                 results[method] = method_data["f1_values"]
                 mean_results[method] = method_data["f1_mean"]
                 methods.remove(method)
-            except KeyError:
-                pass
+
+    print(f"remained methods to run: {[m.value for m in methods]}")
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=settings.DEFAULT_WORKERS) as executor:
         exec_res = executor.map(run_method, methods, repeat(project_name), repeat(criterion))
@@ -55,15 +58,15 @@ def multiple_run(methods1: list, methods2: list, project_name: str, saved: bool,
         if saved:
             data.setdefault(method.value, {})
             data[method.value].setdefault(project_name, {})
-            data[method.value][project_name].setdefault(criterion.value, {})
             data[method.value][project_name][criterion.value] = {
                 "f1_values": f1_values.tolist(),
                 "f1_mean": mean_f1
             }
+            print(f"f1 of {method.value} saved in data")
 
     report_results(mean_results, results, methods1, methods2)
 
-    if saved:
+    if saved and methods:
         with open(save_path, "w") as f:
             json.dump(data, f, indent=2)
 
