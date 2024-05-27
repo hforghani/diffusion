@@ -36,15 +36,16 @@ def multiple_run(methods1: list, methods2: list, project_name: str, saved: bool,
     if saved:
         with open(save_path) as f:
             data = json.load(f)
+        remained_methods = []
         for method in methods:
             try:
                 method_data = data[method.value][project_name][criterion.value]
             except KeyError:
-                pass
+                remained_methods.append(method)
             else:
                 results[method] = method_data["f1_values"]
                 mean_results[method] = method_data["f1_mean"]
-                methods.remove(method)
+        methods = remained_methods
 
     print(f"remained methods to run: {[m.value for m in methods]}")
 
