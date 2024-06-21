@@ -35,6 +35,7 @@ def main(args):
         cascades = DBManager(args.db).db.cascades.find(query, {'_id': int(args.idout is not None), 'size': 1})
         csizes = np.array([m['size'] for m in cascades])
         min_size, max_size = csizes.min(), csizes.max()
+        print(f'count of all: {csizes.size}')
         print(f'min of all: {min_size}')
         print(f'max of all: {max_size}')
         print(f'avg of all: {csizes.mean()}')
