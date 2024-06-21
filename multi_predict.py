@@ -5,7 +5,7 @@ from typing import Dict
 
 import settings
 from cascade.metric import METRICS
-from config.predict_config import PredictConfig
+from config.predict_config import PredictConfig, get_saved_params
 from diffusion.enum import Method, Criterion
 from cascade.models import Project
 from cascade.testers import DefaultTester
@@ -13,19 +13,11 @@ from settings import logger
 from utils.time_utils import time_measure
 
 
-def get_params(project_name, method):
-    if method in settings.PARAM:
-        params = settings.PARAM[method]
-        if project_name in params:
-            return params[project_name]
-    return {}
-
-
 def run(method, initial_depth, max_depth, project, eco, criterion):
     logger.info('running prediction from depth %d to %s using method %s ...', initial_depth,
                 max_depth if max_depth is not None else 'end', method.value)
     tester = DefaultTester(project, method, criterion, eco=eco)
-    params = get_params(project.name, method)
+    params = get_saved_params(project.name, method)
     logger.info('params = %s', params)
     if not params:
         logger.info('no params for %s on %s', method.value, project.name)

@@ -3,14 +3,14 @@ import argparse
 from diffusion.enum import Method, Criterion
 from cascade.models import Project
 from cascade.testers import MultiProcTester
-from multi_predict import get_params
+from config.predict_config import get_saved_params
 from settings import logger
 from utils.time_utils import time_measure
 
 
 def run_method(method, project, init_depth, max_depth, eco, criterion):
     tester = MultiProcTester(project, method, criterion, eco=eco)
-    params = get_params(project.name, method)
+    params = get_saved_params(project.name, method)
     logger.debug('params = %s', params)
     _, _, res_trees = tester.run(init_depth, max_depth, **params)
     return res_trees

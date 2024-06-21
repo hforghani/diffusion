@@ -9,8 +9,7 @@ from settings import logger
 from utils.time_utils import time_measure
 
 
-def run_predict() -> Metric:
-    config = PredictConfig()
+def run_predict(config) -> Metric:
     project = Project(config.project)
     method = Method(config.method)
 
@@ -35,8 +34,8 @@ def run_predict() -> Metric:
 
 
 @time_measure('info')
-def handle():
-    res = run_predict()
+def handle(config):
+    res = run_predict(config)
 
     if res is not None:
         logger.info(f"final {', '.join(f'{metric}: {value:.3f}' for metric, value in res.metrics.items())}")
@@ -69,16 +68,19 @@ def main():
                              "values.")
     parser.add_argument("-a", "--additional", choices=METRICS, dest="additional_metrics", nargs="+",
                         help="additional reported metrics")
+    parser.add_argument("-s", "--saved", action='store_true', default=False,
+                        help="If this option is given, the saved parameters are given to the model.")
 
     args = parser.parse_args()
 
     set_config(args.method, args.project, args.criterion, args.initial_depth, args.max_depth,
-               args.multi_processed, args.eco, args.param, args.n_iter, args.additional_metrics)
+               args.multi_processed, args.eco, args.param, args.n_iter, args.additional_metrics, args.saved)
+    config = PredictConfig()
 
-    if all(item[0] != 'threshold' for item in args.param):
+    if 'threshold' not in config.params:
         parser.error('parameter "threshold" must be given by param option')
 
-    handle()
+    handle(config)
 
 
 if __name__ == '__main__':

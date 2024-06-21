@@ -1,5 +1,6 @@
 from typing import Dict, Tuple, List, Union
 
+import settings
 from diffusion.enum import Method, Criterion
 
 
@@ -21,6 +22,7 @@ class PredictConfig(Singleton):
     params: Dict[str, Union[float, Tuple[float, float]]] = {}
     n_iter: int = 100
     additional_metrics: List[str] = []
+    saved: bool = False
 
 
 def extract_param(param):
@@ -44,7 +46,8 @@ def extract_param(param):
 
 
 def set_config(method: str, project: str, criterion: str, initial_depth: int, max_depth: int,
-               multiprocessed: bool, eco: bool, params: List[List[str]], n_iter: int, additional_metrics: List[str]):
+               multiprocessed: bool, eco: bool, params: List[List[str]], n_iter: int, additional_metrics: List[str],
+               saved: bool):
     config = PredictConfig()
     config.project = project
     config.method = Method(method)
@@ -53,6 +56,18 @@ def set_config(method: str, project: str, criterion: str, initial_depth: int, ma
     config.max_depth = max_depth
     config.multiprocessed = multiprocessed
     config.eco = eco
-    config.params = extract_param(params) if params is not None else []
     config.n_iter = n_iter
     config.additional_metrics = additional_metrics if additional_metrics is not None else []
+    config.saved = saved
+    if saved:
+        config.params = get_saved_params(config.project, config.method)
+    if params:
+        config.params.update(extract_param(params))
+
+
+def get_saved_params(project_name, method):
+    if method in settings.PARAM:
+        params = settings.PARAM[method]
+        if project_name in params:
+            return params[project_name]
+    return {}

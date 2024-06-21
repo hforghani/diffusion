@@ -7,7 +7,7 @@ from scipy import stats
 import numpy as np
 
 import settings
-from compare_results import get_params
+from config.predict_config import get_saved_params
 from diffusion.enum import Method, Criterion
 from cascade.models import Project
 from cascade.testers import DefaultTester, MultiProcTester
@@ -19,7 +19,7 @@ def run_method(method, project_name, criterion):
     project = Project(project_name)
     tester = DefaultTester(project, method, criterion)
     # tester = MultiProcTester(project, method, criterion)
-    params = get_params(project_name, method)
+    params = get_saved_params(project_name, method)
     logger.info('params = %s', params)
     mean_res, res, _ = tester.run(0, None, **params)
     f1_values = np.array([metric["f1"] for metric in res])
