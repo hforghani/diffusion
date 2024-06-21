@@ -10,16 +10,18 @@ import numpy as np
 
 from diffusion.enum import Criterion
 
-METHODS = {"aslt": "AsLT",
-           "emic": "EMIC",
-           "ctic": "CTIC",
-           "daic": "DAIC",
-           "infvae": "Inf-VAE",
-           "deepdiffuse": "DeepDiffuse",
-           "mlmemm": "LPMEMM",
-           "mbmemm": "SPMEMM",
-           "mlcrf": "LPCRF",
-           "mbcrf": "SPCRF"}
+METHODS = {
+    "aslt": "AsLT",
+    "emic": "EMIC",
+    "ctic": "CTIC",
+    "daic": "DAIC",
+    "infvae": "Inf-VAE",
+    "deepdiffuse": "DeepDiffuse",
+    "mbmemm": "SPMEMM",
+    "mlmemm": "LPMEMM",
+    "mbcrf": "SPCRF",
+    "mlcrf": "LPCRF",
+}
 
 
 def plot_roc(data: Dict[str, Dict[str, np.array]]):
@@ -28,12 +30,20 @@ def plot_roc(data: Dict[str, Dict[str, np.array]]):
     """
     pyplot.figure()
     line_styles = itertools.cycle(["-", "--", "-.", ":"])
+    line_colors = itertools.cycle("bgcmyk")
     for method in METHODS:
         if method not in data:
             continue
         roc = data[method]
-        ls = next(line_styles)
-        pyplot.plot(roc["fpr"], roc["tpr"], linestyle=ls, label=METHODS[method])
+        if method == "mlcrf":
+            ls, line_width, color = "-", 4, "r"
+        else:
+            ls, line_width, color = next(line_styles), 1, next(line_colors)
+        pyplot.plot(roc["fpr"], roc["tpr"],
+                    label=METHODS[method],
+                    linestyle=ls,
+                    color=color,
+                    linewidth=line_width)
     pyplot.axis((0, 1, 0, 1))
     pyplot.xlabel("fpr")
     pyplot.ylabel("tpr")
