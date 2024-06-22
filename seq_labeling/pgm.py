@@ -478,13 +478,16 @@ class CRF(SeqLabelModel):
         }
         crf_params = {param: kwargs[param] for param in params[alg] if param in kwargs}
         crf = sklearn_crfsuite.CRF(algorithm=alg, max_iterations=iterations, model_filename=self.model_filename,
-                                   keep_tempfiles=True, epsilon=self.stop_criterion, **crf_params)
+                                   keep_tempfiles=True, epsilon=self.stop_criterion, 
+                                   verbose=False, 
+                                #    period=iterations,
+                                   **crf_params)
 
         features = [self._obs_feat_sequence([obs for obs, state in seq]) for seq in sequences]
         states = [[self.__state_to_str(0)] + [self.__state_to_str(state) for obs, state in seq] for seq in sequences]
-        logger.debugv('sequences = \n%s', pprint.pformat(sequences))
-        logger.debugv('features = \n%s', pprint.pformat(features))
-        logger.debugv('states = \n%s', pprint.pformat(states))
+        # logger.debugv('sequences = \n%s', pprint.pformat(sequences))
+        # logger.debugv('features = \n%s', pprint.pformat(features))
+        # logger.debugv('states = \n%s', pprint.pformat(states))
 
         crf.fit(features, states)
         del crf.training_log_

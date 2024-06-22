@@ -7,6 +7,7 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import reduce
 from itertools import repeat
 from typing import Sequence
+import math
 
 import numpy as np
 import psutil
@@ -152,7 +153,7 @@ class SeqLabelDifModel(DiffusionModel, abc.ABC):
         random.shuffle(node_ids)
 
         futures = []
-        step = 500
+        step = min(500, int(math.floor(len(node_ids) / settings.TRAIN_WORKERS)))
         with ProcessPoolExecutor(max_workers=settings.TRAIN_WORKERS) as executor:
             for i in range(0, len(node_ids), step):
                 node_ids_i = node_ids[i:i + step]
